@@ -216,7 +216,8 @@ describe("admin area", () => {
     await user.click(screen.getByRole("button", { name: "Entrar" }));
     expect(await screen.findByText("Nenhum componente encontrado")).toBeInTheDocument();
     expect(screen.getByText("Admin")).toBeInTheDocument();
-    expect(calls.find((c) => c.path === "/api/v1/auth/login")?.body).toEqual({ email: "admin@example.com", password: "senha correta e longa" });
+    // The last attempt is the successful one.
+    expect(calls.filter((c) => c.path === "/api/v1/auth/login").pop()?.body).toEqual({ email: "admin@example.com", password: "senha correta e longa" });
   });
 
   it("creates the first administrator in the initial setup", async () => {
