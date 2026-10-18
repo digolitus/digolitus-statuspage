@@ -85,9 +85,9 @@ func TestSchemaConstraints(t *testing.T) {
 	bad := []string{
 		"INSERT INTO components (name, slug) VALUES ('x', 'Not A Slug')",
 		"INSERT INTO components (name, slug, status) VALUES ('x', 'x', 'fine')",
-		"INSERT INTO incidents (title, impact, status, started_at) VALUES ('x', 'minor', 'resolved', now())",
-		"INSERT INTO maintenances (title, expected_impact, status, timezone, scheduled_start, scheduled_end) VALUES ('x', 'none', 'scheduled', 'UTC', now(), now() - interval '1 hour')",
-		"INSERT INTO maintenances (title, expected_impact, status, timezone, scheduled_start, scheduled_end) VALUES ('x', 'none', 'completed', 'UTC', now(), now() + interval '1 hour')",
+		"INSERT INTO incidents (title, impact, status, started_at) VALUES ('x', 'degraded_performance', 'resolved', now())",
+		"INSERT INTO maintenances (title, expected_impact, status, timezone, scheduled_start, scheduled_end) VALUES ('x', 'operational', 'scheduled', 'UTC', now(), now() - interval '1 hour')",
+		"INSERT INTO maintenances (title, expected_impact, status, timezone, scheduled_start, scheduled_end) VALUES ('x', 'operational', 'completed', 'UTC', now(), now() + interval '1 hour')",
 	}
 	for _, sql := range bad {
 		if _, err := pool.Exec(ctx, sql); err == nil {

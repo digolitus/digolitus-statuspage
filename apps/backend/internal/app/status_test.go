@@ -41,7 +41,7 @@ func TestStatusSummary(t *testing.T) {
 
 	// Incident on a hidden component: its impact counts, the component stays hidden.
 	inc := str(mustStatus(t, h.call(http.MethodPost, "/api/v1/admin/incidents", map[string]any{
-		"title": "Falha interna", "message": "Investigando.", "impact": "major", "component_ids": []string{str(hidden, "id")},
+		"title": "Falha interna", "message": "Investigando.", "impact": "partial_outage", "component_ids": []string{str(hidden, "id")},
 	}), http.StatusCreated).json(t), "id")
 	sum = mustStatus(t, h.call(http.MethodGet, "/api/v1/status", nil), http.StatusOK).json(t)
 	if str(obj(sum, "overall"), "status") != "partial_outage" {
@@ -57,7 +57,7 @@ func TestStatusSummary(t *testing.T) {
 
 	// Critical incident on a public component wins over everything.
 	mustStatus(t, h.call(http.MethodPost, "/api/v1/admin/incidents", map[string]any{
-		"title": "API fora", "message": "Indisponível.", "impact": "critical", "component_ids": []string{str(api, "id")},
+		"title": "API fora", "message": "Indisponível.", "impact": "major_outage", "component_ids": []string{str(api, "id")},
 	}), http.StatusCreated)
 	sum = mustStatus(t, h.call(http.MethodGet, "/api/v1/status", nil), http.StatusOK).json(t)
 	statuses := map[string]string{}

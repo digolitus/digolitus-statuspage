@@ -13,7 +13,7 @@ func TestIncidentLifecycle(t *testing.T) {
 	web := h.createComponent("Web", nil)
 
 	inc := mustStatus(t, h.call(http.MethodPost, "/api/v1/admin/incidents", map[string]any{
-		"title": "Lentidão", "message": "Investigando lentidão.", "impact": "major",
+		"title": "Lentidão", "message": "Investigando lentidão.", "impact": "partial_outage",
 		"component_ids": []string{str(api, "id")}, "internal_notes": "ticket OPS-1",
 	}), http.StatusCreated)
 	if inc.header.Get("Location") == "" {
@@ -97,14 +97,14 @@ func TestIncidentValidation(t *testing.T) {
 		body  map[string]any
 		field string
 	}{
-		{"resolved initial status", map[string]any{"title": "x", "message": "x", "impact": "minor", "status": "resolved"}, "status"},
+		{"resolved initial status", map[string]any{"title": "x", "message": "x", "impact": "degraded_performance", "status": "resolved"}, "status"},
 		{"unknown impact", map[string]any{"title": "x", "message": "x", "impact": "huge"}, "impact"},
-		{"future start", map[string]any{"title": "x", "message": "x", "impact": "minor", "started_at": epoch.Add(time.Hour).Format(time.RFC3339)}, "started_at"},
-		{"start without offset", map[string]any{"title": "x", "message": "x", "impact": "minor", "started_at": "2026-03-01T10:00"}, "started_at"},
-		{"missing message", map[string]any{"title": "x", "impact": "minor"}, "message"},
-		{"unknown component", map[string]any{"title": "x", "message": "x", "impact": "minor", "component_ids": []string{"7d0e6f1c-9d1f-4a42-8f34-0a1b2c3d4e5f"}}, "component_ids"},
-		{"inactive component", map[string]any{"title": "x", "message": "x", "impact": "minor", "component_ids": []string{str(c, "id")}}, "component_ids"},
-		{"unknown template", map[string]any{"title": "x", "message": "x", "impact": "minor", "template_id": "7d0e6f1c-9d1f-4a42-8f34-0a1b2c3d4e5f"}, "template_id"},
+		{"future start", map[string]any{"title": "x", "message": "x", "impact": "degraded_performance", "started_at": epoch.Add(time.Hour).Format(time.RFC3339)}, "started_at"},
+		{"start without offset", map[string]any{"title": "x", "message": "x", "impact": "degraded_performance", "started_at": "2026-03-01T10:00"}, "started_at"},
+		{"missing message", map[string]any{"title": "x", "impact": "degraded_performance"}, "message"},
+		{"unknown component", map[string]any{"title": "x", "message": "x", "impact": "degraded_performance", "component_ids": []string{"7d0e6f1c-9d1f-4a42-8f34-0a1b2c3d4e5f"}}, "component_ids"},
+		{"inactive component", map[string]any{"title": "x", "message": "x", "impact": "degraded_performance", "component_ids": []string{str(c, "id")}}, "component_ids"},
+		{"unknown template", map[string]any{"title": "x", "message": "x", "impact": "degraded_performance", "template_id": "7d0e6f1c-9d1f-4a42-8f34-0a1b2c3d4e5f"}, "template_id"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -131,10 +131,10 @@ func TestIncidentValidation(t *testing.T) {
 func TestIncidentPatchDoesNotPublish(t *testing.T) {
 	h := newHarness(t)
 	id := str(mustStatus(t, h.call(http.MethodPost, "/api/v1/admin/incidents",
-		map[string]any{"title": "Erro", "message": "Investigando.", "impact": "minor"}), http.StatusCreated).json(t), "id")
+		map[string]any{"title": "Erro", "message": "Investigando.", "impact": "degraded_performance"}), http.StatusCreated).json(t), "id")
 	p := mustStatus(t, h.call(http.MethodPatch, "/api/v1/admin/incidents/"+id,
-		map[string]any{"title": "Erro em pagamentos", "impact": "critical"}), http.StatusOK).json(t)
-	if str(p, "title") != "Erro em pagamentos" || str(p, "impact") != "critical" || len(list(p, "updates")) != 1 {
+		map[string]any{"title": "Erro em pagamentos", "impact": "major_outage"}), http.StatusOK).json(t)
+	if str(p, "title") != "Erro em pagamentos" || str(p, "impact") != "major_outage" || len(list(p, "updates")) != 1 {
 		t.Fatalf("patch: %v", p)
 	}
 	r := mustStatus(t, h.call(http.MethodPatch, "/api/v1/admin/incidents/"+id, map[string]any{"status": "resolved"}, invalidRequest()), http.StatusUnprocessableEntity)
@@ -148,7 +148,7 @@ func TestIncidentPatchDoesNotPublish(t *testing.T) {
 func TestConcurrentResolve(t *testing.T) {
 	h := newHarness(t)
 	id := str(mustStatus(t, h.call(http.MethodPost, "/api/v1/admin/incidents",
-		map[string]any{"title": "Erro", "message": "Investigando.", "impact": "minor"}), http.StatusCreated).json(t), "id")
+		map[string]any{"title": "Erro", "message": "Investigando.", "impact": "degraded_performance"}), http.StatusCreated).json(t), "id")
 
 	const n = 6
 	statuses := make([]int, n)
@@ -183,11 +183,11 @@ func TestConcurrentResolve(t *testing.T) {
 func TestIncidentFilters(t *testing.T) {
 	h := newHarness(t)
 	c := h.createComponent("API", nil)
-	mustStatus(t, h.call(http.MethodPost, "/api/v1/admin/incidents", map[string]any{"title": "A", "message": "m", "impact": "minor"}), http.StatusCreated)
+	mustStatus(t, h.call(http.MethodPost, "/api/v1/admin/incidents", map[string]any{"title": "A", "message": "m", "impact": "degraded_performance"}), http.StatusCreated)
 	h.clock.Advance(time.Minute)
-	mustStatus(t, h.call(http.MethodPost, "/api/v1/admin/incidents", map[string]any{"title": "B", "message": "m", "impact": "critical", "component_ids": []string{str(c, "id")}}), http.StatusCreated)
+	mustStatus(t, h.call(http.MethodPost, "/api/v1/admin/incidents", map[string]any{"title": "B", "message": "m", "impact": "major_outage", "component_ids": []string{str(c, "id")}}), http.StatusCreated)
 
-	byImpact := mustStatus(t, h.call(http.MethodGet, "/api/v1/admin/incidents?impact=critical", nil), http.StatusOK).json(t)
+	byImpact := mustStatus(t, h.call(http.MethodGet, "/api/v1/admin/incidents?impact=major_outage", nil), http.StatusOK).json(t)
 	byComponent := mustStatus(t, h.call(http.MethodGet, "/api/v1/admin/incidents?component_id="+str(c, "id"), nil), http.StatusOK).json(t)
 	oldestFirst := mustStatus(t, h.call(http.MethodGet, "/api/v1/incidents?sort=started_at", nil), http.StatusOK).json(t)
 	if total(byImpact) != 1 || total(byComponent) != 1 || str(list(oldestFirst, "data")[0].(map[string]any), "title") != "A" {

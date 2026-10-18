@@ -7,10 +7,10 @@
 //
 // Rules:
 //  1. A component's effective status is the most severe of: its declared
-//     status; the status implied by each active incident affecting it
-//     (minor → degraded_performance, major → partial_outage,
-//     critical → major_outage); and "maintenance" when an in-progress
-//     maintenance affects it.
+//     status; the impact of each active incident affecting it (incident
+//     impacts use the component status vocabulary; an "operational" impact
+//     is informational and degrades nothing); and "maintenance" when an
+//     in-progress maintenance affects it.
 //  2. Severity order: major_outage > partial_outage > degraded_performance >
 //     maintenance > operational. Maintenance therefore never hides an outage.
 //  3. The overall status is the most severe effective status among public,
@@ -40,15 +40,9 @@ const (
 // ComponentStatuses are the values an operator may declare.
 var ComponentStatuses = []string{Operational, DegradedPerformance, PartialOutage, MajorOutage, Maintenance}
 
-// Incident impacts.
-const (
-	ImpactMinor    = "minor"
-	ImpactMajor    = "major"
-	ImpactCritical = "critical"
-)
-
-// Impacts are the valid incident impacts.
-var Impacts = []string{ImpactMinor, ImpactMajor, ImpactCritical}
+// Impacts are the valid incident impacts (and maintenance expected
+// impacts): the component statuses except maintenance, in severity order.
+var Impacts = []string{Operational, DegradedPerformance, PartialOutage, MajorOutage}
 
 var severity = map[string]int{
 	Operational:         0,
@@ -71,15 +65,15 @@ func Worse(a, b string) string {
 	return a
 }
 
-// StatusForImpact maps an incident impact to the component status it implies.
+// StatusForImpact maps an incident impact to the component status it
+// implies. Impacts share the status vocabulary; anything else (including
+// maintenance, which is not an incident impact) implies nothing.
 func StatusForImpact(impact string) string {
 	switch impact {
-	case ImpactCritical:
-		return MajorOutage
-	case ImpactMajor:
-		return PartialOutage
+	case DegradedPerformance, PartialOutage, MajorOutage:
+		return impact
 	default:
-		return DegradedPerformance
+		return Operational
 	}
 }
 

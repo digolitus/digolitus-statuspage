@@ -17,7 +17,7 @@ func TestSeededTemplates(t *testing.T) {
 func TestTemplatesDoNotRewriteHistory(t *testing.T) {
 	h := newHarness(t)
 	tpl := mustStatus(t, h.call(http.MethodPost, "/api/v1/admin/incident-templates", map[string]any{
-		"name": "Banco lento", "title": "Lentidão no banco", "message": "Investigando o banco.", "impact": "minor",
+		"name": "Banco lento", "title": "Lentidão no banco", "message": "Investigando o banco.", "impact": "degraded_performance",
 	}), http.StatusCreated).json(t)
 	tid := str(tpl, "id")
 
@@ -44,7 +44,7 @@ func TestTemplatesDoNotRewriteHistory(t *testing.T) {
 func TestTemplateValidationAndConflicts(t *testing.T) {
 	h := newHarness(t)
 	r := mustStatus(t, h.call(http.MethodPost, "/api/v1/admin/incident-templates",
-		map[string]any{"name": "degradação de desempenho", "title": "t", "message": "m", "impact": "minor"}), http.StatusConflict)
+		map[string]any{"name": "performance degradada", "title": "t", "message": "m", "impact": "degraded_performance"}), http.StatusConflict)
 	if r.errorCode(t) != "template_name_conflict" {
 		t.Fatalf("names are unique ignoring case: %s", r.body)
 	}
@@ -56,13 +56,13 @@ func TestTemplateValidationAndConflicts(t *testing.T) {
 	mt := mustStatus(t, h.call(http.MethodPost, "/api/v1/admin/maintenance-templates", map[string]any{
 		"name": "Reinício", "title": "Reinício programado", "message": "Reiniciaremos o serviço.",
 	}), http.StatusCreated).json(t)
-	if str(mt, "expected_impact") != "none" {
+	if str(mt, "expected_impact") != "operational" {
 		t.Fatalf("default expected impact: %v", mt)
 	}
 	mustStatus(t, h.call(http.MethodPatch, "/api/v1/admin/maintenance-templates/"+str(mt, "id"),
 		map[string]any{"expected_impact": "partial_outage"}), http.StatusOK)
 	r = mustStatus(t, h.call(http.MethodPatch, "/api/v1/admin/maintenance-templates/"+str(mt, "id"),
-		map[string]any{"impact": "minor"}, invalidRequest()), http.StatusUnprocessableEntity)
+		map[string]any{"impact": "degraded_performance"}, invalidRequest()), http.StatusUnprocessableEntity)
 	if r.errorCode(t) != "validation_failed" {
 		t.Fatalf("incident-only field must be rejected on maintenance templates: %s", r.body)
 	}

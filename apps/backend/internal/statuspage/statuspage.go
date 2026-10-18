@@ -31,6 +31,7 @@ type PublicComponent struct {
 	Description  string    `json:"description"`
 	Status       string    `json:"status"`
 	GroupID      *string   `json:"group_id"`
+	URL          *string   `json:"url"`
 	DisplayOrder int       `json:"display_order"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
@@ -139,7 +140,7 @@ func (s *Service) Build(ctx context.Context) (Summary, error) {
 		for _, c := range comps {
 			if c.IsPublic {
 				sum.Components = append(sum.Components, PublicComponent{ID: c.ID, Name: c.Name, Slug: c.Slug,
-					Description: c.Description, Status: effective[c.ID], GroupID: c.GroupID, DisplayOrder: c.DisplayOrder, UpdatedAt: c.UpdatedAt})
+					Description: c.Description, Status: effective[c.ID], GroupID: c.GroupID, URL: c.URL, DisplayOrder: c.DisplayOrder, UpdatedAt: c.UpdatedAt})
 				if c.GroupID != nil {
 					byGroup[*c.GroupID] = append(byGroup[*c.GroupID], effective[c.ID])
 				}

@@ -44,7 +44,7 @@ func TestComponentGroups(t *testing.T) {
 
 	// Public summary: group status is derived from its components.
 	mustStatus(t, h.call(http.MethodPost, "/api/v1/admin/incidents", map[string]any{
-		"title": "Falha no checkout", "message": "Investigando.", "impact": "major", "component_ids": []string{str(checkout, "id")},
+		"title": "Falha no checkout", "message": "Investigando.", "impact": "partial_outage", "component_ids": []string{str(checkout, "id")},
 	}), http.StatusCreated)
 	sum := mustStatus(t, h.call(http.MethodGet, "/api/v1/status", nil), http.StatusOK).json(t)
 	groups := list(sum, "groups")

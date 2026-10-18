@@ -18,17 +18,21 @@ import (
 
 // Resource types recorded in the log.
 const (
-	ResourceComponent           = "component"
-	ResourceComponentGroup      = "component_group"
-	ResourceExternalSource      = "external_source"
-	ResourceIncident            = "incident"
-	ResourceMaintenance         = "maintenance"
-	ResourceIncidentTemplate    = "incident_template"
-	ResourceMaintenanceTemplate = "maintenance_template"
+	ResourceComponent            = "component"
+	ResourceComponentGroup       = "component_group"
+	ResourceExternalSource       = "external_source"
+	ResourceIncident             = "incident"
+	ResourceMaintenance          = "maintenance"
+	ResourceIncidentTemplate     = "incident_template"
+	ResourceMaintenanceTemplate  = "maintenance_template"
+	ResourceAnnouncement         = "announcement"
+	ResourceAnnouncementCategory = "announcement_category"
+	ResourceTeam                 = "team"
 )
 
 // ResourceTypes lists every resource type, for filter validation.
-var ResourceTypes = []string{ResourceComponent, ResourceComponentGroup, ResourceIncident, ResourceMaintenance, ResourceIncidentTemplate, ResourceMaintenanceTemplate, ResourceExternalSource}
+var ResourceTypes = []string{ResourceComponent, ResourceComponentGroup, ResourceIncident, ResourceMaintenance, ResourceIncidentTemplate, ResourceMaintenanceTemplate, ResourceExternalSource,
+	ResourceAnnouncement, ResourceAnnouncementCategory, ResourceTeam}
 
 // Changes holds the relevant before/after values of an operation.
 type Changes struct {

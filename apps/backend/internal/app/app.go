@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/digolitus/digolitus-statuspage/apps/backend/api"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/announcement"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/apperror"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/audit"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/component"
@@ -74,6 +75,8 @@ func New(pool *pgxpool.Pool, opts Options) *App {
 	statuspage.NewHandler(statuspage.NewService(pool, now, externalSvc)).Register(rt)
 	incidentHandler.RegisterPublic(rt)
 	maintenanceHandler.RegisterPublic(rt)
+	announcementHandler := announcement.NewHandler(announcement.NewService(pool, now))
+	announcementHandler.RegisterPublic(rt)
 
 	// Admin routes live under /api/v1/admin/ and carry an explicit audit
 	// source. There is no authentication in this version: exposure is
@@ -91,6 +94,7 @@ func New(pool *pgxpool.Pool, opts Options) *App {
 		templates.NewHandler(templates.NewService(pool, now), pool).Register(rt, admin)
 		audit.NewHandler(audit.NewStore(pool)).Register(rt, admin)
 		external.NewHandler(externalSvc).Register(rt, admin)
+		announcementHandler.RegisterAdmin(rt, admin)
 	}
 
 	return &App{Router: rt, Handler: httpx.Chain(rt, opts.RequestTimeout), External: externalSvc}

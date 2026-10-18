@@ -13,8 +13,8 @@ info:
 
     ## Política de status
     - O status efetivo de um componente é o mais grave entre o status declarado, o impacto dos
-      incidentes ativos que o afetam (`minor` → `degraded_performance`, `major` → `partial_outage`,
-      `critical` → `major_outage`) e `maintenance` quando há manutenção em andamento.
+      incidentes ativos que o afetam (o impacto usa o mesmo vocabulário do status; impacto `operational`
+      é informativo e não degrada componentes) e `maintenance` quando há manutenção em andamento.
     - Ordem de gravidade: `major_outage` > `partial_outage` > `degraded_performance` > `maintenance` > `operational`.
     - O status geral é o mais grave entre os componentes públicos ativos e os incidentes ativos que não
       afetam componentes públicos. Manutenção nunca é tratada como indisponibilidade: se o mais grave for
@@ -57,6 +57,8 @@ tags:
     description: Manutenções programadas. **Sem autenticação nesta versão.**
   - name: admin-templates
     description: Templates de incidentes e manutenções. **Sem autenticação nesta versão.**
+  - name: admin-announcements
+    description: Comunicados gerais, categorias e times responsáveis. **Sem autenticação nesta versão.**
   - name: admin-audit
     description: Histórico operacional (auditoria). **Sem autenticação nesta versão.**
 
@@ -201,6 +203,53 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalError' }
 
+  /api/v1/announcements:
+    get:
+      tags: [public]
+      operationId: listPublicAnnouncements
+      summary: Comunicados publicados
+      description: Somente comunicados publicados cujo horário de publicação já chegou, do mais recente para o mais antigo.
+      parameters:
+        - $ref: '#/components/parameters/AnnouncementCategoryFilter'
+        - $ref: '#/components/parameters/AnnouncementComponentFilter'
+        - $ref: '#/components/parameters/AnnouncementPinnedFilter'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Lista paginada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicAnnouncementList' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/announcements/{id}:
+    get:
+      tags: [public]
+      operationId: getPublicAnnouncement
+      summary: Comunicado publicado
+      description: Rascunhos, agendados e arquivados resultam em 404.
+      parameters: [ { $ref: '#/components/parameters/ID' } ]
+      responses:
+        '200':
+          description: Comunicado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicAnnouncement' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/announcement-categories:
+    get:
+      tags: [public]
+      operationId: listPublicAnnouncementCategories
+      summary: Categorias ativas de comunicados
+      responses:
+        '200':
+          description: Até 100 categorias, na ordem de exibição.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicAnnouncementCategoryList' }
+        '500': { $ref: '#/components/responses/InternalError' }
   /api/v1/admin/components:
     get:
       tags: [admin-components]
@@ -549,7 +598,7 @@ paths:
             example:
               title: Lentidão na API pública
               message: Estamos investigando relatos de lentidão.
-              impact: minor
+              impact: degraded_performance
               component_ids: [3f1c2b4a-8d2e-4c1a-9b7e-1a2b3c4d5e6f]
       responses:
         '201':
@@ -993,6 +1042,324 @@ paths:
         '422': { $ref: '#/components/responses/ValidationError' }
         '500': { $ref: '#/components/responses/InternalError' }
 
+  /api/v1/admin/announcements:
+    get:
+      tags: [admin-announcements]
+      operationId: listAnnouncements
+      summary: Listar comunicados
+      parameters:
+        - name: state
+          in: query
+          description: '`draft`, `scheduled` (publicado com horário futuro), `published` ou `archived`.'
+          schema: { $ref: '#/components/schemas/AnnouncementState' }
+        - name: q
+          in: query
+          description: Busca no título (sem diferenciar maiúsculas).
+          schema: { type: string, maxLength: 100 }
+        - $ref: '#/components/parameters/AnnouncementCategoryFilter'
+        - name: team_id
+          in: query
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/AnnouncementComponentFilter'
+        - $ref: '#/components/parameters/AnnouncementPinnedFilter'
+        - name: sort
+          in: query
+          description: 'Padrão: `-updated_at`.'
+          schema: { type: string, enum: [updated_at, -updated_at, created_at, -created_at, published_at, -published_at, title, -title] }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Lista paginada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AnnouncementList' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [admin-announcements]
+      operationId: createAnnouncement
+      summary: Criar comunicado (rascunho)
+      description: O comunicado nasce como rascunho. Publique com `POST .../{id}/publish`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AnnouncementCreate' }
+            example: { title: Nova região disponível, body: "A partir de hoje a API também atende a região sa-east-1.", importance: info }
+      responses:
+        '201':
+          description: Criado.
+          headers: { Location: { $ref: '#/components/headers/Location' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Announcement' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/announcements/{id}:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    get:
+      tags: [admin-announcements]
+      operationId: getAnnouncement
+      summary: Consultar comunicado
+      responses:
+        '200':
+          description: Comunicado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Announcement' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    patch:
+      tags: [admin-announcements]
+      operationId: updateAnnouncement
+      summary: Editar comunicado
+      description: Permitido em qualquer estado. Em comunicados publicados, `updated_at` aparece como "atualizado em".
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AnnouncementPatch' }
+      responses:
+        '200':
+          description: Atualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Announcement' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    delete:
+      tags: [admin-announcements]
+      operationId: deleteAnnouncement
+      summary: Excluir rascunho
+      description: Somente rascunhos (409 `announcement_not_draft` nos demais estados).
+      responses:
+        '204': { description: Excluído. }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/announcements/{id}/publish:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    post:
+      tags: [admin-announcements]
+      operationId: publishAnnouncement
+      summary: Publicar ou agendar
+      description: '`draft` → publicado. Sem `publish_at`, publica agora; com horário futuro (até 1 ano), fica agendado (`scheduled`).'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AnnouncementPublish' }
+            example: { publish_at: '2026-11-20T09:00:00-03:00' }
+      responses: &announcementTransition
+        '200':
+          description: Transição aplicada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Announcement' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/announcements/{id}/unpublish:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    post:
+      tags: [admin-announcements]
+      operationId: unpublishAnnouncement
+      summary: Despublicar
+      description: '`published` ou `scheduled` → `draft`. Remove o comunicado da página pública.'
+      responses: *announcementTransition
+  /api/v1/admin/announcements/{id}/archive:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    post:
+      tags: [admin-announcements]
+      operationId: archiveAnnouncement
+      summary: Arquivar
+      description: '`published` → `archived`. Sai da página pública e mantém o registro.'
+      responses: *announcementTransition
+  /api/v1/admin/announcements/{id}/restore:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    post:
+      tags: [admin-announcements]
+      operationId: restoreAnnouncement
+      summary: Restaurar
+      description: '`archived` → `published`, com a data de publicação original.'
+      responses: *announcementTransition
+  /api/v1/admin/announcement-categories:
+    get:
+      tags: [admin-announcements]
+      operationId: listAnnouncementCategorys
+      summary: Listar categorias de comunicados
+      parameters:
+        - name: is_active
+          in: query
+          schema: { type: boolean }
+      responses:
+        '200':
+          description: Até 100 itens.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AnnouncementCategoryList' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [admin-announcements]
+      operationId: createAnnouncementCategory
+      summary: Criar (categorias de comunicados)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AnnouncementCategoryCreate' }
+            example: { name: Novidades, color: blue }
+      responses:
+        '201':
+          description: Criado.
+          headers: { Location: { $ref: '#/components/headers/Location' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AnnouncementCategory' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/announcement-categories/{id}:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    get:
+      tags: [admin-announcements]
+      operationId: getAnnouncementCategory
+      summary: Consultar (categorias de comunicados)
+      responses:
+        '200':
+          description: Item.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AnnouncementCategory' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    patch:
+      tags: [admin-announcements]
+      operationId: updateAnnouncementCategory
+      summary: Atualizar (categorias de comunicados)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AnnouncementCategoryPatch' }
+      responses:
+        '200':
+          description: Atualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AnnouncementCategory' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    delete:
+      tags: [admin-announcements]
+      operationId: deleteAnnouncementCategory
+      summary: Excluir (categorias de comunicados)
+      description: Somente categorias sem comunicados (409 `announcement_category_in_use`); as demais podem ser desativadas.
+      responses:
+        '204': { description: Excluído. }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/teams:
+    get:
+      tags: [admin-announcements]
+      operationId: listTeams
+      summary: Listar times responsáveis
+      parameters:
+        - name: is_active
+          in: query
+          schema: { type: boolean }
+      responses:
+        '200':
+          description: Até 100 itens.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TeamList' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [admin-announcements]
+      operationId: createTeam
+      summary: Criar (times responsáveis)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TeamCreate' }
+            example: { name: Time de Plataforma }
+      responses:
+        '201':
+          description: Criado.
+          headers: { Location: { $ref: '#/components/headers/Location' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Team' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/teams/{id}:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    get:
+      tags: [admin-announcements]
+      operationId: getTeam
+      summary: Consultar (times responsáveis)
+      responses:
+        '200':
+          description: Item.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Team' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    patch:
+      tags: [admin-announcements]
+      operationId: updateTeam
+      summary: Atualizar (times responsáveis)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TeamPatch' }
+      responses:
+        '200':
+          description: Atualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Team' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    delete:
+      tags: [admin-announcements]
+      operationId: deleteTeam
+      summary: Excluir (times responsáveis)
+      description: Somente times sem comunicados (409 `team_in_use`); os demais podem ser desativados.
+      responses:
+        '204': { description: Excluído. }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
   /api/v1/admin/audit-events:
     get:
       tags: [admin-audit]
@@ -1004,7 +1371,7 @@ paths:
       parameters:
         - name: resource_type
           in: query
-          schema: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template, external_source] }
+          schema: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template, external_source, announcement, announcement_category, team] }
         - { name: resource_id, in: query, schema: { type: string, format: uuid } }
         - { name: action, in: query, schema: { type: string, maxLength: 64 }, description: 'Ex.: created, updated, resolved, started.' }
         - name: sort
@@ -1064,6 +1431,20 @@ components:
       name: sort
       in: query
       schema: { type: string, enum: [scheduled_start, -scheduled_start, created_at, -created_at, updated_at, -updated_at] }
+    AnnouncementCategoryFilter:
+      name: category_id
+      in: query
+      schema: { type: string, format: uuid }
+    AnnouncementComponentFilter:
+      name: component_id
+      in: query
+      description: Comunicados associados ao componente.
+      schema: { type: string, format: uuid }
+    AnnouncementPinnedFilter:
+      name: pinned
+      in: query
+      description: '`true` para somente fixados; `false` para somente não fixados.'
+      schema: { type: boolean }
     TemplateSort:
       name: sort
       in: query
@@ -1102,7 +1483,9 @@ components:
         Conflito com o estado atual. Códigos: `component_slug_conflict`, `component_group_name_conflict`,
         `component_group_not_empty`, `external_source_conflict`, `external_source_limit`, `template_name_conflict`,
         `incident_resolved`, `incident_already_resolved`, `maintenance_closed`, `maintenance_already_started`,
-        `maintenance_invalid_transition`.
+        `maintenance_invalid_transition`, `invalid_announcement_transition`, `announcement_not_draft`,
+        `announcement_category_name_conflict`, `announcement_category_in_use`, `announcement_category_limit`,
+        `team_name_conflict`, `team_in_use`, `team_limit`.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -1195,15 +1578,16 @@ components:
       enum: [investigating, identified, monitoring]
     IncidentImpact:
       type: string
-      enum: [minor, major, critical]
-      description: 'Impacto: minor → degraded_performance, major → partial_outage, critical → major_outage.'
+      enum: [operational, degraded_performance, partial_outage, major_outage]
+      description: 'Impacto nos componentes afetados, com o mesmo vocabulário do status. `operational` é informativo.'
     MaintenanceStatus:
       type: string
       enum: [scheduled, in_progress, completed, cancelled]
       description: 'Transições: scheduled → in_progress → completed; scheduled → cancelled.'
     ExpectedImpact:
       type: string
-      enum: [none, degraded_performance, partial_outage, major_outage]
+      enum: [operational, degraded_performance, partial_outage, major_outage]
+      description: 'Impacto esperado, com o mesmo vocabulário do impacto de incidentes.'
     Timestamp:
       type: string
       format: date-time
@@ -1233,7 +1617,7 @@ components:
     Component:
       type: object
       additionalProperties: false
-      required: [id, name, slug, description, status, is_public, is_active, display_order, group_id, created_at, updated_at]
+      required: [id, name, slug, description, status, is_public, is_active, display_order, group_id, url, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
@@ -1244,6 +1628,7 @@ components:
         is_active: { type: boolean }
         display_order: { type: integer }
         group_id: { type: string, format: uuid, nullable: true, description: Grupo do componente; `null` quando não agrupado. }
+        url: { type: string, nullable: true, description: 'Link público da página do componente (documentação, produto, endpoint).' }
         created_at: { $ref: '#/components/schemas/Timestamp' }
         updated_at: { $ref: '#/components/schemas/Timestamp' }
     ComponentCreate:
@@ -1258,6 +1643,7 @@ components:
         is_public: { type: boolean, default: true }
         display_order: { type: integer, minimum: 0, maximum: 100000, default: 0 }
         group_id: { type: string, format: uuid, nullable: true }
+        url: &componentUrl { type: string, nullable: true, maxLength: 500, description: 'Endereço http(s) completo, sem credenciais. Vazio ou `null` = sem link.' }
     ComponentPatch:
       type: object
       additionalProperties: false
@@ -1271,6 +1657,7 @@ components:
         is_active: { type: boolean }
         display_order: { type: integer, minimum: 0, maximum: 100000 }
         group_id: { type: string, format: uuid, nullable: true, description: '`null` remove o componente do grupo.' }
+        url: *componentUrl
     ComponentList:
       type: object
       additionalProperties: false
@@ -1281,7 +1668,7 @@ components:
     PublicComponent:
       type: object
       additionalProperties: false
-      required: [id, name, slug, description, status, group_id, display_order, updated_at]
+      required: [id, name, slug, description, status, group_id, url, display_order, updated_at]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
@@ -1289,6 +1676,7 @@ components:
         description: { type: string }
         status: { $ref: '#/components/schemas/ComponentStatus' }
         group_id: { type: string, format: uuid, nullable: true }
+        url: { type: string, nullable: true, description: Link da página do componente. }
         display_order: { type: integer }
         updated_at: { $ref: '#/components/schemas/Timestamp' }
     PublicComponentGroup:
@@ -1792,7 +2180,7 @@ components:
       properties:
         id: { type: integer, format: int64 }
         occurred_at: { $ref: '#/components/schemas/Timestamp' }
-        resource_type: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template, external_source] }
+        resource_type: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template, external_source, announcement, announcement_category, team] }
         resource_id: { type: string, format: uuid }
         action: { type: string }
         source: { type: string, description: 'Canal de origem (ex.: admin_api). Não identifica uma pessoa.' }
@@ -1849,3 +2237,197 @@ components:
             `overall`. Dados desatualizados vêm com `stale: true` e status `unknown`.
           items: { $ref: '#/components/schemas/PublicThirdPartySource' }
         generated_at: { $ref: '#/components/schemas/Timestamp' }
+
+    AnnouncementState:
+      type: string
+      enum: [draft, scheduled, published, archived]
+      description: '`scheduled` = publicado com horário de publicação futuro.'
+    AnnouncementImportance:
+      type: string
+      enum: [info, important]
+      description: '`important` recebe destaque na página pública.'
+    CategoryColor:
+      type: string
+      enum: [gray, blue, green, yellow, orange, red, purple]
+    AnnouncementCategoryRef:
+      type: object
+      additionalProperties: false
+      nullable: true
+      required: [id, name, color]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        color: { $ref: '#/components/schemas/CategoryColor' }
+    TeamRef:
+      type: object
+      additionalProperties: false
+      nullable: true
+      required: [id, name]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+    Announcement:
+      type: object
+      additionalProperties: false
+      required: [id, title, body, importance, is_pinned, state, category, team, components, published_at, archived_at, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        body: { type: string, description: 'Texto com formatação leve: parágrafos, listas com `- `, `**negrito**` e links `[texto](https://...)`.' }
+        importance: { $ref: '#/components/schemas/AnnouncementImportance' }
+        is_pinned: { type: boolean }
+        state: { $ref: '#/components/schemas/AnnouncementState' }
+        category: { $ref: '#/components/schemas/AnnouncementCategoryRef' }
+        team: { $ref: '#/components/schemas/TeamRef' }
+        components: { type: array, items: { $ref: '#/components/schemas/ComponentRef' } }
+        published_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        archived_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    AnnouncementCreate:
+      type: object
+      additionalProperties: false
+      required: [title, body]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        body: { type: string, minLength: 1, maxLength: 10000 }
+        importance: { $ref: '#/components/schemas/AnnouncementImportance' }
+        is_pinned: { type: boolean, default: false }
+        category_id: { type: string, format: uuid, nullable: true, description: Categoria ativa. }
+        team_id: { type: string, format: uuid, nullable: true, description: Time responsável ativo. }
+        component_ids: { $ref: '#/components/schemas/UUIDList' }
+    AnnouncementPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        body: { type: string, minLength: 1, maxLength: 10000 }
+        importance: { $ref: '#/components/schemas/AnnouncementImportance' }
+        is_pinned: { type: boolean }
+        category_id: { type: string, format: uuid, nullable: true, description: '`null` remove a categoria.' }
+        team_id: { type: string, format: uuid, nullable: true, description: '`null` remove o time.' }
+        component_ids: { $ref: '#/components/schemas/UUIDList' }
+    AnnouncementPublish:
+      type: object
+      additionalProperties: false
+      properties:
+        publish_at: { type: string, nullable: true, description: 'RFC 3339 com offset. Omitido ou vazio = publicar agora.' }
+    AnnouncementList:
+      type: object
+      additionalProperties: false
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Announcement' } }
+        pagination: { $ref: '#/components/schemas/Pagination' }
+    PublicAnnouncement:
+      type: object
+      additionalProperties: false
+      required: [id, title, body, importance, is_pinned, category, team, components, published_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        body: { type: string }
+        importance: { $ref: '#/components/schemas/AnnouncementImportance' }
+        is_pinned: { type: boolean }
+        category: { $ref: '#/components/schemas/AnnouncementCategoryRef' }
+        team: { $ref: '#/components/schemas/TeamRef' }
+        components: { type: array, items: { $ref: '#/components/schemas/ComponentRef' }, description: Somente componentes públicos. }
+        published_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    PublicAnnouncementList:
+      type: object
+      additionalProperties: false
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/PublicAnnouncement' } }
+        pagination: { $ref: '#/components/schemas/Pagination' }
+    PublicAnnouncementCategory:
+      type: object
+      additionalProperties: false
+      required: [id, name, description, color]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        color: { $ref: '#/components/schemas/CategoryColor' }
+    PublicAnnouncementCategoryList:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/PublicAnnouncementCategory' } }
+    AnnouncementCategory:
+      type: object
+      additionalProperties: false
+      required: [id, name, description, color, display_order, is_active, announcement_count, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        color: { $ref: '#/components/schemas/CategoryColor' }
+        display_order: { type: integer }
+        is_active: { type: boolean }
+        announcement_count: { type: integer }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    AnnouncementCategoryCreate:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 60 }
+        description: { type: string, maxLength: 500 }
+        color: { $ref: '#/components/schemas/CategoryColor' }
+        display_order: { type: integer, minimum: 0, maximum: 100000, default: 0 }
+        is_active: { type: boolean, default: true }
+    AnnouncementCategoryPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 60 }
+        description: { type: string, maxLength: 500 }
+        color: { $ref: '#/components/schemas/CategoryColor' }
+        display_order: { type: integer, minimum: 0, maximum: 100000 }
+        is_active: { type: boolean }
+    AnnouncementCategoryList:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/AnnouncementCategory' } }
+    Team:
+      type: object
+      additionalProperties: false
+      required: [id, name, description, is_active, announcement_count, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        is_active: { type: boolean }
+        announcement_count: { type: integer }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    TeamCreate:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        description: { type: string, maxLength: 500 }
+        is_active: { type: boolean, default: true }
+    TeamPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        description: { type: string, maxLength: 500 }
+        is_active: { type: boolean }
+    TeamList:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Team' } }

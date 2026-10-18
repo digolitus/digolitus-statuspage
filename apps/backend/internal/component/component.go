@@ -4,6 +4,7 @@
 package component
 
 import (
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
@@ -30,6 +31,7 @@ type Component struct {
 	IsActive     bool      `json:"is_active"`
 	DisplayOrder int       `json:"display_order"`
 	GroupID      *string   `json:"group_id"`
+	URL          *string   `json:"url"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
@@ -63,6 +65,7 @@ type CreateInput struct {
 	IsPublic     *bool   `json:"is_public"`
 	DisplayOrder *int    `json:"display_order"`
 	GroupID      *string `json:"group_id"`
+	URL          *string `json:"url"`
 }
 
 // UpdateInput is a partial update; nil fields are left unchanged.
@@ -76,6 +79,8 @@ type UpdateInput struct {
 	DisplayOrder *int    `json:"display_order"`
 	// GroupID: absent = unchanged, null = remove from group.
 	GroupID optional.Nullable[string] `json:"group_id"`
+	// URL: absent = unchanged, null or "" = remove the link.
+	URL optional.Nullable[string] `json:"url"`
 }
 
 var slugPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
@@ -134,6 +139,23 @@ func normalizeGroupID(v *apperror.Validator, id *string) *string {
 	return &g
 }
 
+// NormalizeLink validates an optional public link (http or https, no
+// credentials, at most 500 characters). Blank means no link. It is shared
+// with other modules that store links shown on the public page.
+func NormalizeLink(v *apperror.Validator, field string, raw *string) *string {
+	if raw == nil {
+		return nil
+	}
+	s := strings.TrimSpace(*raw)
+	if s == "" {
+		return nil
+	}
+	u, err := url.Parse(s)
+	ok := err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Host != "" && u.User == nil && len(s) <= 500
+	v.Check(ok, field, "Informe um endereço http(s) completo, sem credenciais, com até 500 caracteres (ex.: https://docs.exemplo.com/api).")
+	return &s
+}
+
 func validateOrder(v *apperror.Validator, o int) {
 	v.Check(o >= 0 && o <= 100000, "display_order", "Informe um inteiro entre 0 e 100000.")
 }
@@ -172,6 +194,7 @@ func (in CreateInput) normalize() (Component, error) {
 		validateOrder(&v, c.DisplayOrder)
 	}
 	c.GroupID = normalizeGroupID(&v, in.GroupID)
+	c.URL = NormalizeLink(&v, "url", in.URL)
 	return c, v.Err()
 }
 
@@ -214,6 +237,10 @@ func (in UpdateInput) apply(c Component) (Component, error) {
 	}
 	if in.GroupID.Set {
 		c.GroupID = normalizeGroupID(&v, in.GroupID.Value)
+		changed = true
+	}
+	if in.URL.Set {
+		c.URL = NormalizeLink(&v, "url", in.URL.Value)
 		changed = true
 	}
 	if !changed {

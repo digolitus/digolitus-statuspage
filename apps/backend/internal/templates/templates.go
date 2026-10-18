@@ -24,14 +24,15 @@ import (
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/clock"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/database"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/httpx"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/statuspolicy"
 )
 
 // Valid enumerations, duplicated here as plain values to keep this package
 // independent of the incident and maintenance modules.
 var (
-	incidentImpacts    = []string{"minor", "major", "critical"}
+	incidentImpacts    = statuspolicy.Impacts
 	incidentStatuses   = []string{"investigating", "identified", "monitoring", "resolved"}
-	maintenanceImpacts = []string{"none", "degraded_performance", "partial_outage", "major_outage"}
+	maintenanceImpacts = statuspolicy.Impacts
 )
 
 // IncidentTemplate pre-fills incident creation or update forms.
@@ -270,7 +271,7 @@ func (s *Service) CreateMaintenance(ctx context.Context, in MaintenanceInput) (M
 	var v apperror.Validator
 	c := common{IsActive: true}
 	in.apply(&v, &c, true)
-	t := MaintenanceTemplate{ExpectedImpact: "none"}
+	t := MaintenanceTemplate{ExpectedImpact: statuspolicy.Operational}
 	enumField(&v, "expected_impact", in.ExpectedImpact, &t.ExpectedImpact, maintenanceImpacts)
 	if err := v.Err(); err != nil {
 		return t, err

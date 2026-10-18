@@ -99,3 +99,26 @@ func TestComponentListPaginationAndSort(t *testing.T) {
 		t.Fatalf("expected errors for sort and limit: %s", r.body)
 	}
 }
+
+func TestComponentLink(t *testing.T) {
+	h := newHarness(t)
+	c := h.createComponent("Docs", map[string]any{"url": "  https://docs.example.com/api  "})
+	if str(c, "url") != "https://docs.example.com/api" {
+		t.Fatalf("url = %v", c["url"])
+	}
+	pub := mustStatus(t, h.call(http.MethodGet, "/api/v1/status", nil), http.StatusOK).json(t)
+	if str(list(pub, "components")[0].(map[string]any), "url") != "https://docs.example.com/api" {
+		t.Fatalf("public url missing: %v", pub)
+	}
+	for _, bad := range []string{"javascript:alert(1)", "ftp://x.example.com", "https://user:pw@x.example.com", "docs.example.com"} {
+		r := mustStatus(t, h.call(http.MethodPatch, "/api/v1/admin/components/"+str(c, "id"), map[string]any{"url": bad}, invalidRequest()), http.StatusUnprocessableEntity)
+		if !strings.Contains(string(r.body), `"field":"url"`) {
+			t.Fatalf("%s: %s", bad, r.body)
+		}
+	}
+	// Blank clears the link.
+	upd := mustStatus(t, h.call(http.MethodPatch, "/api/v1/admin/components/"+str(c, "id"), map[string]any{"url": ""}), http.StatusOK).json(t)
+	if upd["url"] != nil {
+		t.Fatalf("url not cleared: %v", upd)
+	}
+}

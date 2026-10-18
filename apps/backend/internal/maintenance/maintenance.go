@@ -15,6 +15,7 @@ import (
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/component"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/clock"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/httpx"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/statuspolicy"
 )
 
 // Statuses.
@@ -29,7 +30,7 @@ const (
 var Statuses = []string{StatusScheduled, StatusInProgress, StatusCompleted, StatusCancelled}
 
 // Impacts lists the expected impact values.
-var Impacts = []string{"none", "degraded_performance", "partial_outage", "major_outage"}
+var Impacts = statuspolicy.Impacts
 
 // Transition names a lifecycle action.
 type Transition string
@@ -198,7 +199,7 @@ type createPlan struct {
 
 func (in CreateInput) normalize(now time.Time) (createPlan, error) {
 	var v apperror.Validator
-	m := Maintenance{Title: strings.TrimSpace(in.Title), ExpectedImpact: "none", Status: StatusScheduled, Timezone: in.Timezone}
+	m := Maintenance{Title: strings.TrimSpace(in.Title), ExpectedImpact: statuspolicy.Operational, Status: StatusScheduled, Timezone: in.Timezone}
 	validateText(&v, "title", m.Title, 1, 200, "Informe um título com 1 a 200 caracteres.")
 	if in.Description != nil {
 		m.Description = strings.TrimSpace(*in.Description)
