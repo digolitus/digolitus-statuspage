@@ -2,9 +2,14 @@
 #
 # Only the frontend (Nginx) is published, and only on 127.0.0.1. The backend
 # and PostgreSQL have no host ports; PostgreSQL is reachable only on the
-# internal network, with no internet access. The admin API has NO authentication in this
-# version: do not change the published address to 0.0.0.0 or expose this
-# stack publicly. See docs/operations.md.
+# internal network, with no internet access.
+#
+# The admin area requires login. On the first start the backend logs a
+# one-time setup token ("initial setup required"): open
+# http://localhost:8080/admin/setup and use it to create the first admin.
+# This local stack serves plain HTTP, so the session cookie is sent without
+# the Secure flag (SESSION_COOKIE_SECURE=false). Behind HTTPS, set it to true.
+# See docs/operations.md.
 #
 # Settings come from environment variables or deploy/.env (see .env.example).
 # The backend also joins an egress network to read third-party status pages
@@ -57,6 +62,9 @@ services:
       EXTERNAL_STATUS_SYNC: ${EXTERNAL_STATUS_SYNC:-true}
       EXTERNAL_STATUS_INTERVAL: ${EXTERNAL_STATUS_INTERVAL:-2m}
       EXTERNAL_STATUS_ALLOW_PRIVATE_NETWORKS: ${EXTERNAL_STATUS_ALLOW_PRIVATE_NETWORKS:-false}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+      SESSION_TTL: ${SESSION_TTL:-12h}
+      SESSION_IDLE_TIMEOUT: ${SESSION_IDLE_TIMEOUT:-2h}
     depends_on:
       db:
         condition: service_healthy
