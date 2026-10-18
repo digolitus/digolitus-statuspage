@@ -13,17 +13,22 @@ import (
 
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/apperror"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/audit"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/auth"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/database"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/httpx"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/optional"
 )
 
 // Group organises components on the public page. It has no status of its
 // own: the public summary derives it from the group's components.
 type Group struct {
-	ID             string    `json:"id"`
-	Name           string    `json:"name"`
-	Description    string    `json:"description"`
-	DisplayOrder   int       `json:"display_order"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Description  string `json:"description"`
+	DisplayOrder int    `json:"display_order"`
+	// TeamID is the team responsible for the group; components without a
+	// team of their own inherit it.
+	TeamID         *string   `json:"team_id"`
 	ComponentCount int       `json:"component_count"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
@@ -34,6 +39,8 @@ type GroupInput struct {
 	Name         *string `json:"name"`
 	Description  *string `json:"description"`
 	DisplayOrder *int    `json:"display_order"`
+	// TeamID: absent = unchanged, null = no team.
+	TeamID optional.Nullable[string] `json:"team_id"`
 }
 
 func (in GroupInput) apply(g Group, create bool) (Group, error) {
@@ -57,18 +64,22 @@ func (in GroupInput) apply(g Group, create bool) (Group, error) {
 		validateOrder(&v, g.DisplayOrder)
 		changed = true
 	}
+	if in.TeamID.Set {
+		g.TeamID = normalizeRef(&v, "team_id", in.TeamID.Value)
+		changed = true
+	}
 	if !create && !changed {
 		return g, apperror.Invalid("empty_update", "Informe ao menos um campo para atualizar.")
 	}
 	return g, v.Err()
 }
 
-const groupColumns = `id, name, description, display_order,
+const groupColumns = `id, name, description, display_order, team_id,
 	(SELECT count(*) FROM components c WHERE c.group_id = component_groups.id)::int, created_at, updated_at`
 
 func scanGroup(row pgx.Row) (Group, error) {
 	var g Group
-	err := row.Scan(&g.ID, &g.Name, &g.Description, &g.DisplayOrder, &g.ComponentCount, &g.CreatedAt, &g.UpdatedAt)
+	err := row.Scan(&g.ID, &g.Name, &g.Description, &g.DisplayOrder, &g.TeamID, &g.ComponentCount, &g.CreatedAt, &g.UpdatedAt)
 	g.CreatedAt, g.UpdatedAt = g.CreatedAt.UTC(), g.UpdatedAt.UTC()
 	return g, err
 }
@@ -141,6 +152,10 @@ func groupWriteError(err error) error {
 		return &apperror.Error{Kind: apperror.KindConflict, Code: "component_group_name_conflict", Message: "Já existe um grupo com este nome.",
 			Fields: []apperror.FieldError{{Field: "name", Message: "Nome já utilizado."}}}
 	}
+	if name, ok := database.ConstraintError(err, database.CodeForeignKeyViolation); ok && name == "component_groups_team_id_fkey" {
+		return &apperror.Error{Kind: apperror.KindInvalid, Code: "validation_failed", Message: "Os dados enviados são inválidos.",
+			Fields: []apperror.FieldError{{Field: "team_id", Message: "Time não encontrado."}}}
+	}
 	return fmt.Errorf("write component group: %w", err)
 }
 
@@ -150,11 +165,14 @@ func (s *Service) CreateGroup(ctx context.Context, in GroupInput) (Group, error)
 	if err != nil {
 		return Group{}, err
 	}
+	if err := auth.RequireTeam(ctx, auth.PermComponentsManage, g.TeamID); err != nil {
+		return Group{}, err
+	}
 	now := s.now()
 	var created Group
 	err = database.InTx(ctx, s.pool, func(tx pgx.Tx) error {
-		created, err = scanGroup(tx.QueryRow(ctx, `INSERT INTO component_groups (name, description, display_order, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $4) RETURNING `+groupColumns, g.Name, g.Description, g.DisplayOrder, now))
+		created, err = scanGroup(tx.QueryRow(ctx, `INSERT INTO component_groups (name, description, display_order, team_id, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $5) RETURNING `+groupColumns, g.Name, g.Description, g.DisplayOrder, g.TeamID, now))
 		if err != nil {
 			return groupWriteError(err)
 		}
@@ -175,9 +193,15 @@ func (s *Service) UpdateGroup(ctx context.Context, id string, in GroupInput) (Gr
 		if err != nil {
 			return err
 		}
+		if err := auth.RequireTeam(ctx, auth.PermComponentsManage, current.TeamID); err != nil {
+			return err
+		}
+		if err := auth.RequireTeam(ctx, auth.PermComponentsManage, next.TeamID); err != nil {
+			return err
+		}
 		now := s.now()
-		updated, err = scanGroup(tx.QueryRow(ctx, `UPDATE component_groups SET name = $2, description = $3, display_order = $4, updated_at = $5
-			WHERE id = $1 RETURNING `+groupColumns, id, next.Name, next.Description, next.DisplayOrder, now))
+		updated, err = scanGroup(tx.QueryRow(ctx, `UPDATE component_groups SET name = $2, description = $3, display_order = $4, team_id = $5, updated_at = $6
+			WHERE id = $1 RETURNING `+groupColumns, id, next.Name, next.Description, next.DisplayOrder, next.TeamID, now))
 		if err != nil {
 			return groupWriteError(err)
 		}
@@ -192,6 +216,9 @@ func (s *Service) DeleteGroup(ctx context.Context, id string) error {
 	return database.InTx(ctx, s.pool, func(tx pgx.Tx) error {
 		current, err := GetGroup(ctx, tx, id, true)
 		if err != nil {
+			return err
+		}
+		if err := auth.RequireTeam(ctx, auth.PermComponentsManage, current.TeamID); err != nil {
 			return err
 		}
 		if current.ComponentCount > 0 {

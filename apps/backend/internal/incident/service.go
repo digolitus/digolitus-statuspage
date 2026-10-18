@@ -1,6 +1,8 @@
 package incident
 
 import (
+	"time"
+
 	"context"
 
 	"github.com/jackc/pgx/v5"
@@ -8,7 +10,9 @@ import (
 
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/apperror"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/audit"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/auth"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/component"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/notify"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/clock"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/database"
 )
@@ -62,6 +66,9 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (Incident, error) 
 		if err != nil {
 			return err
 		}
+		if err := auth.RequireComponents(ctx, tx, auth.PermIncidentsManage, component.RefIDs(refs)); err != nil {
+			return err
+		}
 		inc := plan.incident
 		inc.CreatedAt = now
 		created, err := insert(ctx, tx, inc)
@@ -74,6 +81,9 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (Incident, error) 
 			return err
 		}
 		if _, err := insertUpdate(ctx, tx, id, created.Status, plan.message, ids, now); err != nil {
+			return err
+		}
+		if err := notify.Record(ctx, tx, event(notify.IncidentCreated, created, plan.message, refs, now)); err != nil {
 			return err
 		}
 		created.Components = refs
@@ -91,6 +101,9 @@ func (s *Service) Patch(ctx context.Context, id string, in PatchInput) (Incident
 	err := database.InTx(ctx, s.pool, func(tx pgx.Tx) error {
 		current, err := get(ctx, tx, id, true)
 		if err != nil {
+			return err
+		}
+		if err := requireScope(ctx, tx, id); err != nil {
 			return err
 		}
 		now := s.now()
@@ -119,6 +132,9 @@ func (s *Service) PostUpdate(ctx context.Context, id string, in UpdateInput) (In
 		if err != nil {
 			return err
 		}
+		if err := requireScope(ctx, tx, id); err != nil {
+			return err
+		}
 		msg, err := in.validate(current.Status)
 		if err != nil {
 			return err
@@ -131,6 +147,7 @@ func (s *Service) PostUpdate(ctx context.Context, id string, in UpdateInput) (In
 		current.Components = existing[id]
 
 		var snapshot []string
+		affected := current.Components
 		if in.ComponentIDs != nil {
 			keep := map[string]bool{}
 			for _, r := range current.Components {
@@ -140,7 +157,11 @@ func (s *Service) PostUpdate(ctx context.Context, id string, in UpdateInput) (In
 			if err != nil {
 				return err
 			}
+			if err := auth.RequireComponents(ctx, tx, auth.PermIncidentsManage, component.RefIDs(refs)); err != nil {
+				return err
+			}
 			snapshot = component.RefIDs(refs)
+			affected = refs
 			if err := replaceComponents(ctx, tx, id, snapshot); err != nil {
 				return err
 			}
@@ -160,6 +181,13 @@ func (s *Service) PostUpdate(ctx context.Context, id string, in UpdateInput) (In
 			return err
 		}
 		if _, err := insertUpdate(ctx, tx, id, in.Status, msg, snapshot, now); err != nil {
+			return err
+		}
+		kind := notify.IncidentUpdated
+		if in.Status == StatusResolved {
+			kind = notify.IncidentResolved
+		}
+		if err := notify.Record(ctx, tx, event(kind, saved, msg, affected, now)); err != nil {
 			return err
 		}
 		action := "update_published"
@@ -196,4 +224,24 @@ func (s *Service) Resolve(ctx context.Context, id string, in ResolveInput) (Inci
 		return Incident{}, apperror.Conflict("incident_already_resolved", "O incidente já está resolvido.")
 	}
 	return inc, err
+}
+
+// requireScope applies team scopes to an existing incident: a team-scoped role
+// must own every affected component.
+func requireScope(ctx context.Context, q database.Querier, id string) error {
+	refs, err := component.RefsByOwner(ctx, q, component.OwnerIncident, []string{id})
+	if err != nil {
+		return err
+	}
+	return auth.RequireComponents(ctx, q, auth.PermIncidentsManage, component.RefIDs(refs[id]))
+}
+
+// event builds the public notification of an incident change.
+func event(kind string, i Incident, message string, refs []component.Ref, at time.Time) notify.Event {
+	comps := []notify.Component{}
+	for _, r := range component.PublicRefs(refs) {
+		comps = append(comps, notify.Component{ID: r.ID, Name: r.Name})
+	}
+	return notify.Event{Kind: kind, ResourceType: "incident", ResourceID: i.ID, Title: i.Title, Status: i.Status,
+		Impact: i.Impact, Message: message, Components: comps, Path: "/incidents/" + i.ID, OccurredAt: at}
 }

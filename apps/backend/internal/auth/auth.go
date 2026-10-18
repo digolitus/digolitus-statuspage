@@ -79,12 +79,37 @@ type Principal struct {
 	// MustChangePassword blocks the admin API until the user picks their
 	// own password (set after an administrator chose it).
 	MustChangePassword bool
-	perms              map[string]bool
+	// perms are granted for the whole platform; teamPerms only for
+	// resources owned by Teams (team-scoped roles).
+	perms     map[string]bool
+	teamPerms map[string]bool
+	Teams     []string
 }
 
-// Has reports whether the principal holds perm.
+// Has reports whether the principal holds perm in any scope. Route-level
+// checks use it; resource-level checks then apply the scope (see scope.go).
 func (p *Principal) Has(perm string) bool {
+	return p != nil && (p.Admin || p.perms[perm] || p.teamPerms[perm])
+}
+
+// HasGlobal reports whether perm is held for the whole platform.
+func (p *Principal) HasGlobal(perm string) bool {
 	return p != nil && (p.Admin || p.perms[perm])
+}
+
+// TeamPermissions lists permissions held only for the user's teams.
+func (p *Principal) TeamPermissions() []string {
+	out := []string{}
+	for _, c := range Catalogue {
+		if !p.HasGlobal(c.Key) && p.teamPerms[c.Key] {
+			out = append(out, c.Key)
+		}
+	}
+	return out
+}
+
+func (p *Principal) inTeam(teamID string) bool {
+	return slices.Contains(p.Teams, teamID)
 }
 
 // Permissions lists the principal's permissions in catalogue order.
@@ -98,20 +123,35 @@ func (p *Principal) Permissions() []string {
 	return out
 }
 
-// covers reports whether p holds every permission in perms (admin holds all).
-func (p *Principal) covers(admin bool, perms []string) bool {
+// covers reports whether p may grant or administer the given grants:
+// global permissions require the actor to hold them globally; team-scoped
+// ones are satisfied by either scope. Only admins cover the system role.
+func (p *Principal) covers(admin bool, global, team []string) bool {
 	if p.Admin {
 		return true
 	}
 	if admin {
 		return false
 	}
-	for _, x := range perms {
+	for _, x := range global {
 		if !p.perms[x] {
 			return false
 		}
 	}
+	for _, x := range team {
+		if !p.perms[x] && !p.teamPerms[x] {
+			return false
+		}
+	}
 	return true
+}
+
+// coversRole applies covers to a role according to its scope.
+func (p *Principal) coversRole(r Role) bool {
+	if r.Scope == ScopeTeam {
+		return p.covers(r.IsSystem, nil, r.Permissions)
+	}
+	return p.covers(r.IsSystem, r.Permissions, nil)
 }
 
 type principalKey struct{}
@@ -152,6 +192,12 @@ func hashToken(t string) []byte {
 
 // --- users and roles model ---
 
+// TeamRef is a team embedded in a user.
+type TeamRef struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
 // RoleRef is a role embedded in a user.
 type RoleRef struct {
 	ID       string `json:"id"`
@@ -167,31 +213,39 @@ type User struct {
 	IsActive bool   `json:"is_active"`
 	// MustChangePassword: the password was set by an administrator and
 	// must be replaced at the next sign-in.
-	MustChangePassword bool       `json:"must_change_password"`
-	Roles              []RoleRef  `json:"roles"`
-	LastLoginAt        *time.Time `json:"last_login_at"`
-	LockedUntil        *time.Time `json:"locked_until"`
-	CreatedAt          time.Time  `json:"created_at"`
-	UpdatedAt          time.Time  `json:"updated_at"`
+	MustChangePassword bool      `json:"must_change_password"`
+	Roles              []RoleRef `json:"roles"`
+	// Teams the user belongs to; team-scoped roles act on their components.
+	Teams       []TeamRef  `json:"teams"`
+	LastLoginAt *time.Time `json:"last_login_at"`
+	LockedUntil *time.Time `json:"locked_until"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
 }
 
 // Role groups permissions.
 type Role struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	Permissions []string  `json:"permissions"`
-	IsSystem    bool      `json:"is_system"`
-	UserCount   int       `json:"user_count"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Permissions []string `json:"permissions"`
+	// Scope: "global" (whole platform) or "team" (components owned by the
+	// user's teams).
+	Scope     string    `json:"scope"`
+	IsSystem  bool      `json:"is_system"`
+	UserCount int       `json:"user_count"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // Me is the current session's user and effective permissions.
 type Me struct {
 	User        User     `json:"user"`
 	Permissions []string `json:"permissions"`
-	IsAdmin     bool     `json:"is_admin"`
+	// TeamPermissions are the subset of Permissions held only for the
+	// user's teams (User.Teams).
+	TeamPermissions []string `json:"team_permissions"`
+	IsAdmin         bool     `json:"is_admin"`
 }
 
 func utcPtr(t *time.Time) *time.Time {
@@ -204,11 +258,13 @@ func utcPtr(t *time.Time) *time.Time {
 
 const userColumns = `u.id, u.email, u.name, u.is_active, u.must_change_password, u.last_login_at, u.locked_until, u.created_at, u.updated_at,
 	COALESCE((SELECT json_agg(json_build_object('id', r.id, 'name', r.name, 'is_system', r.is_system) ORDER BY r.is_system DESC, lower(r.name))
-		FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = u.id), '[]')`
+		FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = u.id), '[]'),
+	COALESCE((SELECT json_agg(json_build_object('id', t.id, 'name', t.name) ORDER BY lower(t.name))
+		FROM user_teams ut JOIN teams t ON t.id = ut.team_id WHERE ut.user_id = u.id), '[]')`
 
 func scanUser(row pgx.Row) (User, error) {
 	var u User
-	err := row.Scan(&u.ID, &u.Email, &u.Name, &u.IsActive, &u.MustChangePassword, &u.LastLoginAt, &u.LockedUntil, &u.CreatedAt, &u.UpdatedAt, &u.Roles)
+	err := row.Scan(&u.ID, &u.Email, &u.Name, &u.IsActive, &u.MustChangePassword, &u.LastLoginAt, &u.LockedUntil, &u.CreatedAt, &u.UpdatedAt, &u.Roles, &u.Teams)
 	u.LastLoginAt, u.LockedUntil = utcPtr(u.LastLoginAt), utcPtr(u.LockedUntil)
 	u.CreatedAt, u.UpdatedAt = u.CreatedAt.UTC(), u.UpdatedAt.UTC()
 	return u, err
@@ -229,12 +285,12 @@ func getUser(ctx context.Context, q database.Querier, id string, lock bool) (Use
 	return u, nil
 }
 
-const roleColumns = `id, name, description, permissions, is_system,
+const roleColumns = `id, name, description, permissions, scope, is_system,
 	(SELECT count(*) FROM user_roles ur WHERE ur.role_id = roles.id)::int, created_at, updated_at`
 
 func scanRole(row pgx.Row) (Role, error) {
 	var r Role
-	err := row.Scan(&r.ID, &r.Name, &r.Description, &r.Permissions, &r.IsSystem, &r.UserCount, &r.CreatedAt, &r.UpdatedAt)
+	err := row.Scan(&r.ID, &r.Name, &r.Description, &r.Permissions, &r.Scope, &r.IsSystem, &r.UserCount, &r.CreatedAt, &r.UpdatedAt)
 	if r.IsSystem {
 		r.Permissions = allPermissions()
 	}
@@ -276,19 +332,40 @@ func listRoles(ctx context.Context, q database.Querier) ([]Role, error) {
 	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (Role, error) { return scanRole(r) })
 }
 
-// userGrants returns whether a user holds the system role and the union of
-// permissions of their other roles.
-func userGrants(ctx context.Context, q database.Querier, userID string) (bool, []string, error) {
-	var admin bool
-	var perms []string
+// grants is what a user's roles and team memberships give them.
+type grants struct {
+	admin        bool
+	global, team []string
+	teams        []string
+}
+
+// userGrants loads whether a user holds the system role, the union of
+// global and of team-scoped permissions, and their teams.
+func userGrants(ctx context.Context, q database.Querier, userID string) (grants, error) {
+	var g grants
 	err := q.QueryRow(ctx, `SELECT COALESCE(bool_or(r.is_system), false),
-		COALESCE(array_agg(DISTINCT p) FILTER (WHERE p IS NOT NULL), '{}')
+		COALESCE(array_agg(DISTINCT p) FILTER (WHERE p IS NOT NULL AND r.scope = 'global'), '{}'),
+		COALESCE(array_agg(DISTINCT p) FILTER (WHERE p IS NOT NULL AND r.scope = 'team'), '{}'),
+		COALESCE((SELECT array_agg(ut.team_id::text ORDER BY ut.team_id) FROM user_teams ut WHERE ut.user_id = $1), '{}')
 		FROM user_roles ur JOIN roles r ON r.id = ur.role_id LEFT JOIN LATERAL unnest(r.permissions) p ON true
-		WHERE ur.user_id = $1`, userID).Scan(&admin, &perms)
+		WHERE ur.user_id = $1`, userID).Scan(&g.admin, &g.global, &g.team, &g.teams)
 	if err != nil {
-		return false, nil, fmt.Errorf("load grants: %w", err)
+		return grants{}, fmt.Errorf("load grants: %w", err)
 	}
-	return admin, perms, nil
+	return g, nil
+}
+
+func (g grants) principal(p *Principal) {
+	p.Admin = g.admin
+	p.perms = make(map[string]bool, len(g.global))
+	for _, x := range g.global {
+		p.perms[x] = true
+	}
+	p.teamPerms = make(map[string]bool, len(g.team))
+	for _, x := range g.team {
+		p.teamPerms[x] = true
+	}
+	p.Teams = g.teams
 }
 
 // --- authentication ---
@@ -322,15 +399,11 @@ func (s *Service) Authenticate(ctx context.Context, token string) (*Principal, e
 		_, _ = s.pool.Exec(ctx, "DELETE FROM sessions WHERE id = $1", p.SessionID)
 		return nil, apperror.Unauthenticated()
 	}
-	admin, perms, err := userGrants(ctx, s.pool, p.UserID)
+	g, err := userGrants(ctx, s.pool, p.UserID)
 	if err != nil {
 		return nil, err
 	}
-	p.Admin = admin
-	p.perms = make(map[string]bool, len(perms))
-	for _, x := range perms {
-		p.perms[x] = true
-	}
+	g.principal(&p)
 	if now.Sub(lastSeen) >= touchEvery {
 		if _, err := s.pool.Exec(ctx, "UPDATE sessions SET last_seen_at = $2 WHERE id = $1", p.SessionID, now); err != nil {
 			return nil, fmt.Errorf("touch session: %w", err)
@@ -450,15 +523,13 @@ func (s *Service) me(ctx context.Context, userID string) (Me, error) {
 	if err != nil {
 		return Me{}, err
 	}
-	admin, perms, err := userGrants(ctx, s.pool, userID)
+	g, err := userGrants(ctx, s.pool, userID)
 	if err != nil {
 		return Me{}, err
 	}
-	p := Principal{Admin: admin, perms: map[string]bool{}}
-	for _, x := range perms {
-		p.perms[x] = true
-	}
-	return Me{User: u, Permissions: p.Permissions(), IsAdmin: admin}, nil
+	var p Principal
+	g.principal(&p)
+	return Me{User: u, Permissions: p.Permissions(), TeamPermissions: p.TeamPermissions(), IsAdmin: g.admin}, nil
 }
 
 // Me returns the principal's user and permissions.
@@ -644,7 +715,7 @@ func uniqueIDs(v *apperror.Validator, field string, ids []string) []string {
 			out = append(out, id)
 		}
 	}
-	v.Check(len(out) <= 20, field, "Informe no máximo 20 papéis.")
+	v.Check(len(out) <= 50, field, "Informe no máximo 50 itens.")
 	return out
 }
 
@@ -673,11 +744,11 @@ func forbiddenEscalation() error {
 
 // mayManageUser: the actor must hold every permission the target holds.
 func (s *Service) mayManageUser(ctx context.Context, q database.Querier, actor *Principal, targetID string) error {
-	admin, perms, err := userGrants(ctx, q, targetID)
+	g, err := userGrants(ctx, q, targetID)
 	if err != nil {
 		return err
 	}
-	if !actor.covers(admin, perms) {
+	if !actor.covers(g.admin, g.global, g.team) {
 		return apperror.Forbidden("Este usuário tem permissões que você não possui; peça a um administrador.")
 	}
 	return nil
@@ -701,7 +772,7 @@ func resolveRoles(ctx context.Context, q database.Querier, actor *Principal, ids
 			Fields: []apperror.FieldError{{Field: "role_ids", Message: "Um ou mais papéis não existem."}}}
 	}
 	for _, r := range roles {
-		if !actor.covers(r.IsSystem, r.Permissions) {
+		if !actor.coversRole(r) {
 			return nil, forbiddenEscalation()
 		}
 	}
@@ -718,6 +789,26 @@ func setUserRoles(ctx context.Context, tx pgx.Tx, userID string, ids []string) e
 	_, err := tx.Exec(ctx, "INSERT INTO user_roles (user_id, role_id) SELECT $1, unnest($2::uuid[])", userID, ids)
 	if err != nil {
 		return fmt.Errorf("set roles: %w", err)
+	}
+	return nil
+}
+
+// setUserTeams replaces a user's team memberships; unknown teams are a
+// validation error.
+func setUserTeams(ctx context.Context, tx pgx.Tx, userID string, ids []string) error {
+	if _, err := tx.Exec(ctx, "DELETE FROM user_teams WHERE user_id = $1", userID); err != nil {
+		return fmt.Errorf("clear teams: %w", err)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	tag, err := tx.Exec(ctx, "INSERT INTO user_teams (user_id, team_id) SELECT $1, t.id FROM teams t WHERE t.id = ANY($2::uuid[])", userID, ids)
+	if err != nil {
+		return fmt.Errorf("set teams: %w", err)
+	}
+	if int(tag.RowsAffected()) != len(ids) {
+		return &apperror.Error{Kind: apperror.KindInvalid, Code: "validation_failed", Message: "Os dados enviados são inválidos.",
+			Fields: []apperror.FieldError{{Field: "team_ids", Message: "Um ou mais times não existem."}}}
 	}
 	return nil
 }
@@ -753,6 +844,7 @@ type UserCreate struct {
 	Name     string   `json:"name"`
 	Password string   `json:"password"`
 	RoleIDs  []string `json:"role_ids"`
+	TeamIDs  []string `json:"team_ids"`
 }
 
 // UserPatch edits a user; nil fields are unchanged.
@@ -761,6 +853,7 @@ type UserPatch struct {
 	Email    *string   `json:"email"`
 	IsActive *bool     `json:"is_active"`
 	RoleIDs  *[]string `json:"role_ids"`
+	TeamIDs  *[]string `json:"team_ids"`
 	// Unlock clears a temporary lock caused by failed logins.
 	Unlock *bool `json:"unlock"`
 }
@@ -794,6 +887,7 @@ func (s *Service) CreateUser(ctx context.Context, actor *Principal, in UserCreat
 	checkEmail(&v, email)
 	CheckPasswordPolicy(&v, "password", in.Password, email)
 	ids := uniqueIDs(&v, "role_ids", in.RoleIDs)
+	teamIDs := uniqueIDs(&v, "team_ids", in.TeamIDs)
 	if err := v.Err(); err != nil {
 		return User{}, err
 	}
@@ -813,6 +907,9 @@ func (s *Service) CreateUser(ctx context.Context, actor *Principal, in UserCreat
 			return emailConflict(err)
 		}
 		if err := setUserRoles(ctx, tx, id, ids); err != nil {
+			return err
+		}
+		if err := setUserTeams(ctx, tx, id, teamIDs); err != nil {
 			return err
 		}
 		if created, err = getUser(ctx, tx, id, false); err != nil {
@@ -858,10 +955,13 @@ func (s *Service) UpdateUser(ctx context.Context, actor *Principal, id string, i
 			changed = true
 		}
 		unlock := in.Unlock != nil && *in.Unlock
-		changed = changed || unlock || in.RoleIDs != nil
-		var ids []string
+		changed = changed || unlock || in.RoleIDs != nil || in.TeamIDs != nil
+		var ids, teamIDs []string
 		if in.RoleIDs != nil {
 			ids = uniqueIDs(&v, "role_ids", *in.RoleIDs)
+		}
+		if in.TeamIDs != nil {
+			teamIDs = uniqueIDs(&v, "team_ids", *in.TeamIDs)
 		}
 		if !changed {
 			return apperror.Invalid("empty_update", "Informe ao menos um campo para atualizar.")
@@ -896,6 +996,11 @@ func (s *Service) UpdateUser(ctx context.Context, actor *Principal, id string, i
 				return err
 			}
 		}
+		if in.TeamIDs != nil {
+			if err := setUserTeams(ctx, tx, id, teamIDs); err != nil {
+				return err
+			}
+		}
 		if !next.IsActive {
 			if _, err := tx.Exec(ctx, "DELETE FROM sessions WHERE user_id = $1", id); err != nil {
 				return fmt.Errorf("end sessions: %w", err)
@@ -912,6 +1017,8 @@ func (s *Service) UpdateUser(ctx context.Context, actor *Principal, id string, i
 			action = "reactivated"
 		case in.RoleIDs != nil && !slices.Equal(roleIDs(current.Roles), roleIDs(updated.Roles)):
 			action = "roles_changed"
+		case in.TeamIDs != nil && !slices.EqualFunc(current.Teams, updated.Teams, func(a, b TeamRef) bool { return a.ID == b.ID }):
+			action = "teams_changed"
 		}
 		return audit.Record(ctx, tx, audit.ResourceUser, id, action, audit.Diff(current, updated), now)
 	})
@@ -997,6 +1104,7 @@ type RoleInput struct {
 	Name        *string   `json:"name"`
 	Description *string   `json:"description"`
 	Permissions *[]string `json:"permissions"`
+	Scope       *string   `json:"scope"`
 }
 
 func (in RoleInput) apply(r Role, create bool) (Role, error) {
@@ -1018,6 +1126,19 @@ func (in RoleInput) apply(r Role, create bool) (Role, error) {
 	if in.Permissions != nil {
 		r.Permissions = sortedPerms(&v, *in.Permissions)
 		changed = true
+	}
+	if in.Scope != nil {
+		r.Scope = *in.Scope
+		v.Check(r.Scope == ScopeGlobal || r.Scope == ScopeTeam, "scope", "Escopo inválido. Valores aceitos: global, team.")
+		changed = true
+	}
+	if r.Scope == ScopeTeam && !v.Has("permissions") {
+		for _, x := range r.Permissions {
+			if !scopable[x] {
+				v.Add("permissions", "Papéis de time só aceitam permissões que agem sobre componentes do time (status, componentes, incidentes, manutenções e comunicados).")
+				break
+			}
+		}
 	}
 	if !create && !changed {
 		return r, apperror.Invalid("empty_update", "Informe ao menos um campo para atualizar.")
@@ -1043,11 +1164,11 @@ func (s *Service) GetRole(ctx context.Context, id string) (Role, error) {
 
 // CreateRole creates a role with permissions the actor holds.
 func (s *Service) CreateRole(ctx context.Context, actor *Principal, in RoleInput) (Role, error) {
-	r, err := in.apply(Role{Permissions: []string{}}, true)
+	r, err := in.apply(Role{Permissions: []string{}, Scope: ScopeGlobal}, true)
 	if err != nil {
 		return Role{}, err
 	}
-	if !actor.covers(false, r.Permissions) {
+	if !actor.coversRole(r) {
 		return Role{}, forbiddenEscalation()
 	}
 	now := s.now()
@@ -1060,8 +1181,8 @@ func (s *Service) CreateRole(ctx context.Context, actor *Principal, in RoleInput
 		if n >= 100 {
 			return apperror.Conflict("role_limit", "Limite de 100 papéis atingido.")
 		}
-		created, err = scanRole(tx.QueryRow(ctx, `INSERT INTO roles (name, description, permissions, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $4) RETURNING `+roleColumns, r.Name, r.Description, r.Permissions, now))
+		created, err = scanRole(tx.QueryRow(ctx, `INSERT INTO roles (name, description, permissions, scope, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $5) RETURNING `+roleColumns, r.Name, r.Description, r.Permissions, r.Scope, now))
 		if err != nil {
 			return roleConflict(err)
 		}
@@ -1087,11 +1208,11 @@ func (s *Service) UpdateRole(ctx context.Context, actor *Principal, id string, i
 		if err != nil {
 			return err
 		}
-		if !actor.covers(false, current.Permissions) || !actor.covers(false, next.Permissions) {
+		if !actor.coversRole(current) || !actor.coversRole(next) {
 			return forbiddenEscalation()
 		}
-		updated, err = scanRole(tx.QueryRow(ctx, `UPDATE roles SET name = $2, description = $3, permissions = $4, updated_at = $5
-			WHERE id = $1 RETURNING `+roleColumns, id, next.Name, next.Description, next.Permissions, now))
+		updated, err = scanRole(tx.QueryRow(ctx, `UPDATE roles SET name = $2, description = $3, permissions = $4, scope = $5, updated_at = $6
+			WHERE id = $1 RETURNING `+roleColumns, id, next.Name, next.Description, next.Permissions, next.Scope, now))
 		if err != nil {
 			return roleConflict(err)
 		}
@@ -1111,7 +1232,7 @@ func (s *Service) DeleteRole(ctx context.Context, actor *Principal, id string) e
 		if current.IsSystem {
 			return apperror.Conflict("system_role_immutable", "O papel Administrador não pode ser excluído.")
 		}
-		if !actor.covers(false, current.Permissions) {
+		if !actor.coversRole(current) {
 			return forbiddenEscalation()
 		}
 		if current.UserCount > 0 {

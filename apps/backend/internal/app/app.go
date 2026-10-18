@@ -22,6 +22,7 @@ import (
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/clock"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/httpx"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/statuspage"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/subscription"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/templates"
 )
 
@@ -36,15 +37,22 @@ type Options struct {
 	ExternalInterval time.Duration
 	// Auth configures admin sessions.
 	Auth auth.Config
+	// Notifications: Mailer nil disables e-mail; Poster nil uses the
+	// default SSRF-safe HTTP client (public addresses only).
+	Mailer        subscription.Mailer
+	Poster        subscription.Poster
+	PublicBaseURL string
+	SiteName      string
 }
 
 // App exposes the handler, its route registry and the third-party service
 // (whose poller the caller may run).
 type App struct {
-	Router   *httpx.Router
-	Handler  http.Handler
-	External *external.Service
-	Auth     *auth.Service
+	Router        *httpx.Router
+	Handler       http.Handler
+	External      *external.Service
+	Auth          *auth.Service
+	Subscriptions *subscription.Service
 }
 
 // New builds the application.
@@ -81,6 +89,13 @@ func New(pool *pgxpool.Pool, opts Options) *App {
 	maintenanceHandler.RegisterPublic(rt)
 	announcementHandler := announcement.NewHandler(announcement.NewService(pool, now))
 	announcementHandler.RegisterPublic(rt)
+	if opts.Poster == nil {
+		opts.Poster = subscription.NewHTTPPoster(10*time.Second, false)
+	}
+	subscriptionSvc := subscription.NewService(pool, now, subscription.Options{Mailer: opts.Mailer, Poster: opts.Poster,
+		BaseURL: opts.PublicBaseURL, SiteName: opts.SiteName})
+	subscriptionHandler := subscription.NewHandler(subscriptionSvc)
+	subscriptionHandler.RegisterPublic(rt)
 
 	// Admin routes live under /api/v1/admin/. This wrapper is the single
 	// place where authentication and authorization are enforced: a valid
@@ -103,9 +118,10 @@ func New(pool *pgxpool.Pool, opts Options) *App {
 		audit.NewHandler(audit.NewStore(pool)).Register(rt, admin)
 		external.NewHandler(externalSvc).Register(rt, admin)
 		announcementHandler.RegisterAdmin(rt, admin)
+		subscriptionHandler.RegisterAdmin(rt, admin)
 	}
 
-	return &App{Router: rt, Handler: httpx.Chain(rt, opts.RequestTimeout), External: externalSvc, Auth: authSvc}
+	return &App{Router: rt, Handler: httpx.Chain(rt, opts.RequestTimeout), External: externalSvc, Auth: authSvc, Subscriptions: subscriptionSvc}
 }
 
 type healthBody struct {

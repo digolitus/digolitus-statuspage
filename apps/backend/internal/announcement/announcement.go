@@ -27,6 +27,7 @@ import (
 
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/apperror"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/audit"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/auth"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/component"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/clock"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/database"
@@ -446,6 +447,10 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (Announcement, err
 	}
 	now := s.now()
 	var created Announcement
+	// Team-scoped writers only write for their teams.
+	if err := auth.RequireTeam(ctx, auth.PermAnnouncementsWrite, c.teamID); err != nil {
+		return Announcement{}, err
+	}
 	err = database.InTx(ctx, s.pool, func(tx pgx.Tx) error {
 		if err := checkActiveRef(ctx, tx, "announcement_categories", "category_id", c.categoryID, nil); err != nil {
 			return err
@@ -488,6 +493,12 @@ func (s *Service) Update(ctx context.Context, id string, in PatchInput) (Announc
 		if err != nil {
 			return err
 		}
+		if err := auth.RequireTeam(ctx, auth.PermAnnouncementsWrite, teamID(current.Team)); err != nil {
+			return err
+		}
+		if err := auth.RequireTeam(ctx, auth.PermAnnouncementsWrite, c.teamID); err != nil {
+			return err
+		}
 		if err := checkActiveRef(ctx, tx, "announcement_categories", "category_id", c.categoryID, refID(current.Category)); err != nil {
 			return err
 		}
@@ -527,6 +538,9 @@ func (s *Service) transition(ctx context.Context, id, action string, fn func(a A
 	err := database.InTx(ctx, s.pool, func(tx pgx.Tx) error {
 		current, err := get(ctx, tx, id, now, true)
 		if err != nil {
+			return err
+		}
+		if err := auth.RequireTeam(ctx, auth.PermAnnouncementsPublish, teamID(current.Team)); err != nil {
 			return err
 		}
 		status, publishedAt, archivedAt, err := fn(current, now)
@@ -616,6 +630,9 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	return database.InTx(ctx, s.pool, func(tx pgx.Tx) error {
 		current, err := get(ctx, tx, id, now, true)
 		if err != nil {
+			return err
+		}
+		if err := auth.RequireTeam(ctx, auth.PermAnnouncementsWrite, teamID(current.Team)); err != nil {
 			return err
 		}
 		if current.State != StateDraft {

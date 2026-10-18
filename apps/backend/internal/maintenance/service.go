@@ -1,6 +1,8 @@
 package maintenance
 
 import (
+	"time"
+
 	"context"
 
 	"github.com/jackc/pgx/v5"
@@ -8,7 +10,9 @@ import (
 
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/apperror"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/audit"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/auth"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/component"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/notify"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/clock"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/database"
 )
@@ -60,6 +64,9 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (Maintenance, erro
 		if err != nil {
 			return err
 		}
+		if err := auth.RequireComponents(ctx, tx, auth.PermMaintenancesManage, component.RefIDs(refs)); err != nil {
+			return err
+		}
 		m := plan.m
 		m.CreatedAt = now
 		created, err := insert(ctx, tx, m)
@@ -72,6 +79,9 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (Maintenance, erro
 			return err
 		}
 		if err := insertUpdate(ctx, tx, id, "created", StatusScheduled, plan.message, now); err != nil {
+			return err
+		}
+		if err := notify.Record(ctx, tx, event(notify.MaintenanceScheduled, created, plan.message, refs, now)); err != nil {
 			return err
 		}
 		return audit.Record(ctx, tx, audit.ResourceMaintenance, id, "created", audit.Changes{After: viewOf(created, ids)}, now)
@@ -88,6 +98,9 @@ func (s *Service) Patch(ctx context.Context, id string, in PatchInput) (Maintena
 	err := database.InTx(ctx, s.pool, func(tx pgx.Tx) error {
 		current, err := get(ctx, tx, id, true)
 		if err != nil {
+			return err
+		}
+		if err := requireScope(ctx, tx, id); err != nil {
 			return err
 		}
 		now := s.now()
@@ -108,6 +121,9 @@ func (s *Service) Patch(ctx context.Context, id string, in PatchInput) (Maintena
 			}
 			refs, err := component.ResolveRefs(ctx, tx, *in.ComponentIDs, keep, "component_ids")
 			if err != nil {
+				return err
+			}
+			if err := auth.RequireComponents(ctx, tx, auth.PermMaintenancesManage, component.RefIDs(refs)); err != nil {
 				return err
 			}
 			afterIDs = component.RefIDs(refs)
@@ -147,11 +163,17 @@ func (s *Service) PostMessage(ctx context.Context, id string, in MessageInput) (
 		if err != nil {
 			return err
 		}
+		if err := requireScope(ctx, tx, id); err != nil {
+			return err
+		}
 		if !IsOpen(current.Status) {
 			return apperror.Conflict("maintenance_closed", "Manutenções concluídas ou canceladas não aceitam novas mensagens.")
 		}
 		now := s.now()
 		if err := insertUpdate(ctx, tx, id, "message", current.Status, msg, now); err != nil {
+			return err
+		}
+		if err := recordEvent(ctx, tx, notify.MaintenanceUpdated, current, msg, now); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, "UPDATE maintenances SET updated_at = $2 WHERE id = $1", id, now); err != nil {
@@ -181,6 +203,9 @@ func (s *Service) Transition(ctx context.Context, id string, t Transition, in Me
 		if err != nil {
 			return err
 		}
+		if err := requireScope(ctx, tx, id); err != nil {
+			return err
+		}
 		to, ok := Target(t, current.Status)
 		if !ok {
 			return apperror.Conflict("maintenance_invalid_transition",
@@ -204,6 +229,9 @@ func (s *Service) Transition(ctx context.Context, id string, t Transition, in Me
 		if err := insertUpdate(ctx, tx, id, transitionKinds[t], to, msg, now); err != nil {
 			return err
 		}
+		if err := recordEvent(ctx, tx, transitionEvents[t], next, msg, now); err != nil {
+			return err
+		}
 		changes := audit.Changes{Before: map[string]any{"status": current.Status}, After: map[string]any{"status": to}}
 		if msg != nil {
 			changes.After.(map[string]any)["message"] = *msg
@@ -214,4 +242,40 @@ func (s *Service) Transition(ctx context.Context, id string, t Transition, in Me
 		return Maintenance{}, err
 	}
 	return Load(ctx, s.pool, id, s.now())
+}
+
+// requireScope applies team scopes to an existing maintenance: a team-scoped role
+// must own every affected component.
+func requireScope(ctx context.Context, q database.Querier, id string) error {
+	refs, err := component.RefsByOwner(ctx, q, component.OwnerMaintenance, []string{id})
+	if err != nil {
+		return err
+	}
+	return auth.RequireComponents(ctx, q, auth.PermMaintenancesManage, component.RefIDs(refs[id]))
+}
+
+var transitionEvents = map[Transition]string{Start: notify.MaintenanceStarted, Complete: notify.MaintenanceCompleted, Cancel: notify.MaintenanceCancelled}
+
+// event builds the public notification of a maintenance change.
+func event(kind string, m Maintenance, message *string, refs []component.Ref, at time.Time) notify.Event {
+	comps := []notify.Component{}
+	for _, r := range component.PublicRefs(refs) {
+		comps = append(comps, notify.Component{ID: r.ID, Name: r.Name})
+	}
+	text := m.Description
+	if message != nil {
+		text = *message
+	}
+	start, end := m.ScheduledStart, m.ScheduledEnd
+	return notify.Event{Kind: kind, ResourceType: "maintenance", ResourceID: m.ID, Title: m.Title, Status: m.Status,
+		Impact: m.ExpectedImpact, Message: text, Components: comps, Path: "/maintenances/" + m.ID,
+		ScheduledStart: &start, ScheduledEnd: &end, Timezone: m.Timezone, OccurredAt: at}
+}
+
+func recordEvent(ctx context.Context, q database.Querier, kind string, m Maintenance, message *string, at time.Time) error {
+	refs, err := component.RefsByOwner(ctx, q, component.OwnerMaintenance, []string{m.ID})
+	if err != nil {
+		return err
+	}
+	return notify.Record(ctx, q, event(kind, m, message, refs[m.ID], at))
 }

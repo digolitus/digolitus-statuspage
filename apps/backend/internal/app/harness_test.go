@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -22,6 +23,7 @@ import (
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/external"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/clock"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/testsupport"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/subscription"
 )
 
 // fakeClock is a controllable server clock.
@@ -52,6 +54,8 @@ type harness struct {
 	clock   *fakeClock
 	fetcher *fakeFetcher
 	app     *App
+	mailer  *fakeMailer
+	poster  *fakePoster
 	// session is the cookie value sent with every call ("" = anonymous).
 	session string
 }
@@ -89,16 +93,87 @@ func (f *fakeFetcher) set(base string, snap external.Snapshot, err error) {
 	f.snaps[base] = snap
 }
 
+// fakeMailer records e-mails instead of sending them.
+type fakeMailer struct {
+	mu   sync.Mutex
+	sent []subscription.Mail
+}
+
+func (m *fakeMailer) Send(_ context.Context, mail subscription.Mail) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sent = append(m.sent, mail)
+	return nil
+}
+
+// take returns and clears the recorded e-mails.
+func (m *fakeMailer) take() []subscription.Mail {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := m.sent
+	m.sent = nil
+	return out
+}
+
+// fakePoster records webhook/Slack posts; err makes them fail.
+type fakePoster struct {
+	mu    sync.Mutex
+	posts []fakePost
+	err   error
+}
+
+type fakePost struct {
+	URL     string
+	Body    []byte
+	Headers map[string]string
+}
+
+func (p *fakePoster) Post(_ context.Context, url string, body []byte, headers map[string]string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.err != nil {
+		return p.err
+	}
+	p.posts = append(p.posts, fakePost{URL: url, Body: body, Headers: headers})
+	return nil
+}
+
+func (p *fakePoster) take() []fakePost {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := p.posts
+	p.posts = nil
+	return out
+}
+
+// notify runs one cycle of the notification worker.
+func (h *harness) notify() {
+	subscription.NewWorker(h.app.Subscriptions, slog.New(slog.DiscardHandler)).RunOnce(context.Background())
+}
+
+const publicBaseURL = "https://status.example.com"
+
 var epoch = time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
 
 // newBareHarness starts with an empty database and no user (setup pending).
 func newBareHarness(t *testing.T) *harness {
 	t.Helper()
+	return newBareHarnessWith(t, nil)
+}
+
+// newBareHarnessWith is newBareHarness with adjusted options.
+func newBareHarnessWith(t *testing.T, adjust func(*Options)) *harness {
+	t.Helper()
 	pool := testsupport.NewPool(t)
 	fc := &fakeClock{now: epoch}
 	ff := &fakeFetcher{snaps: map[string]external.Snapshot{}, errs: map[string]error{}}
-	application := New(pool, Options{AdminAPIEnabled: true, Clock: func() time.Time { return clock.Normalize(fc.Now()) },
-		ExternalFetcher: ff, ExternalInterval: 2 * time.Minute, Auth: auth.Config{CookieSecure: true, SessionTTL: 72 * time.Hour, IdleTimeout: 24 * time.Hour}})
+	fm, fp := &fakeMailer{}, &fakePoster{}
+	opts := Options{AdminAPIEnabled: true, Clock: func() time.Time { return clock.Normalize(fc.Now()) },
+		ExternalFetcher: ff, ExternalInterval: 2 * time.Minute, Mailer: fm, Poster: fp, PublicBaseURL: publicBaseURL, SiteName: "Status Teste", Auth: auth.Config{CookieSecure: true, SessionTTL: 72 * time.Hour, IdleTimeout: 24 * time.Hour}}
+	if adjust != nil {
+		adjust(&opts)
+	}
+	application := New(pool, opts)
 	srv := httptest.NewServer(application.Handler)
 	t.Cleanup(srv.Close)
 	doc := loadSpec(t)
@@ -107,7 +182,7 @@ func newBareHarness(t *testing.T) *harness {
 	if err != nil {
 		t.Fatalf("build OpenAPI router: %v", err)
 	}
-	return &harness{t: t, pool: pool, server: srv, router: router, clock: fc, fetcher: ff, app: application}
+	return &harness{t: t, pool: pool, server: srv, router: router, clock: fc, fetcher: ff, app: application, mailer: fm, poster: fp}
 }
 
 // newHarness starts signed in as the first administrator, created through

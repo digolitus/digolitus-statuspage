@@ -72,6 +72,13 @@ tags:
     description: Configuração inicial, login, logout e sessão atual.
   - name: admin-users
     description: Usuários, papéis e catálogo de permissões. Requer `users.manage` ou `roles.manage`.
+  - name: subscriptions
+    description: |
+      Inscrições de visitantes para receber atualizações: e-mail (confirmação dupla), webhook (assinado com HMAC) e
+      Slack (incoming webhook), além de feeds Atom/RSS. A inscrição por e-mail, webhook ou Slack exige confirmação
+      por e-mail, por isso só fica disponível com SMTP configurado (veja `/api/v1/subscriptions/options`).
+  - name: admin-subscriptions
+    description: Inscritos e integrações (webhook/Slack) criadas pela administração.
   - name: admin-audit
     description: Histórico operacional (auditoria). Requer sessão e permissão.
 
@@ -384,6 +391,156 @@ paths:
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/ValidationError' }
         '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/subscriptions/options:
+    get:
+      tags: [subscriptions]
+      operationId: getSubscriptionOptions
+      summary: Canais de inscrição disponíveis
+      responses:
+        '200':
+          description: Canais habilitados nesta instalação e endereços dos feeds.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubscriptionOptions' }
+  /api/v1/subscriptions:
+    post:
+      tags: [subscriptions]
+      operationId: subscribe
+      summary: Inscrever-se (confirmação por e-mail)
+      description: |
+        Cria uma inscrição pendente e envia um e-mail de confirmação. A resposta é a mesma quando o destino já está
+        inscrito (o dono recebe um link de gerenciamento), para não revelar quem está inscrito. Em webhook e Slack,
+        `email` é o contato que confirma a inscrição.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SubscribeInput' }
+            example: { channel: email, email: pessoa@example.com }
+      responses:
+        '202':
+          description: Pedido aceito; confirme pelo e-mail.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Accepted' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/subscriptions/confirm:
+    post:
+      tags: [subscriptions]
+      operationId: confirmSubscription
+      summary: Confirmar inscrição
+      description: Usa o token do link enviado por e-mail. Idempotente.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SubscriptionToken' }
+      responses:
+        '200':
+          description: Inscrição ativa.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubscriptionManageView' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/subscriptions/manage:
+    post:
+      tags: [subscriptions]
+      operationId: getManagedSubscription
+      summary: Consultar inscrição pelo link de gerenciamento
+      description: O token vai no corpo (não na URL) para não ficar em logs e histórico.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SubscriptionToken' }
+      responses:
+        '200':
+          description: Inscrição.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubscriptionManageView' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    put:
+      tags: [subscriptions]
+      operationId: updateSubscriptionPreferences
+      summary: Escolher componentes acompanhados
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SubscriptionPreferences' }
+      responses:
+        '200':
+          description: Preferências salvas.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubscriptionManageView' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/subscriptions/unsubscribe:
+    post:
+      tags: [subscriptions]
+      operationId: unsubscribe
+      summary: Cancelar inscrição
+      description: |
+        Aceita o token na query (`?token=`, usado pelo cancelamento em um clique dos clientes de e-mail, RFC 8058,
+        com qualquer corpo) ou no corpo JSON. Remove a inscrição e as mensagens pendentes.
+      parameters:
+        - { name: token, in: query, schema: { type: string, maxLength: 200 } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SubscriptionToken' }
+          application/x-www-form-urlencoded:
+            schema: { type: object }
+      responses:
+        '204': { description: Inscrição cancelada. }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/feed.atom:
+    get:
+      tags: [subscriptions]
+      operationId: getAtomFeed
+      summary: Feed Atom
+      description: Últimos 50 eventos públicos (incidentes, manutenções e comunicados).
+      responses:
+        '200':
+          description: Feed Atom 1.0.
+          content:
+            application/atom+xml:
+              schema: { type: string }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/feed.rss:
+    get:
+      tags: [subscriptions]
+      operationId: getRSSFeed
+      summary: Feed RSS
+      description: Últimos 50 eventos públicos (incidentes, manutenções e comunicados).
+      responses:
+        '200':
+          description: Feed RSS 2.0.
+          content:
+            application/rss+xml:
+              schema: { type: string }
+        '500': { $ref: '#/components/responses/InternalError' }
   /api/v1/admin/components:
     get:
       tags: [admin-components]
@@ -393,6 +550,7 @@ paths:
         - { name: is_active, in: query, schema: { type: boolean }, description: Filtra por ativo/desativado. }
         - { name: is_public, in: query, schema: { type: boolean }, description: Filtra por visibilidade pública. }
         - { name: group_id, in: query, schema: { type: string, format: uuid }, description: Componentes do grupo informado. }
+        - { name: team_id, in: query, schema: { type: string, format: uuid }, description: 'Componentes cujo dono efetivo (time próprio ou do grupo) é o time informado.' }
         - name: sort
           in: query
           description: 'Ordenação. Padrão: `display_order`.'
@@ -1811,6 +1969,120 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/subscriptions:
+    get:
+      tags: [admin-subscriptions]
+      operationId: listSubscriptions
+      summary: Listar inscrições
+      parameters:
+        - { name: channel, in: query, schema: { $ref: '#/components/schemas/SubscriptionChannel' } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/SubscriptionStatus' } }
+        - { name: q, in: query, description: Busca em e-mail ou URL., schema: { type: string, maxLength: 100 } }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Lista paginada, com totais por status.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubscriptionList' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [admin-subscriptions]
+      operationId: createSubscription
+      summary: Criar integração ou convidar e-mail
+      description: |
+        Webhook e Slack ficam ativos imediatamente; o `signing_secret` do webhook só é exibido nesta resposta.
+        E-mail fica pendente até o destinatário confirmar (consentimento).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SubscriptionAdminCreate' }
+            example: { channel: slack, url: 'https://hooks.slack.com/services/T000/B000/XXXX' }
+      responses:
+        '201':
+          description: Criada.
+          headers: { Location: { $ref: '#/components/headers/Location' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubscriptionCreated' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/admin/subscriptions/{id}:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    get:
+      tags: [admin-subscriptions]
+      operationId: getSubscription
+      summary: Consultar inscrição
+      responses:
+        '200':
+          description: Inscrição.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Subscription' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    patch:
+      tags: [admin-subscriptions]
+      operationId: updateSubscription
+      summary: Ativar/desativar ou mudar componentes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SubscriptionAdminPatch' }
+      responses:
+        '200':
+          description: Atualizada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Subscription' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    delete:
+      tags: [admin-subscriptions]
+      operationId: deleteSubscription
+      summary: Remover inscrição
+      responses:
+        '204': { description: Removida. }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/admin/subscriptions/{id}/test:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    post:
+      tags: [admin-subscriptions]
+      operationId: testSubscription
+      summary: Enviar mensagem de teste
+      responses:
+        '202':
+          description: Mensagem na fila.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Accepted' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /api/v1/admin/audit-events:
     get:
       tags: [admin-audit]
@@ -1822,7 +2094,7 @@ paths:
       parameters:
         - name: resource_type
           in: query
-          schema: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template, external_source, announcement, announcement_category, team, user, role] }
+          schema: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template, external_source, announcement, announcement_category, team, user, role, subscription] }
         - { name: resource_id, in: query, schema: { type: string, format: uuid } }
         - { name: action, in: query, schema: { type: string, maxLength: 64 }, description: 'Ex.: created, updated, resolved, started.' }
         - name: sort
@@ -1939,7 +2211,7 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
           example: { error: { code: unauthenticated, message: Faça login para continuar., request_id: 4f2a9c1b7d3e5a6b8c9d0e1f } }
     Forbidden:
-      description: Sem a permissão necessária (`forbidden`), senha provisória que precisa ser trocada (`password_change_required`) ou requisição de outro site (`cross_site_request`).
+      description: Sem a permissão necessária (`forbidden`), fora do escopo do time (`outside_team_scope`), senha provisória que precisa ser trocada (`password_change_required`) ou requisição de outro site (`cross_site_request`).
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -1957,7 +2229,8 @@ components:
         `incident_resolved`, `incident_already_resolved`, `maintenance_closed`, `maintenance_already_started`,
         `maintenance_invalid_transition`, `invalid_announcement_transition`, `announcement_not_draft`,
         `announcement_category_name_conflict`, `announcement_category_in_use`, `announcement_category_limit`,
-        `team_name_conflict`, `team_in_use`, `team_limit`, `setup_already_done`, `user_email_conflict`, `last_admin`,
+        `team_name_conflict`, `team_in_use`, `team_limit`, `subscriptions_unavailable`, `subscription_exists`,
+        `subscription_pending`, `subscription_not_active`, `setup_already_done`, `user_email_conflict`, `last_admin`,
         `cannot_deactivate_self`, `role_name_conflict`, `role_in_use`, `role_limit`, `system_role_immutable`.
       content:
         application/json:
@@ -2090,7 +2363,7 @@ components:
     Component:
       type: object
       additionalProperties: false
-      required: [id, name, slug, description, status, is_public, is_active, display_order, group_id, url, created_at, updated_at]
+      required: [id, name, slug, description, status, is_public, is_active, display_order, group_id, url, team_id, owner_team_id, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
@@ -2102,6 +2375,8 @@ components:
         display_order: { type: integer }
         group_id: { type: string, format: uuid, nullable: true, description: Grupo do componente; `null` quando não agrupado. }
         url: { type: string, nullable: true, description: 'Link público da página do componente (documentação, produto, endpoint).' }
+        team_id: { type: string, format: uuid, nullable: true, description: Time responsável pelo componente. }
+        owner_team_id: { type: string, format: uuid, nullable: true, description: 'Dono efetivo: `team_id` ou, se ausente, o time do grupo. Papéis de time agem sobre componentes dos seus times.' }
         created_at: { $ref: '#/components/schemas/Timestamp' }
         updated_at: { $ref: '#/components/schemas/Timestamp' }
     ComponentCreate:
@@ -2116,6 +2391,7 @@ components:
         is_public: { type: boolean, default: true }
         display_order: { type: integer, minimum: 0, maximum: 100000, default: 0 }
         group_id: { type: string, format: uuid, nullable: true }
+        team_id: { type: string, format: uuid, nullable: true, description: 'Time responsável. `null` = herda o time do grupo.' }
         url: &componentUrl { type: string, nullable: true, maxLength: 500, description: 'Endereço http(s) completo, sem credenciais. Vazio ou `null` = sem link.' }
     ComponentPatch:
       type: object
@@ -2131,6 +2407,7 @@ components:
         display_order: { type: integer, minimum: 0, maximum: 100000 }
         group_id: { type: string, format: uuid, nullable: true, description: '`null` remove o componente do grupo.' }
         url: *componentUrl
+        team_id: { type: string, format: uuid, nullable: true, description: '`null` = herda o time do grupo.' }
     ComponentList:
       type: object
       additionalProperties: false
@@ -2276,12 +2553,13 @@ components:
     ComponentGroup:
       type: object
       additionalProperties: false
-      required: [id, name, description, display_order, component_count, created_at, updated_at]
+      required: [id, name, description, display_order, team_id, component_count, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
         description: { type: string }
         display_order: { type: integer }
+        team_id: { type: string, format: uuid, nullable: true, description: Time responsável; componentes sem time próprio o herdam. }
         component_count: { type: integer, description: Componentes associados (inclusive ocultos e desativados). }
         created_at: { $ref: '#/components/schemas/Timestamp' }
         updated_at: { $ref: '#/components/schemas/Timestamp' }
@@ -2293,6 +2571,7 @@ components:
         name: { type: string, minLength: 1, maxLength: 120, description: Único (sem diferenciar maiúsculas). }
         description: { type: string, maxLength: 1000 }
         display_order: { type: integer, minimum: 0, maximum: 100000, default: 0 }
+        team_id: { type: string, format: uuid, nullable: true }
     ComponentGroupPatch:
       type: object
       additionalProperties: false
@@ -2301,6 +2580,7 @@ components:
         name: { type: string, minLength: 1, maxLength: 120 }
         description: { type: string, maxLength: 1000 }
         display_order: { type: integer, minimum: 0, maximum: 100000 }
+        team_id: { type: string, format: uuid, nullable: true, description: '`null` remove o time.' }
     ComponentGroupList:
       type: object
       additionalProperties: false
@@ -2653,7 +2933,7 @@ components:
       properties:
         id: { type: integer, format: int64 }
         occurred_at: { $ref: '#/components/schemas/Timestamp' }
-        resource_type: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template, external_source, announcement, announcement_category, team, user, role] }
+        resource_type: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template, external_source, announcement, announcement_category, team, user, role, subscription] }
         resource_id: { type: string, format: uuid }
         action: { type: string }
         source: { type: string, description: 'Canal de origem (ex.: admin_api).' }
@@ -2882,13 +3162,19 @@ components:
     Team:
       type: object
       additionalProperties: false
-      required: [id, name, description, is_active, announcement_count, created_at, updated_at]
+      required: [id, name, kind, description, documentation_url, support_url, is_active, announcement_count, component_count, group_count, member_count, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
+        kind: { type: string, description: 'Tipo livre (ex.: Squad, RT, Comunidade, Tribo). Vazio quando não informado.' }
         description: { type: string }
+        documentation_url: { type: string, nullable: true, description: Link da documentação do time. }
+        support_url: { type: string, nullable: true, description: Link de como obter suporte. }
         is_active: { type: boolean }
         announcement_count: { type: integer }
+        component_count: { type: integer, description: Componentes com este time como responsável direto. }
+        group_count: { type: integer }
+        member_count: { type: integer, description: Usuários membros (papéis de time agem sobre o que o time possui). }
         created_at: { $ref: '#/components/schemas/Timestamp' }
         updated_at: { $ref: '#/components/schemas/Timestamp' }
     TeamCreate:
@@ -2897,7 +3183,10 @@ components:
       required: [name]
       properties:
         name: { type: string, minLength: 1, maxLength: 80 }
+        kind: { type: string, maxLength: 40 }
         description: { type: string, maxLength: 500 }
+        documentation_url: { type: string, nullable: true, maxLength: 500, description: 'Endereço http(s). Vazio ou `null` remove.' }
+        support_url: { type: string, nullable: true, maxLength: 500, description: 'Endereço http(s). Vazio ou `null` remove.' }
         is_active: { type: boolean, default: true }
     TeamPatch:
       type: object
@@ -2905,7 +3194,10 @@ components:
       minProperties: 1
       properties:
         name: { type: string, minLength: 1, maxLength: 80 }
+        kind: { type: string, maxLength: 40 }
         description: { type: string, maxLength: 500 }
+        documentation_url: { type: string, nullable: true, maxLength: 500, description: 'Endereço http(s). Vazio ou `null` remove.' }
+        support_url: { type: string, nullable: true, maxLength: 500, description: 'Endereço http(s). Vazio ou `null` remove.' }
         is_active: { type: boolean }
     TeamList:
       type: object
@@ -2916,17 +3208,30 @@ components:
 
     PermissionKey:
       type: string
-      enum: [components.status, components.manage, third_party.manage, incidents.manage, maintenances.manage, templates.manage, announcements.write, announcements.publish, announcements.settings, audit.read, users.manage, roles.manage]
+      enum: [components.status, components.manage, third_party.manage, incidents.manage, maintenances.manage, templates.manage, announcements.write, announcements.publish, announcements.settings, teams.manage, subscriptions.manage, audit.read, users.manage, roles.manage]
+    RoleScope:
+      type: string
+      enum: [global, team]
+      default: global
+      description: '`global`: vale para toda a plataforma. `team`: só para componentes (e grupos/comunicados) dos times do usuário; aceita apenas permissões `scopable`.'
+    UserTeamRef:
+      type: object
+      additionalProperties: false
+      required: [id, name]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
     PermissionInfo:
       type: object
       additionalProperties: false
-      required: [key, group, label, description, sensitive]
+      required: [key, group, label, description, sensitive, scopable]
       properties:
         key: { $ref: '#/components/schemas/PermissionKey' }
         group: { type: string }
         label: { type: string }
         description: { type: string }
         sensitive: { type: boolean, description: 'Permite mudar quem pode fazer o quê (usuários e papéis).' }
+        scopable: { type: boolean, description: 'Pode ser concedida por papéis de time (escopo `team`).' }
     PermissionList:
       type: object
       additionalProperties: false
@@ -2944,7 +3249,7 @@ components:
     User:
       type: object
       additionalProperties: false
-      required: [id, email, name, is_active, must_change_password, roles, last_login_at, locked_until, created_at, updated_at]
+      required: [id, email, name, is_active, must_change_password, roles, teams, last_login_at, locked_until, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
         email: { type: string }
@@ -2952,6 +3257,7 @@ components:
         is_active: { type: boolean }
         must_change_password: { type: boolean, description: 'Senha definida por um administrador (criação ou redefinição): a API administrativa responde 403 `password_change_required` até o usuário escolher a própria senha em `POST /api/v1/auth/password`.' }
         roles: { type: array, items: { $ref: '#/components/schemas/RoleRef' } }
+        teams: { type: array, items: { $ref: '#/components/schemas/UserTeamRef' }, description: Times do usuário; papéis de time agem sobre os componentes deles. }
         last_login_at: { $ref: '#/components/schemas/NullableTimestamp' }
         locked_until: { $ref: '#/components/schemas/NullableTimestamp' }
         created_at: { $ref: '#/components/schemas/Timestamp' }
@@ -2975,7 +3281,8 @@ components:
         email: { type: string, maxLength: 254 }
         name: { type: string, minLength: 1, maxLength: 120 }
         password: { $ref: '#/components/schemas/Password' }
-        role_ids: { type: array, maxItems: 20, items: { type: string, format: uuid } }
+        role_ids: { type: array, maxItems: 50, items: { type: string, format: uuid } }
+        team_ids: { type: array, maxItems: 50, items: { type: string, format: uuid } }
     UserPatch:
       type: object
       additionalProperties: false
@@ -2984,7 +3291,8 @@ components:
         email: { type: string, maxLength: 254 }
         name: { type: string, minLength: 1, maxLength: 120 }
         is_active: { type: boolean }
-        role_ids: { type: array, maxItems: 20, items: { type: string, format: uuid }, description: Substitui os papéis do usuário. }
+        role_ids: { type: array, maxItems: 50, items: { type: string, format: uuid }, description: Substitui os papéis do usuário. }
+        team_ids: { type: array, maxItems: 50, items: { type: string, format: uuid }, description: Substitui os times do usuário. }
         unlock: { type: boolean, description: '`true` remove o bloqueio por tentativas de login.' }
     PasswordReset:
       type: object
@@ -3002,12 +3310,13 @@ components:
     Role:
       type: object
       additionalProperties: false
-      required: [id, name, description, permissions, is_system, user_count, created_at, updated_at]
+      required: [id, name, description, permissions, scope, is_system, user_count, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
         description: { type: string }
         permissions: { type: array, items: { $ref: '#/components/schemas/PermissionKey' }, description: 'O Administrador lista todas.' }
+        scope: { $ref: '#/components/schemas/RoleScope' }
         is_system: { type: boolean, description: 'Papel Administrador: acesso total e imutável.' }
         user_count: { type: integer }
         created_at: { $ref: '#/components/schemas/Timestamp' }
@@ -3026,6 +3335,7 @@ components:
         name: { type: string, minLength: 1, maxLength: 60 }
         description: { type: string, maxLength: 500 }
         permissions: { type: array, maxItems: 100, items: { $ref: '#/components/schemas/PermissionKey' } }
+        scope: { $ref: '#/components/schemas/RoleScope' }
     RolePatch:
       type: object
       additionalProperties: false
@@ -3034,13 +3344,15 @@ components:
         name: { type: string, minLength: 1, maxLength: 60 }
         description: { type: string, maxLength: 500 }
         permissions: { type: array, maxItems: 100, items: { $ref: '#/components/schemas/PermissionKey' } }
+        scope: { $ref: '#/components/schemas/RoleScope' }
     Me:
       type: object
       additionalProperties: false
-      required: [user, permissions, is_admin]
+      required: [user, permissions, team_permissions, is_admin]
       properties:
         user: { $ref: '#/components/schemas/User' }
-        permissions: { type: array, items: { $ref: '#/components/schemas/PermissionKey' } }
+        permissions: { type: array, items: { $ref: '#/components/schemas/PermissionKey' }, description: Todas as permissões efetivas (globais ou de time). }
+        team_permissions: { type: array, items: { $ref: '#/components/schemas/PermissionKey' }, description: 'Subconjunto válido só para os componentes dos times do usuário (`user.teams`).' }
         is_admin: { type: boolean }
     SetupStatus:
       type: object
@@ -3064,3 +3376,144 @@ components:
       properties:
         email: { type: string, maxLength: 254 }
         password: { type: string, maxLength: 128 }
+
+    SubscriptionChannel:
+      type: string
+      enum: [email, webhook, slack]
+    SubscriptionStatus:
+      type: string
+      enum: [pending, active, disabled]
+      description: '`pending` aguarda confirmação por e-mail; `disabled` por administrador ou após falhas seguidas de entrega.'
+    SubscriptionOptions:
+      type: object
+      additionalProperties: false
+      required: [email, webhook, slack, sms, atom_url, rss_url]
+      properties:
+        email: { type: boolean }
+        webhook: { type: boolean }
+        slack: { type: boolean }
+        sms: { type: boolean, description: Não suportado nesta versão (exige provedor de SMS). }
+        atom_url: { type: string }
+        rss_url: { type: string }
+    SubscribeInput:
+      type: object
+      additionalProperties: false
+      required: [channel, email]
+      properties:
+        channel: { $ref: '#/components/schemas/SubscriptionChannel' }
+        email: { type: string, maxLength: 254, description: Destinatário (e-mail) ou contato que confirma (webhook/Slack). }
+        url: { type: string, maxLength: 500, description: 'Webhook: https://... Slack: https://hooks.slack.com/services/...' }
+        component_ids: { $ref: '#/components/schemas/UUIDList' }
+    Accepted:
+      type: object
+      additionalProperties: false
+      required: [message]
+      properties:
+        message: { type: string }
+    SubscriptionToken:
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties:
+        token: { type: string, maxLength: 200 }
+    SubscriptionPreferences:
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties:
+        token: { type: string, maxLength: 200 }
+        component_ids: { $ref: '#/components/schemas/UUIDList' }
+    SubscriptionComponentRef:
+      type: object
+      additionalProperties: false
+      required: [id, name]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+    SubscriptionManageView:
+      type: object
+      additionalProperties: false
+      required: [id, channel, email, target_url, status, all_components, components, signing_secret, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        channel: { $ref: '#/components/schemas/SubscriptionChannel' }
+        email: { type: string, nullable: true }
+        target_url: { type: string, nullable: true }
+        status: { $ref: '#/components/schemas/SubscriptionStatus' }
+        all_components: { type: boolean, description: '`true` = todas as atualizações; senão, só as dos componentes listados (e as gerais).' }
+        components: { type: array, items: { $ref: '#/components/schemas/SubscriptionComponentRef' } }
+        signing_secret: { type: string, nullable: true, description: 'Webhook: chave HMAC para validar `X-Digolitus-Signature`.' }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+    Subscription:
+      type: object
+      additionalProperties: false
+      required: [id, channel, email, target_url, status, all_components, components, created_by, failure_count, disabled_reason, last_delivery_at, last_error, confirmed_at, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        channel: { $ref: '#/components/schemas/SubscriptionChannel' }
+        email: { type: string, nullable: true }
+        target_url: { type: string, nullable: true }
+        status: { $ref: '#/components/schemas/SubscriptionStatus' }
+        all_components: { type: boolean }
+        components: { type: array, items: { $ref: '#/components/schemas/SubscriptionComponentRef' } }
+        created_by: { type: string, enum: [public, admin] }
+        failure_count: { type: integer, description: Falhas de entrega seguidas. }
+        disabled_reason: { type: string, nullable: true }
+        last_delivery_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        last_error: { type: string, nullable: true }
+        confirmed_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    SubscriptionList:
+      type: object
+      additionalProperties: false
+      required: [data, pagination, counts]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Subscription' } }
+        pagination: { $ref: '#/components/schemas/Pagination' }
+        counts:
+          type: object
+          additionalProperties: false
+          required: [pending, active, disabled]
+          properties:
+            pending: { type: integer }
+            active: { type: integer }
+            disabled: { type: integer }
+    SubscriptionAdminCreate:
+      type: object
+      additionalProperties: false
+      required: [channel]
+      properties:
+        channel: { $ref: '#/components/schemas/SubscriptionChannel' }
+        email: { type: string, nullable: true, maxLength: 254, description: 'Obrigatório para e-mail; contato opcional para webhook/Slack.' }
+        url: { type: string, nullable: true, maxLength: 500 }
+        component_ids: { $ref: '#/components/schemas/UUIDList' }
+    SubscriptionCreated:
+      type: object
+      additionalProperties: false
+      description: Subscription com o segredo de assinatura, exibido somente na criação.
+      required: [id, channel, email, target_url, status, all_components, components, created_by, failure_count, disabled_reason, last_delivery_at, last_error, confirmed_at, created_at, updated_at, signing_secret]
+      properties:
+        id: { type: string, format: uuid }
+        channel: { $ref: '#/components/schemas/SubscriptionChannel' }
+        email: { type: string, nullable: true }
+        target_url: { type: string, nullable: true }
+        status: { $ref: '#/components/schemas/SubscriptionStatus' }
+        all_components: { type: boolean }
+        components: { type: array, items: { $ref: '#/components/schemas/SubscriptionComponentRef' } }
+        created_by: { type: string, enum: [public, admin] }
+        failure_count: { type: integer, description: Falhas de entrega seguidas. }
+        disabled_reason: { type: string, nullable: true }
+        last_delivery_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        last_error: { type: string, nullable: true }
+        confirmed_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+        signing_secret: { type: string, nullable: true, description: Exibido somente na criação (webhook). }
+    SubscriptionAdminPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        enabled: { type: boolean }
+        component_ids: { $ref: '#/components/schemas/UUIDList' }

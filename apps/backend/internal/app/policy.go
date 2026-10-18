@@ -81,9 +81,16 @@ var adminPolicy = auth.Policy{
 	"DELETE /api/v1/admin/announcement-categories/{id}": perms(auth.PermAnnouncementsSetting),
 	"GET /api/v1/admin/teams":                           anyUser,
 	"GET /api/v1/admin/teams/{id}":                      anyUser,
-	"POST /api/v1/admin/teams":                          perms(auth.PermAnnouncementsSetting),
-	"PATCH /api/v1/admin/teams/{id}":                    perms(auth.PermAnnouncementsSetting),
-	"DELETE /api/v1/admin/teams/{id}":                   perms(auth.PermAnnouncementsSetting),
+	"POST /api/v1/admin/teams":                          perms(auth.PermTeamsManage),
+	"PATCH /api/v1/admin/teams/{id}":                    perms(auth.PermTeamsManage),
+	"DELETE /api/v1/admin/teams/{id}":                   perms(auth.PermTeamsManage),
+
+	"GET /api/v1/admin/subscriptions":            perms(auth.PermSubscriptionsManage),
+	"POST /api/v1/admin/subscriptions":           perms(auth.PermSubscriptionsManage),
+	"GET /api/v1/admin/subscriptions/{id}":       perms(auth.PermSubscriptionsManage),
+	"PATCH /api/v1/admin/subscriptions/{id}":     perms(auth.PermSubscriptionsManage),
+	"DELETE /api/v1/admin/subscriptions/{id}":    perms(auth.PermSubscriptionsManage),
+	"POST /api/v1/admin/subscriptions/{id}/test": perms(auth.PermSubscriptionsManage),
 
 	"GET /api/v1/admin/audit-events": perms(auth.PermAuditRead),
 
