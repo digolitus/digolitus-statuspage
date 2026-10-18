@@ -184,19 +184,43 @@ jobs:
       - name: Start stack
         run: docker compose -f deploy/docker-compose.yml up --no-build --detach --wait --wait-timeout 120
       - name: Smoke test through Nginx
+        # Each failed check is published as an annotation (URL, HTTP status
+        # and the start of the body), readable without downloading logs.
         run: |
-          set -eu
-          curl -fsS http://127.0.0.1:8080/readyz
-          curl -fsS http://127.0.0.1:8080/api/v1/status | grep -q '"basis":"declared"'
-          curl -fsS http://127.0.0.1:8080/api/openapi.yaml | head -1 | grep -q 'openapi: 3.0.3'
-          curl -fsS -o /dev/null http://127.0.0.1:8080/swagger/
-          curl -fsS http://127.0.0.1:8080/ | grep -q '<div id="root">'
+          set -u
+          failed=0
+          check() { # check <name> <path> <expected text>
+            code=$(curl -sS -o /tmp/body -w '%{http_code}' "http://127.0.0.1:8080$2" || echo 000)
+            if [ "$code" != 200 ] || ! grep -qF -- "$3" /tmp/body; then
+              echo "::error title=smoke $1::GET $2 -> HTTP $code, expected '$3'. Body: $(head -c 300 /tmp/body | tr '\n' ' ')"
+              failed=1
+            fi
+          }
+          check readyz /readyz '"ready"'
+          check status /api/v1/status '"basis":"declared"'
+          check openapi /api/openapi.yaml 'openapi: 3.0.3'
+          check swagger /swagger/ 'swagger'
+          check spa / '<div id="root">'
+          check spa-admin /admin/setup '<div id="root">'
+          # The admin API requires a session.
+          code=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/api/v1/admin/components)
+          [ "$code" = 401 ] || { echo "::error title=smoke admin::/api/v1/admin/components without session -> HTTP $code, expected 401"; failed=1; }
+          check setup-status /api/v1/auth/setup '"setup_required":true'
+          docker compose -f deploy/docker-compose.yml logs backend 2>&1 | grep -q 'setup_token' ||
+            { echo "::error title=smoke setup::backend did not log the initial setup token"; failed=1; }
+          [ "$failed" = 0 ] || exit 1
+          set -e
           # Backend and database must not be published on the host.
           if timeout 2 bash -c '</dev/tcp/127.0.0.1/5432' 2>/dev/null; then echo "PostgreSQL is exposed"; exit 1; fi
           docker compose -f deploy/docker-compose.yml port backend 8080 && { echo "backend is published"; exit 1; } || true
       - name: Compose logs
         if: failure()
-        run: docker compose -f deploy/docker-compose.yml logs --no-color
+        run: |
+          docker compose -f deploy/docker-compose.yml ps
+          docker compose -f deploy/docker-compose.yml logs --no-color
+          # Container states and recent errors as annotations.
+          docker compose -f deploy/docker-compose.yml ps --format '{{.Service}}: {{.State}} {{.Health}}' | sed 's/^/::warning title=compose ps::/'
+          docker compose -f deploy/docker-compose.yml logs --no-color --tail 200 | grep -iE 'error|emerg|fatal|panic' | tail -10 | sed 's/^/::warning title=compose log::/' || true
       - name: Stop stack
         if: always()
         run: docker compose -f deploy/docker-compose.yml down --volumes
