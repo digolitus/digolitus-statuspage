@@ -51,6 +51,8 @@ Navegador ──► Nginx (frontend, 127.0.0.1:8080)
                 ├── /swagger/           ─┤          │
                 └── /healthz, /readyz   ─┘          ▼
                                              PostgreSQL 18 (rede interna, volume pgdata)
+
+Backend ──► HTTPS (rede egress) ──► páginas de status de terceiros (summary.json)
 ```
 
 - **Backend:** monólito modular em Go (`apps/backend`), SQL explícito com `pgx`, migrações versionadas e embutidas no binário. Detalhes em [docs/architecture.md](docs/architecture.md).
@@ -70,6 +72,7 @@ Toda funcionalidade de negócio está disponível pela API. Resumo:
 | Incidentes | `GET/POST /api/v1/admin/incidents`, `GET/PATCH .../{id}`, `GET/POST .../{id}/updates`, `POST .../{id}/resolve` |
 | Manutenções | `GET/POST /api/v1/admin/maintenances`, `GET/PATCH .../{id}`, `GET/POST .../{id}/updates`, `POST .../{id}/start\|complete\|cancel` |
 | Templates | `GET/POST /api/v1/admin/incident-templates`, `GET/PATCH .../{id}` (idem para `maintenance-templates`) |
+| Terceiros | `GET/POST /api/v1/admin/external-sources`, `GET/PATCH/DELETE .../{id}`, `POST .../{id}/sync`, `GET .../{id}/components`, `PUT .../{id}/selection` |
 | Auditoria | `GET /api/v1/admin/audit-events` |
 
 O contrato completo (schemas, erros, paginação, filtros, ordenação e transições de estado) está em [`apps/backend/api/openapi.yaml`](apps/backend/api/openapi.yaml). Os testes falham se uma rota implementada não estiver documentada (ou vice-versa) e validam as respostas reais contra os schemas.
@@ -92,14 +95,16 @@ curl -s -X POST http://localhost:8080/api/v1/admin/maintenances \
 - **Manutenção:** `scheduled → in_progress → completed` e `scheduled → cancelled`. Nada muda automaticamente por horário; janelas atrasadas são sinalizadas (`start_overdue`, `end_overdue`).
 - **Status geral:** calculado por uma política única ([ADR 0003](docs/adr/0003-status-policy.md)). Manutenção nunca é apresentada como indisponibilidade.
 - **Grupos:** organizam componentes na página pública. Aparecem recolhidos, exibindo o status mais grave entre seus componentes; ao expandir, mostram os componentes.
+- **Serviços de terceiros:** em `/admin/third-party`, cadastre a URL de uma página Atlassian Statuspage (ex.: `https://www.githubstatus.com`, `https://status.veracode.com`) e escolha os componentes a exibir. O backend consulta o provedor periodicamente; o status de terceiros aparece em seção própria e **não** altera o status geral ([ADR 0006](docs/adr/0006-third-party-status.md)).
 
 ### Organização da página pública
 
 1. Banner com o status geral, sempre visível.
 2. **Acontecendo agora:** incidentes ativos e manutenções em andamento, só quando existem. Cada evento mostra a última atualização, e o restante da linha do tempo abre sob demanda.
 3. **Componentes:** grupos recolhidos e componentes avulsos, intercalados pela ordem de exibição.
-4. **Manutenções programadas:** lista compacta, só quando há alguma.
-5. **Histórico de eventos:** recolhido; é carregado ao expandir.
+4. **Serviços de terceiros:** um item recolhido por provedor, só quando há algum configurado; ao expandir, mostra os componentes escolhidos, eventos abertos do provedor e o link para a página original.
+5. **Manutenções programadas:** lista compacta, só quando há alguma.
+6. **Histórico de eventos:** recolhido; é carregado ao expandir.
 
 ## Desenvolvimento sem Docker
 
@@ -127,6 +132,9 @@ Configuração do backend (variáveis de ambiente, validadas na inicialização)
 | `ADMIN_API_ENABLED` | `true` | `false` remove todas as rotas administrativas (API pública somente leitura) |
 | `REQUEST_TIMEOUT` | `10s` | Tempo máximo por requisição (1s–1m) |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` (logs JSON) |
+| `EXTERNAL_STATUS_SYNC` | `true` | Leitura periódica das páginas de status de terceiros |
+| `EXTERNAL_STATUS_INTERVAL` | `2m` | Intervalo da leitura (30s–1h) |
+| `EXTERNAL_STATUS_ALLOW_PRIVATE_NETWORKS` | `false` | Permite provedores em redes privadas/loopback (veja [ADR 0006](docs/adr/0006-third-party-status.md)) |
 
 ## Testes e verificações
 
@@ -195,5 +203,6 @@ CONTEXT.md        Princípios de engenharia do projeto
 ## Limitações conhecidas
 
 - Sem autenticação e autorização na administração (veja [ADR 0004](docs/adr/0004-admin-without-authentication.md)).
+- Serviços de terceiros: apenas páginas no formato Atlassian Statuspage.
 - Sem verificações automáticas de saúde, cálculo de uptime, notificações ou assinaturas.
 - Sem deploy automatizado (a publicação de imagens existe).

@@ -61,6 +61,15 @@ O que **não** é controle de acesso: a Swagger UI, CORS, a URL `/admin` "não d
 
 **Não publique esta stack em rede não confiável** (não troque `127.0.0.1` por `0.0.0.0`, não coloque atrás de um proxy público) sem antes implementar autenticação e autorização. Para um ambiente remoto somente leitura, use `ADMIN_API_ENABLED=false`. Veja o [ADR 0004](adr/0004-admin-without-authentication.md).
 
+## Serviços de terceiros
+
+O backend lê `https://<provedor>/api/v2/summary.json` a cada `EXTERNAL_STATUS_INTERVAL` (padrão `2m`, entre `30s` e `1h`). Para isso ele usa a rede `egress` do Compose; o PostgreSQL continua isolado. Em outra infraestrutura, libere saída HTTPS (443) apenas para o backend.
+
+- `EXTERNAL_STATUS_SYNC=false` desliga a leitura periódica (o cadastro e o botão "Sincronizar agora" continuam funcionando).
+- Conexões a endereços privados, loopback e link-local são recusadas. `EXTERNAL_STATUS_ALLOW_PRIVATE_NETWORKS=true` libera essas redes; use apenas para páginas internas conhecidas, pois a administração não tem autenticação.
+- Falhas de leitura ficam em `last_error` (visível em `/admin/third-party`) e no log (`external status: sync failed`). Sem leitura bem-sucedida por `max(3 × intervalo, 10 min)`, o provedor aparece como desatualizado e seus componentes como "Desconhecido".
+- Decisão e controles: [ADR 0006](adr/0006-third-party-status.md).
+
 ## Atualizar a Swagger UI embutida
 
 ```bash

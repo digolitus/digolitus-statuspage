@@ -21,6 +21,7 @@ internal/
   maintenance/     manutenções e transições
   templates/       templates de incidente e manutenção
   audit/           histórico operacional (gravação e consulta)
+  external/        serviços de terceiros: cadastro, leitura de Statuspage (anti-SSRF) e poller
   tsgen/           gerador de tipos TypeScript a partir do OpenAPI (cmd/openapi-ts)
   docs/            Swagger UI embutida (assets oficiais vendorizados)
   apperror/        vocabulário de erros esperados (validação, 404, 409)
@@ -57,6 +58,8 @@ As rotas administrativas passam por um único wrapper (`app.New`), que marca a o
 | `maintenance_components` | Componentes afetados |
 | `maintenance_updates` | Linha do tempo publicada, imutável |
 | `incident_templates`, `maintenance_templates` | Textos reutilizáveis; nomes únicos sem diferenciar maiúsculas |
+| `external_sources` | Provedores de terceiros (URL base `https`), último resultado da leitura e eventos abertos |
+| `external_components` | Componentes importados do provedor; `is_selected` define o que é publicado; `is_present = false` quando sumiram do provedor |
 | `audit_events` | Histórico operacional com diff antes/depois, origem e request ID |
 | `schema_migrations` | Versão e checksum de cada migração aplicada |
 
