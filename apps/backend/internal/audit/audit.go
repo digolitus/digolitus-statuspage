@@ -19,6 +19,7 @@ import (
 // Resource types recorded in the log.
 const (
 	ResourceComponent           = "component"
+	ResourceComponentGroup      = "component_group"
 	ResourceIncident            = "incident"
 	ResourceMaintenance         = "maintenance"
 	ResourceIncidentTemplate    = "incident_template"
@@ -26,7 +27,7 @@ const (
 )
 
 // ResourceTypes lists every resource type, for filter validation.
-var ResourceTypes = []string{ResourceComponent, ResourceIncident, ResourceMaintenance, ResourceIncidentTemplate, ResourceMaintenanceTemplate}
+var ResourceTypes = []string{ResourceComponent, ResourceComponentGroup, ResourceIncident, ResourceMaintenance, ResourceIncidentTemplate, ResourceMaintenanceTemplate}
 
 // Changes holds the relevant before/after values of an operation.
 type Changes struct {

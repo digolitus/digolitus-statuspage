@@ -21,6 +21,9 @@
 //     clients present as "maintenance in N components", not an outage.
 //  5. With no public components and no active incidents the overall status
 //     is "unknown": the platform has nothing to declare.
+//  6. A component group's status is the most severe effective status of its
+//     public components (same order); it is presentation only and does not
+//     add anything to the overall status.
 package statuspolicy
 
 // Component statuses.
@@ -161,4 +164,32 @@ func Evaluate(components []ComponentState, incidents []ActiveIncident, maintenan
 		overall.Status = worst
 	}
 	return effective, overall
+}
+
+// GroupSummary is the derived status of a component group.
+type GroupSummary struct {
+	Status                     string
+	AffectedComponents         int
+	ComponentsUnderMaintenance int
+}
+
+// Group derives a group's status from its components' effective statuses
+// using the same severity order: the most severe status wins, maintenance
+// never hides an outage, and an empty group is unknown.
+func Group(effective []string) GroupSummary {
+	if len(effective) == 0 {
+		return GroupSummary{Status: Unknown}
+	}
+	g := GroupSummary{Status: Operational}
+	for _, st := range effective {
+		g.Status = Worse(g.Status, st)
+		switch st {
+		case Operational:
+		case Maintenance:
+			g.ComponentsUnderMaintenance++
+		default:
+			g.AffectedComponents++
+		}
+	}
+	return g
 }

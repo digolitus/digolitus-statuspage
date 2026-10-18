@@ -108,3 +108,20 @@ func TestSeverityOrder(t *testing.T) {
 		}
 	}
 }
+
+func TestGroup(t *testing.T) {
+	tests := []struct {
+		in   []string
+		want GroupSummary
+	}{
+		{nil, GroupSummary{Status: Unknown}},
+		{[]string{Operational, Operational}, GroupSummary{Status: Operational}},
+		{[]string{Operational, Maintenance}, GroupSummary{Status: Maintenance, ComponentsUnderMaintenance: 1}},
+		{[]string{Maintenance, DegradedPerformance, MajorOutage}, GroupSummary{Status: MajorOutage, AffectedComponents: 2, ComponentsUnderMaintenance: 1}},
+	}
+	for _, tt := range tests {
+		if got := Group(tt.in); got != tt.want {
+			t.Errorf("Group(%v) = %+v, want %+v", tt.in, got, tt.want)
+		}
+	}
+}

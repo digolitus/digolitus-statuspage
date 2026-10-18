@@ -13,7 +13,7 @@ import (
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/httpx"
 )
 
-const columns = "id, name, slug, description, status, is_public, is_active, display_order, created_at, updated_at"
+const columns = "id, name, slug, description, status, is_public, is_active, display_order, group_id, created_at, updated_at"
 
 // SortFields maps API sort keys to columns.
 var SortFields = map[string]string{
@@ -25,22 +25,23 @@ var SortFields = map[string]string{
 
 // Filter narrows a component listing.
 type Filter struct {
-	Active *bool
-	Public *bool
+	Active  *bool
+	Public  *bool
+	GroupID string
 }
 
 func scan(row pgx.Row) (Component, error) {
 	var c Component
-	err := row.Scan(&c.ID, &c.Name, &c.Slug, &c.Description, &c.Status, &c.IsPublic, &c.IsActive, &c.DisplayOrder, &c.CreatedAt, &c.UpdatedAt)
+	err := row.Scan(&c.ID, &c.Name, &c.Slug, &c.Description, &c.Status, &c.IsPublic, &c.IsActive, &c.DisplayOrder, &c.GroupID, &c.CreatedAt, &c.UpdatedAt)
 	c.CreatedAt, c.UpdatedAt = c.CreatedAt.UTC(), c.UpdatedAt.UTC()
 	return c, err
 }
 
 // List returns a page of components.
 func List(ctx context.Context, q database.Querier, f Filter, sort httpx.Sort, page httpx.Page) ([]Component, int, error) {
-	where := "WHERE ($1::boolean IS NULL OR is_active = $1) AND ($2::boolean IS NULL OR is_public = $2)"
+	where := "WHERE ($1::boolean IS NULL OR is_active = $1) AND ($2::boolean IS NULL OR is_public = $2) AND ($3 = '' OR group_id = NULLIF($3, '')::uuid)"
 	var total int
-	if err := q.QueryRow(ctx, "SELECT count(*) FROM components "+where, f.Active, f.Public).Scan(&total); err != nil {
+	if err := q.QueryRow(ctx, "SELECT count(*) FROM components "+where, f.Active, f.Public, f.GroupID).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count components: %w", err)
 	}
 	dir := "ASC"
@@ -49,8 +50,8 @@ func List(ctx context.Context, q database.Querier, f Filter, sort httpx.Sort, pa
 	}
 	order := SortFields[sort.Field] + " " + dir + ", name ASC, id ASC"
 	// #nosec G202 -- ORDER BY comes from the SortFields whitelist; filters are bound parameters.
-	rows, err := q.Query(ctx, "SELECT "+columns+" FROM components "+where+" ORDER BY "+order+" LIMIT $3 OFFSET $4",
-		f.Active, f.Public, page.Limit, page.Offset)
+	rows, err := q.Query(ctx, "SELECT "+columns+" FROM components "+where+" ORDER BY "+order+" LIMIT $4 OFFSET $5",
+		f.Active, f.Public, f.GroupID, page.Limit, page.Offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list components: %w", err)
 	}
@@ -101,16 +102,16 @@ func Get(ctx context.Context, q database.Querier, id string, forUpdate bool) (Co
 }
 
 func insert(ctx context.Context, q database.Querier, c Component) (Component, error) {
-	created, err := scan(q.QueryRow(ctx, `INSERT INTO components (name, slug, description, status, is_public, is_active, display_order, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8) RETURNING `+columns,
-		c.Name, c.Slug, c.Description, c.Status, c.IsPublic, c.IsActive, c.DisplayOrder, c.CreatedAt))
+	created, err := scan(q.QueryRow(ctx, `INSERT INTO components (name, slug, description, status, is_public, is_active, display_order, group_id, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9) RETURNING `+columns,
+		c.Name, c.Slug, c.Description, c.Status, c.IsPublic, c.IsActive, c.DisplayOrder, c.GroupID, c.CreatedAt))
 	return created, mapWriteError(err)
 }
 
 func update(ctx context.Context, q database.Querier, c Component) (Component, error) {
 	updated, err := scan(q.QueryRow(ctx, `UPDATE components SET name = $2, slug = $3, description = $4, status = $5,
-		is_public = $6, is_active = $7, display_order = $8, updated_at = $9 WHERE id = $1 RETURNING `+columns,
-		c.ID, c.Name, c.Slug, c.Description, c.Status, c.IsPublic, c.IsActive, c.DisplayOrder, c.UpdatedAt))
+		is_public = $6, is_active = $7, display_order = $8, group_id = $9, updated_at = $10 WHERE id = $1 RETURNING `+columns,
+		c.ID, c.Name, c.Slug, c.Description, c.Status, c.IsPublic, c.IsActive, c.DisplayOrder, c.GroupID, c.UpdatedAt))
 	return updated, mapWriteError(err)
 }
 
@@ -121,6 +122,10 @@ func mapWriteError(err error) error {
 	if name, ok := database.ConstraintError(err, database.CodeUniqueViolation); ok && name == "components_slug_key" {
 		return &apperror.Error{Kind: apperror.KindConflict, Code: "component_slug_conflict", Message: "Já existe um componente com este slug.",
 			Fields: []apperror.FieldError{{Field: "slug", Message: "Slug já utilizado."}}}
+	}
+	if name, ok := database.ConstraintError(err, database.CodeForeignKeyViolation); ok && name == "components_group_id_fkey" {
+		return &apperror.Error{Kind: apperror.KindInvalid, Code: "validation_failed", Message: "Os dados enviados são inválidos.",
+			Fields: []apperror.FieldError{{Field: "group_id", Message: "Grupo não encontrado."}}}
 	}
 	return fmt.Errorf("write component: %w", err)
 }

@@ -20,6 +20,8 @@ info:
       afetam componentes públicos. Manutenção nunca é tratada como indisponibilidade: se o mais grave for
       `maintenance`, o status geral é `maintenance`. Sem componentes públicos nem incidentes ativos, o
       status geral é `unknown`.
+    - Grupos de componentes não têm status próprio: o status de um grupo é o mais grave entre seus componentes
+      públicos e serve apenas para apresentação.
 
     ## Administração sem autenticação
     As rotas sob `/api/v1/admin/` **não possuem autenticação nesta versão** e permitem alterar todos os
@@ -44,7 +46,7 @@ tags:
   - name: public
     description: Consulta pública, sem autenticação e somente leitura.
   - name: admin-components
-    description: Gestão de componentes. **Sem autenticação nesta versão.**
+    description: Gestão de componentes e grupos de componentes. **Sem autenticação nesta versão.**
   - name: admin-incidents
     description: Ciclo de vida de incidentes. **Sem autenticação nesta versão.**
   - name: admin-maintenances
@@ -203,6 +205,7 @@ paths:
       parameters:
         - { name: is_active, in: query, schema: { type: boolean }, description: Filtra por ativo/desativado. }
         - { name: is_public, in: query, schema: { type: boolean }, description: Filtra por visibilidade pública. }
+        - { name: group_id, in: query, schema: { type: string, format: uuid }, description: Componentes do grupo informado. }
         - name: sort
           in: query
           description: 'Ordenação. Padrão: `display_order`.'
@@ -275,6 +278,98 @@ paths:
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/ValidationError' }
         '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/admin/component-groups:
+    get:
+      tags: [admin-components]
+      operationId: listComponentGroups
+      summary: Listar grupos de componentes
+      parameters:
+        - name: sort
+          in: query
+          description: 'Padrão: `display_order`.'
+          schema: { type: string, enum: [display_order, -display_order, name, -name, created_at, -created_at] }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Lista paginada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ComponentGroupList' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [admin-components]
+      operationId: createComponentGroup
+      summary: Criar grupo de componentes
+      description: Associe componentes ao grupo pelo campo `group_id` do componente.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ComponentGroupCreate' }
+            example: { name: Pagamentos, description: Serviços de cobrança e checkout. }
+      responses:
+        '201':
+          description: Criado.
+          headers: { Location: { $ref: '#/components/headers/Location' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ComponentGroup' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/component-groups/{id}:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    get:
+      tags: [admin-components]
+      operationId: getComponentGroup
+      summary: Consultar grupo
+      responses:
+        '200':
+          description: Grupo.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ComponentGroup' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    patch:
+      tags: [admin-components]
+      operationId: updateComponentGroup
+      summary: Atualizar grupo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ComponentGroupPatch' }
+      responses:
+        '200':
+          description: Atualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ComponentGroup' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    delete:
+      tags: [admin-components]
+      operationId: deleteComponentGroup
+      summary: Excluir grupo vazio
+      description: |
+        Só é possível excluir um grupo sem componentes (inclusive desativados). Mova-os antes
+        (`PATCH /api/v1/admin/components/{id}` com `group_id`); caso contrário retorna 409 `component_group_not_empty`.
+      responses:
+        '204': { description: Excluído. }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
 
   /api/v1/admin/incidents:
     get:
@@ -768,7 +863,7 @@ paths:
       parameters:
         - name: resource_type
           in: query
-          schema: { type: string, enum: [component, incident, maintenance, incident_template, maintenance_template] }
+          schema: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template] }
         - { name: resource_id, in: query, schema: { type: string, format: uuid } }
         - { name: action, in: query, schema: { type: string, maxLength: 64 }, description: 'Ex.: created, updated, resolved, started.' }
         - name: sort
@@ -863,7 +958,8 @@ components:
           example: { error: { code: incident_not_found, message: Recurso não encontrado., request_id: 4f2a9c1b7d3e5a6b8c9d0e1f } }
     Conflict:
       description: |
-        Conflito com o estado atual. Códigos: `component_slug_conflict`, `template_name_conflict`,
+        Conflito com o estado atual. Códigos: `component_slug_conflict`, `component_group_name_conflict`,
+        `component_group_not_empty`, `template_name_conflict`,
         `incident_resolved`, `incident_already_resolved`, `maintenance_closed`, `maintenance_already_started`,
         `maintenance_invalid_transition`.
       content:
@@ -991,7 +1087,7 @@ components:
     Component:
       type: object
       additionalProperties: false
-      required: [id, name, slug, description, status, is_public, is_active, display_order, created_at, updated_at]
+      required: [id, name, slug, description, status, is_public, is_active, display_order, group_id, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
@@ -1001,6 +1097,7 @@ components:
         is_public: { type: boolean }
         is_active: { type: boolean }
         display_order: { type: integer }
+        group_id: { type: string, format: uuid, nullable: true, description: Grupo do componente; `null` quando não agrupado. }
         created_at: { $ref: '#/components/schemas/Timestamp' }
         updated_at: { $ref: '#/components/schemas/Timestamp' }
     ComponentCreate:
@@ -1014,6 +1111,7 @@ components:
         status: { $ref: '#/components/schemas/ComponentStatus' }
         is_public: { type: boolean, default: true }
         display_order: { type: integer, minimum: 0, maximum: 100000, default: 0 }
+        group_id: { type: string, format: uuid, nullable: true }
     ComponentPatch:
       type: object
       additionalProperties: false
@@ -1026,6 +1124,7 @@ components:
         is_public: { type: boolean }
         is_active: { type: boolean }
         display_order: { type: integer, minimum: 0, maximum: 100000 }
+        group_id: { type: string, format: uuid, nullable: true, description: '`null` remove o componente do grupo.' }
     ComponentList:
       type: object
       additionalProperties: false
@@ -1036,14 +1135,64 @@ components:
     PublicComponent:
       type: object
       additionalProperties: false
-      required: [id, name, slug, description, status, updated_at]
+      required: [id, name, slug, description, status, group_id, display_order, updated_at]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
         slug: { type: string }
         description: { type: string }
         status: { $ref: '#/components/schemas/ComponentStatus' }
+        group_id: { type: string, format: uuid, nullable: true }
+        display_order: { type: integer }
         updated_at: { $ref: '#/components/schemas/Timestamp' }
+    PublicComponentGroup:
+      type: object
+      additionalProperties: false
+      required: [id, name, description, display_order, status, component_count, affected_components, components_under_maintenance]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        display_order: { type: integer }
+        status: { $ref: '#/components/schemas/ComponentStatus' }
+        component_count: { type: integer, description: Componentes públicos do grupo. }
+        affected_components: { type: integer }
+        components_under_maintenance: { type: integer }
+    ComponentGroup:
+      type: object
+      additionalProperties: false
+      required: [id, name, description, display_order, component_count, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        display_order: { type: integer }
+        component_count: { type: integer, description: Componentes associados (inclusive ocultos e desativados). }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    ComponentGroupCreate:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120, description: Único (sem diferenciar maiúsculas). }
+        description: { type: string, maxLength: 1000 }
+        display_order: { type: integer, minimum: 0, maximum: 100000, default: 0 }
+    ComponentGroupPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        description: { type: string, maxLength: 1000 }
+        display_order: { type: integer, minimum: 0, maximum: 100000 }
+    ComponentGroupList:
+      type: object
+      additionalProperties: false
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/ComponentGroup' } }
+        pagination: { $ref: '#/components/schemas/Pagination' }
     PublicComponentList:
       type: object
       additionalProperties: false
@@ -1389,7 +1538,7 @@ components:
       properties:
         id: { type: integer, format: int64 }
         occurred_at: { $ref: '#/components/schemas/Timestamp' }
-        resource_type: { type: string, enum: [component, incident, maintenance, incident_template, maintenance_template] }
+        resource_type: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template] }
         resource_id: { type: string, format: uuid }
         action: { type: string }
         source: { type: string, description: 'Canal de origem (ex.: admin_api). Não identifica uma pessoa.' }
@@ -1409,7 +1558,7 @@ components:
     StatusSummary:
       type: object
       additionalProperties: false
-      required: [overall, components, active_incidents, maintenances, generated_at]
+      required: [overall, components, groups, active_incidents, maintenances, generated_at]
       properties:
         overall:
           type: object
@@ -1423,7 +1572,14 @@ components:
               description: Origem do status. `declared` = informado por operadores, sem verificação automática.
             affected_components: { type: integer, description: Componentes públicos com status pior que operational (exceto manutenção). }
             components_under_maintenance: { type: integer }
-        components: { type: array, items: { $ref: '#/components/schemas/PublicComponent' } }
+        components:
+          type: array
+          description: Todos os componentes públicos (agrupados ou não), na ordem de exibição.
+          items: { $ref: '#/components/schemas/PublicComponent' }
+        groups:
+          type: array
+          description: Grupos com ao menos um componente público, com status derivado.
+          items: { $ref: '#/components/schemas/PublicComponentGroup' }
         active_incidents: { type: array, items: { $ref: '#/components/schemas/PublicIncident' } }
         maintenances:
           type: object

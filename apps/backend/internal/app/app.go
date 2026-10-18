@@ -69,7 +69,9 @@ func New(pool *pgxpool.Pool, opts Options) *App {
 		admin := func(h http.HandlerFunc) http.HandlerFunc {
 			return httpx.WithSource(httpx.SourceAdminAPI, h).ServeHTTP
 		}
-		component.NewHandler(component.NewService(pool, now), pool).Register(rt, admin)
+		componentHandler := component.NewHandler(component.NewService(pool, now), pool)
+		componentHandler.Register(rt, admin)
+		componentHandler.RegisterGroups(rt, admin)
 		incidentHandler.RegisterAdmin(rt, admin)
 		maintenanceHandler.RegisterAdmin(rt, admin)
 		templates.NewHandler(templates.NewService(pool, now), pool).Register(rt, admin)

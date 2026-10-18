@@ -24,12 +24,27 @@ const Basis = "declared"
 
 // PublicComponent is a component as shown on the public page.
 type PublicComponent struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Slug        string    `json:"slug"`
-	Description string    `json:"description"`
-	Status      string    `json:"status"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID           string    `json:"id"`
+	Name         string    `json:"name"`
+	Slug         string    `json:"slug"`
+	Description  string    `json:"description"`
+	Status       string    `json:"status"`
+	GroupID      *string   `json:"group_id"`
+	DisplayOrder int       `json:"display_order"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+// PublicGroup is a group with at least one public component. Its status is
+// derived from its components (statuspolicy.Group).
+type PublicGroup struct {
+	ID                         string `json:"id"`
+	Name                       string `json:"name"`
+	Description                string `json:"description"`
+	DisplayOrder               int    `json:"display_order"`
+	Status                     string `json:"status"`
+	ComponentCount             int    `json:"component_count"`
+	AffectedComponents         int    `json:"affected_components"`
+	ComponentsUnderMaintenance int    `json:"components_under_maintenance"`
 }
 
 // Overall is the platform-level status.
@@ -50,6 +65,7 @@ type Maintenances struct {
 type Summary struct {
 	Overall         Overall                   `json:"overall"`
 	Components      []PublicComponent         `json:"components"`
+	Groups          []PublicGroup             `json:"groups"`
 	ActiveIncidents []incident.PublicIncident `json:"active_incidents"`
 	Maintenances    Maintenances              `json:"maintenances"`
 	GeneratedAt     time.Time                 `json:"generated_at"`
@@ -82,6 +98,10 @@ func (s *Service) Build(ctx context.Context) (Summary, error) {
 		if err != nil {
 			return err
 		}
+		groups, err := component.AllGroups(ctx, tx)
+		if err != nil {
+			return err
+		}
 
 		states := make([]statuspolicy.ComponentState, len(comps))
 		for k, c := range comps {
@@ -106,11 +126,27 @@ func (s *Service) Build(ctx context.Context) (Summary, error) {
 		sum.Overall = Overall{Status: overall.Status, Basis: Basis, AffectedComponents: overall.AffectedComponents,
 			ComponentsUnderMaintenance: overall.ComponentsUnderMaintenance}
 		sum.Components = []PublicComponent{}
+		byGroup := map[string][]string{}
 		for _, c := range comps {
 			if c.IsPublic {
 				sum.Components = append(sum.Components, PublicComponent{ID: c.ID, Name: c.Name, Slug: c.Slug,
-					Description: c.Description, Status: effective[c.ID], UpdatedAt: c.UpdatedAt})
+					Description: c.Description, Status: effective[c.ID], GroupID: c.GroupID, DisplayOrder: c.DisplayOrder, UpdatedAt: c.UpdatedAt})
+				if c.GroupID != nil {
+					byGroup[*c.GroupID] = append(byGroup[*c.GroupID], effective[c.ID])
+				}
 			}
+		}
+		// Groups without public components are omitted from the public page.
+		sum.Groups = []PublicGroup{}
+		for _, g := range groups {
+			statuses := byGroup[g.ID]
+			if len(statuses) == 0 {
+				continue
+			}
+			gs := statuspolicy.Group(statuses)
+			sum.Groups = append(sum.Groups, PublicGroup{ID: g.ID, Name: g.Name, Description: g.Description, DisplayOrder: g.DisplayOrder,
+				Status: gs.Status, ComponentCount: len(statuses), AffectedComponents: gs.AffectedComponents,
+				ComponentsUnderMaintenance: gs.ComponentsUnderMaintenance})
 		}
 		sum.ActiveIncidents = make([]incident.PublicIncident, len(incs))
 		for k, i := range incs {

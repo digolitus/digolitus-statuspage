@@ -14,6 +14,8 @@ import (
 	"golang.org/x/text/unicode/norm"
 
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/apperror"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/httpx"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/optional"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/statuspolicy"
 )
 
@@ -27,6 +29,7 @@ type Component struct {
 	IsPublic     bool      `json:"is_public"`
 	IsActive     bool      `json:"is_active"`
 	DisplayOrder int       `json:"display_order"`
+	GroupID      *string   `json:"group_id"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
@@ -59,6 +62,7 @@ type CreateInput struct {
 	Status       *string `json:"status"`
 	IsPublic     *bool   `json:"is_public"`
 	DisplayOrder *int    `json:"display_order"`
+	GroupID      *string `json:"group_id"`
 }
 
 // UpdateInput is a partial update; nil fields are left unchanged.
@@ -70,6 +74,8 @@ type UpdateInput struct {
 	IsPublic     *bool   `json:"is_public"`
 	IsActive     *bool   `json:"is_active"`
 	DisplayOrder *int    `json:"display_order"`
+	// GroupID: absent = unchanged, null = remove from group.
+	GroupID optional.Nullable[string] `json:"group_id"`
 }
 
 var slugPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
@@ -119,6 +125,15 @@ func validateStatus(v *apperror.Validator, s string) {
 		"Status inválido. Valores aceitos: "+strings.Join(statuspolicy.ComponentStatuses, ", ")+".")
 }
 
+func normalizeGroupID(v *apperror.Validator, id *string) *string {
+	if id == nil {
+		return nil
+	}
+	g := strings.ToLower(strings.TrimSpace(*id))
+	v.Check(httpx.IsUUID(g), "group_id", "Informe o UUID de um grupo existente ou null.")
+	return &g
+}
+
 func validateOrder(v *apperror.Validator, o int) {
 	v.Check(o >= 0 && o <= 100000, "display_order", "Informe um inteiro entre 0 e 100000.")
 }
@@ -156,6 +171,7 @@ func (in CreateInput) normalize() (Component, error) {
 		c.DisplayOrder = *in.DisplayOrder
 		validateOrder(&v, c.DisplayOrder)
 	}
+	c.GroupID = normalizeGroupID(&v, in.GroupID)
 	return c, v.Err()
 }
 
@@ -194,6 +210,10 @@ func (in UpdateInput) apply(c Component) (Component, error) {
 	if in.DisplayOrder != nil {
 		c.DisplayOrder = *in.DisplayOrder
 		validateOrder(&v, c.DisplayOrder)
+		changed = true
+	}
+	if in.GroupID.Set {
+		c.GroupID = normalizeGroupID(&v, in.GroupID.Value)
 		changed = true
 	}
 	if !changed {

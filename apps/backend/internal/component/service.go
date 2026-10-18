@@ -67,6 +67,8 @@ func (s *Service) Update(ctx context.Context, id string, in UpdateInput) (Compon
 			action = "reactivated"
 		case current.Status != updated.Status:
 			action = "status_changed"
+		case !sameGroup(current.GroupID, updated.GroupID):
+			action = "group_changed"
 		}
 		return audit.Record(ctx, tx, audit.ResourceComponent, id, action, audit.Diff(current, updated), updated.UpdatedAt)
 	})
@@ -96,7 +98,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	q := httpx.NewQuery(r.URL.Query())
 	page := q.Page()
 	sort := q.Sort([]string{"display_order", "name", "created_at", "updated_at"}, httpx.Sort{Field: "display_order"})
-	f := Filter{Active: q.Bool("is_active"), Public: q.Bool("is_public")}
+	f := Filter{Active: q.Bool("is_active"), Public: q.Bool("is_public"), GroupID: q.UUID("group_id")}
 	if err := q.Err(); err != nil {
 		httpx.Fail(w, r, err)
 		return
@@ -155,4 +157,11 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, c)
+}
+
+func sameGroup(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }
