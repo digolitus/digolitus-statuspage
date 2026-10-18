@@ -108,7 +108,13 @@ jobs:
       - name: Known vulnerabilities (govulncheck)
         run: go run golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION} ./...
       - name: SAST (gosec)
-        run: go run github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION} -severity medium -confidence medium -exclude-generated ./...
+        # Findings are printed and also published as annotations on the PR
+        # (file and line), so they can be read without downloading logs.
+        run: |
+          go run github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION} -severity medium -confidence medium \
+            -exclude-generated -no-fail -fmt=json -out=gosec.json -stdout -verbose=text ./...
+          jq -r '.Issues[]? | "::error file=apps/backend/\(.file | sub("^.*/apps/backend/"; "")),line=\(.line | split("-")[0]),title=gosec \(.rule_id)::\(.details) (severity \(.severity), confidence \(.confidence))"' gosec.json
+          test "$(jq '.Issues | length' gosec.json)" -eq 0
 
   frontend:
     name: Frontend (React)
@@ -233,7 +239,13 @@ jobs:
 
   dependency-review:
     name: Dependency review
-    if: github.event_name == 'pull_request'
+    # Needs the dependency graph (public repositories, or private ones with
+    # GitHub Advanced Security). Elsewhere it is skipped; govulncheck, npm
+    # audit and Trivy still cover known vulnerabilities. Set the repository
+    # variable ENABLE_DEPENDENCY_REVIEW=true once the feature is available.
+    if: >-
+      github.event_name == 'pull_request' &&
+      (!github.event.repository.private || vars.ENABLE_DEPENDENCY_REVIEW == 'true')
     runs-on: ubuntu-24.04
     permissions:
       contents: read
