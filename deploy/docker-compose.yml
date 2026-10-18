@@ -1,0 +1,55 @@
+name: digolitus-status-page
+
+services:
+  backend:
+    build:
+      context: ../apps/backend
+      dockerfile: Dockerfile
+    image: digolitus-statuspage-backend:local
+    container_name: digolitus-status-page-backend
+    environment:
+      PORT: "8080"
+    expose:
+      - "8080"
+    networks:
+      - status-page
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - "CMD"
+        - "/healthcheck"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  frontend:
+    build:
+      context: ../apps/frontend
+      dockerfile: Dockerfile
+    image: digolitus-statuspage-frontend:local
+    container_name: digolitus-status-page-frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    networks:
+      - status-page
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - "CMD"
+        - "wget"
+        - "--spider"
+        - "--quiet"
+        - "http://127.0.0.1:8080/"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+networks:
+  status-page:
+    name: digolitus-status-page-network
+    driver: bridge
