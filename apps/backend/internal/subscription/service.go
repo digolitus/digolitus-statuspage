@@ -287,7 +287,7 @@ func (s *Service) Subscribe(ctx context.Context, in SubscribeInput) error {
 		return err
 	}
 	now := s.now()
-	return database.InTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err := database.InTx(ctx, s.pool, func(tx pgx.Tx) error {
 		var recent int
 		if err := tx.QueryRow(ctx, "SELECT count(*) FROM subscriptions WHERE status = 'pending' AND created_at > $1", now.Add(-time.Hour)).Scan(&recent); err != nil {
 			return err
@@ -342,6 +342,12 @@ func (s *Service) Subscribe(ctx context.Context, in SubscribeInput) error {
 		}
 		return enqueue(ctx, tx, existing.ID, kind, now)
 	})
+	// A concurrent identical request created the subscription first; it
+	// sends the e-mail, and the answer stays the same (no enumeration).
+	if _, ok := database.ConstraintError(err, database.CodeUniqueViolation); ok {
+		return nil
+	}
+	return err
 }
 
 func newSecret() string {
