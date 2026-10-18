@@ -1,5 +1,6 @@
+import { useState } from "react";
 import type { PublicIncident, PublicMaintenance } from "../api/types";
-import { Badge, Timeline } from "../components/ui";
+import { Badge, Timeline, type TimelineEntry } from "../components/ui";
 import {
   expectedImpactLabel,
   formatDateTime,
@@ -25,9 +26,36 @@ export function ComponentChips({ components }: { components: { id: string; name:
   );
 }
 
-/** Incident card; with showTimeline it renders all embedded updates. */
-export function IncidentCard({ incident, showTimeline, linkTo }: { incident: PublicIncident; showTimeline?: boolean; linkTo?: string }) {
-  const updates = showTimeline ? incident.updates ?? [] : incident.latest_update ? [incident.latest_update] : [];
+/**
+ * Shows the latest update and, on demand, the earlier ones. Keeps the page
+ * short while preserving the full public timeline. full=true always shows
+ * everything (detail pages).
+ */
+function CollapsibleTimeline({ entries, full = false }: { entries: TimelineEntry[]; full?: boolean }) {
+  const [expanded, setExpanded] = useState(false);
+  const showAll = full || expanded || entries.length <= 1;
+  return (
+    <>
+      <Timeline formatAt={(iso) => formatDateTime(iso)} entries={showAll ? entries : entries.slice(0, 1)} />
+      {!full && entries.length > 1 && (
+        <button type="button" className="link-button" aria-expanded={expanded} onClick={() => setExpanded((e) => !e)}>
+          {expanded ? "Mostrar só a última atualização" : `Ver todas as ${entries.length} atualizações`}
+        </button>
+      )}
+    </>
+  );
+}
+
+/** Incident card. full=true renders the whole timeline (detail page). */
+export function IncidentCard({ incident, full, linkTo }: { incident: PublicIncident; full?: boolean; linkTo?: string }) {
+  const updates = incident.updates ?? (incident.latest_update ? [incident.latest_update] : []);
+  const entries: TimelineEntry[] = updates.map((u) => ({
+    id: u.id,
+    label: incidentStatusLabel[u.status],
+    tone: toneForIncident[u.status],
+    message: u.message,
+    at: u.created_at,
+  }));
   return (
     <article className="event-card" aria-labelledby={`incident-${incident.id}`}>
       <header className="event-head">
@@ -51,23 +79,21 @@ export function IncidentCard({ incident, showTimeline, linkTo }: { incident: Pub
         )}
       </dl>
       <ComponentChips components={incident.components} />
-      <Timeline
-        formatAt={(iso) => formatDateTime(iso)}
-        entries={updates.map((u) => ({
-          id: u.id,
-          label: incidentStatusLabel[u.status],
-          tone: toneForIncident[u.status],
-          message: u.message,
-          at: u.created_at,
-        }))}
-      />
+      <CollapsibleTimeline entries={entries} full={full} />
     </article>
   );
 }
 
 /** Maintenance card. Planned times are shown in the maintenance's own zone. */
-export function MaintenanceCard({ maintenance: m, showTimeline, linkTo }: { maintenance: PublicMaintenance; showTimeline?: boolean; linkTo?: string }) {
-  const updates = showTimeline ? m.updates ?? [] : m.latest_update ? [m.latest_update] : [];
+export function MaintenanceCard({ maintenance: m, full, linkTo }: { maintenance: PublicMaintenance; full?: boolean; linkTo?: string }) {
+  const updates = m.updates ?? (m.latest_update ? [m.latest_update] : []);
+  const entries: TimelineEntry[] = updates.map((u) => ({
+    id: u.id,
+    label: maintenanceKindLabel[u.kind],
+    tone: toneForMaintenance[u.status],
+    message: u.message,
+    at: u.created_at,
+  }));
   return (
     <article className="event-card" aria-labelledby={`maintenance-${m.id}`}>
       <header className="event-head">
@@ -108,17 +134,24 @@ export function MaintenanceCard({ maintenance: m, showTimeline, linkTo }: { main
       {m.start_overdue && <p className="overdue">O início previsto já passou; a manutenção ainda não foi iniciada.</p>}
       {m.end_overdue && <p className="overdue">O término previsto já passou; a manutenção ainda não foi concluída.</p>}
       <ComponentChips components={m.components} />
-      <Timeline
-        formatAt={(iso) => formatDateTime(iso)}
-        entries={updates.map((u) => ({
-          id: u.id,
-          label: maintenanceKindLabel[u.kind],
-          tone: toneForMaintenance[u.status],
-          message: u.message,
-          at: u.created_at,
-        }))}
-      />
+      <CollapsibleTimeline entries={entries} full={full} />
     </article>
   );
 }
 
+/** One-line summary for upcoming maintenance, to keep the page compact. */
+export function MaintenanceRow({ maintenance: m }: { maintenance: PublicMaintenance }) {
+  return (
+    <li className="maintenance-row">
+      <div>
+        <Link to={`/maintenances/${m.id}`}>{m.title}</Link>
+        <span className="muted">
+          {" "}
+          · {formatDateTime(m.scheduled_start, m.timezone)} → {formatDateTime(m.scheduled_end, m.timezone)}
+        </span>
+        {m.components.length > 0 && <span className="muted"> · {m.components.map((c) => c.name).join(", ")}</span>}
+      </div>
+      <Badge tone="info">{expectedImpactLabel[m.expected_impact]}</Badge>
+    </li>
+  );
+}

@@ -1,6 +1,17 @@
 import { useState, type FormEvent } from "react";
 import { adminApi } from "../api/endpoints";
-import type { ExpectedImpact, IncidentImpact, IncidentStatus, IncidentTemplate, MaintenanceTemplate } from "../api/types";
+import type {
+  ExpectedImpact,
+  IncidentImpact,
+  IncidentStatus,
+  IncidentTemplate,
+  IncidentTemplateCreate,
+  IncidentTemplatePatch,
+  MaintenanceTemplate,
+  MaintenanceTemplateCreate,
+  MaintenanceTemplatePatch,
+  Page,
+} from "../api/types";
 import { ConfirmButton, EmptyState, ErrorPanel, Field, Loading, Pager } from "../components/ui";
 import { expectedImpactLabel, impactLabel, incidentStatusLabel } from "../lib/format";
 import { useApi } from "../lib/useApi";
@@ -43,15 +54,32 @@ function valuesOf(t: AnyTemplate): Values {
   };
 }
 
+type TemplateBody = IncidentTemplateCreate | MaintenanceTemplateCreate;
+
+/**
+ * Kind-specific API calls. The form builds the body for the selected kind
+ * (impact/status for incidents, expected_impact for maintenances), so the
+ * narrowing casts below are safe; the API validates the payload anyway.
+ */
 const api = {
-  incident: adminApi.incidentTemplates,
-  maintenance: adminApi.maintenanceTemplates,
+  list: (kind: Kind, query: { is_active?: boolean; limit: number; offset: number }, signal: AbortSignal): Promise<Page<AnyTemplate>> =>
+    kind === "incident"
+      ? adminApi.incidentTemplates.list(query, { signal })
+      : adminApi.maintenanceTemplates.list(query, { signal }),
+  create: (kind: Kind, body: TemplateBody): Promise<AnyTemplate> =>
+    kind === "incident"
+      ? adminApi.incidentTemplates.create(body as IncidentTemplateCreate)
+      : adminApi.maintenanceTemplates.create(body as MaintenanceTemplateCreate),
+  update: (kind: Kind, id: string, body: IncidentTemplatePatch | MaintenanceTemplatePatch): Promise<AnyTemplate> =>
+    kind === "incident"
+      ? adminApi.incidentTemplates.update(id, body as IncidentTemplatePatch)
+      : adminApi.maintenanceTemplates.update(id, body as MaintenanceTemplatePatch),
 };
 
 function TemplateForm({ kind, initial, onSubmit, submitLabel, onCancel }: {
   kind: Kind;
   initial: Values;
-  onSubmit: (body: Record<string, unknown>) => Promise<unknown>;
+  onSubmit: (body: TemplateBody) => Promise<unknown>;
   submitLabel: string;
   onCancel?: () => void;
 }) {
@@ -66,7 +94,7 @@ function TemplateForm({ kind, initial, onSubmit, submitLabel, onCancel }: {
     requireText(errors, "title", v.title, 200, "Título sugerido");
     requireText(errors, "message", v.message, 5000, "Mensagem sugerida");
     if (Object.keys(errors).length) return submit.setFieldErrors(errors);
-    const body: Record<string, unknown> = {
+    const body: TemplateBody = {
       name: v.name.trim(),
       description: v.description.trim(),
       title: v.title.trim(),
@@ -158,7 +186,7 @@ export function TemplatesPage({ kind }: { kind: Kind }) {
   const [editing, setEditing] = useState<string | null>(null);
   const isActive = filter === "all" ? undefined : filter === "active";
   const { state, reload } = useApi(
-    (signal) => api[kind].list({ is_active: isActive, limit: 50, offset }, { signal }) as Promise<{ data: AnyTemplate[]; pagination: { limit: number; offset: number; total: number } }>,
+    (signal) => api.list(kind, { is_active: isActive, limit: 50, offset }, signal),
     [kind, filter, offset],
   );
   const title = kind === "incident" ? "Templates de incidente" : "Templates de manutenção";
@@ -180,8 +208,8 @@ export function TemplatesPage({ kind }: { kind: Kind }) {
             initial={blank}
             submitLabel="Criar template"
             onSubmit={async (body) => {
-              const t = await api[kind].create(body);
-              await reload();
+              const t = await api.create(kind, body);
+              reload();
               return t;
             }}
             onCancel={() => setCreating(false)}
@@ -241,8 +269,8 @@ export function TemplatesPage({ kind }: { kind: Kind }) {
                       confirmLabel="Confirmar"
                       question={t.is_active ? `Desativar "${t.name}"? Ele deixará de ser oferecido nos formulários.` : `Ativar "${t.name}"?`}
                       onConfirm={async () => {
-                        await api[kind].update(t.id, { is_active: !t.is_active });
-                        await reload();
+                        await api.update(kind, t.id, { is_active: !t.is_active });
+                        reload();
                       }}
                     />
                   </div>
@@ -252,8 +280,8 @@ export function TemplatesPage({ kind }: { kind: Kind }) {
                       initial={valuesOf(t)}
                       submitLabel="Salvar alterações"
                       onSubmit={async (body) => {
-                        const saved = await api[kind].update(t.id, body);
-                        await reload();
+                        const saved = await api.update(kind, t.id, body);
+                        reload();
                         return saved;
                       }}
                       onCancel={() => setEditing(null)}

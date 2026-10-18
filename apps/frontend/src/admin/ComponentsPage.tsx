@@ -1,30 +1,49 @@
 import { useState, type FormEvent } from "react";
-import { adminApi, type ComponentInput } from "../api/endpoints";
-import type { Component, ComponentStatus } from "../api/types";
+import { adminApi } from "../api/endpoints";
+import type { Component, ComponentCreate, ComponentGroup, ComponentStatus } from "../api/types";
 import { Badge, ConfirmButton, EmptyState, ErrorPanel, Field, Loading, Pager } from "../components/ui";
 import { componentStatusLabel, toneForStatus } from "../lib/format";
+import { Link } from "../lib/router";
 import { useApi } from "../lib/useApi";
 import { FormStatus, PageHeader, requireText, useSubmit } from "./shared";
 
 const STATUSES = Object.keys(componentStatusLabel) as ComponentStatus[];
 
-type FormValues = { name: string; slug: string; description: string; status: ComponentStatus; is_public: boolean; display_order: string };
+type FormValues = {
+  name: string;
+  slug: string;
+  description: string;
+  status: ComponentStatus;
+  is_public: boolean;
+  display_order: string;
+  group_id: string;
+};
 
-const empty: FormValues = { name: "", slug: "", description: "", status: "operational", is_public: true, display_order: "0" };
+const empty: FormValues = { name: "", slug: "", description: "", status: "operational", is_public: true, display_order: "0", group_id: "" };
 
 function toValues(c: Component): FormValues {
-  return { name: c.name, slug: c.slug, description: c.description, status: c.status, is_public: c.is_public, display_order: String(c.display_order) };
+  return {
+    name: c.name,
+    slug: c.slug,
+    description: c.description,
+    status: c.status,
+    is_public: c.is_public,
+    display_order: String(c.display_order),
+    group_id: c.group_id ?? "",
+  };
 }
 
 function ComponentForm({
   initial,
+  groups,
   submitLabel,
   onSubmit,
   onCancel,
 }: {
   initial: FormValues;
+  groups: ComponentGroup[];
   submitLabel: string;
-  onSubmit: (input: ComponentInput) => Promise<unknown>;
+  onSubmit: (input: ComponentCreate) => Promise<unknown>;
   onCancel?: () => void;
 }) {
   const [v, setV] = useState(initial);
@@ -41,7 +60,14 @@ function ComponentForm({
       submit.setFieldErrors(errors);
       return;
     }
-    const input: ComponentInput = { name: v.name.trim(), description: v.description.trim(), status: v.status, is_public: v.is_public, display_order: order };
+    const input: ComponentCreate = {
+      name: v.name.trim(),
+      description: v.description.trim(),
+      status: v.status,
+      is_public: v.is_public,
+      display_order: order,
+      group_id: v.group_id || null,
+    };
     if (v.slug.trim()) input.slug = v.slug.trim();
     const ok = await submit.run(() => onSubmit(input), "Componente salvo.");
     if (ok && initial === empty) setV(empty);
@@ -63,6 +89,18 @@ function ComponentForm({
               {STATUSES.map((s) => (
                 <option key={s} value={s}>
                   {componentStatusLabel[s]}
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
+        <Field label="Grupo" error={fe.group_id} hint="Opcional. Grupos aparecem recolhidos na página pública.">
+          {(p) => (
+            <select {...p} value={v.group_id} onChange={(e) => set("group_id", e.target.value)}>
+              <option value="">Sem grupo</option>
+              {groups.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
                 </option>
               ))}
             </select>
@@ -99,15 +137,22 @@ export function ComponentsPage() {
   const [offset, setOffset] = useState(0);
   const [editing, setEditing] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [groupFilter, setGroupFilter] = useState("");
   const isActive = filter === "all" ? undefined : filter === "active";
   const { state, reload } = useApi(
-    (signal) => adminApi.components.list({ is_active: isActive, limit: 50, offset }, { signal }),
-    [filter, offset],
+    (signal) => adminApi.components.list({ is_active: isActive, group_id: groupFilter || undefined, limit: 50, offset }, { signal }),
+    [filter, groupFilter, offset],
   );
+  const groupsState = useApi((signal) => adminApi.groups.list({ limit: 100 }, { signal }), []).state;
+  const groups = groupsState.status === "success" ? groupsState.data.data : [];
+  const groupName = (id: string | null) => groups.find((g) => g.id === id)?.name;
 
   return (
     <div className="admin-content">
       <PageHeader title="Componentes">
+        <Link className="secondary-button" to="/admin/component-groups">
+          Gerenciar grupos
+        </Link>
         <button type="button" className="primary-button" onClick={() => setCreating((c) => !c)} aria-expanded={creating}>
           Novo componente
         </button>
@@ -120,10 +165,11 @@ export function ComponentsPage() {
         <section className="panel" aria-label="Novo componente">
           <ComponentForm
             initial={empty}
+            groups={groups}
             submitLabel="Criar componente"
             onSubmit={async (input) => {
               const c = await adminApi.components.create(input);
-              await reload();
+              reload();
               return c;
             }}
             onCancel={() => setCreating(false)}
@@ -146,6 +192,25 @@ export function ComponentsPage() {
           </button>
         ))}
       </div>
+      {groups.length > 0 && (
+        <label className="inline-filter">
+          Grupo{" "}
+          <select
+            value={groupFilter}
+            onChange={(e) => {
+              setGroupFilter(e.target.value);
+              setOffset(0);
+            }}
+          >
+            <option value="">Todos</option>
+            {groups.map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       {state.status === "loading" && <Loading />}
       {state.status === "error" && <ErrorPanel error={state.error} onRetry={reload} />}
       {state.status === "success" &&
@@ -160,6 +225,7 @@ export function ComponentsPage() {
                     <div>
                       <strong>{c.name}</strong> <code>{c.slug}</code>
                       <div className="admin-item-tags">
+                        {c.group_id && <span className="tag">Grupo: {groupName(c.group_id) ?? "…"}</span>}
                         {!c.is_public && <span className="tag">Oculto</span>}
                         {!c.is_active && <span className="tag">Desativado</span>}
                         <span className="tag">Ordem {c.display_order}</span>
@@ -182,17 +248,18 @@ export function ComponentsPage() {
                       }
                       onConfirm={async () => {
                         await adminApi.components.update(c.id, { is_active: !c.is_active });
-                        await reload();
+                        reload();
                       }}
                     />
                   </div>
                   {editing === c.id && (
                     <ComponentForm
                       initial={toValues(c)}
+                      groups={groups}
                       submitLabel="Salvar alterações"
                       onSubmit={async (input) => {
                         const updated = await adminApi.components.update(c.id, input);
-                        await reload();
+                        reload();
                         return updated;
                       }}
                       onCancel={() => setEditing(null)}

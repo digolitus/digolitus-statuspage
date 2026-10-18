@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
-import { adminApi, type IncidentCreateInput } from "../api/endpoints";
-import type { Incident, IncidentImpact, IncidentStatus, IncidentTemplate } from "../api/types";
+import { adminApi } from "../api/endpoints";
+import type { Incident, IncidentCreate, IncidentImpact, IncidentStatus, IncidentTemplate } from "../api/types";
 import { Badge, ConfirmButton, EmptyState, ErrorPanel, Field, Loading, Pager, Timeline } from "../components/ui";
 import { browserTimeZone, formatDateTime, impactLabel, incidentStatusLabel, toneForIncident } from "../lib/format";
 import { Link, navigate } from "../lib/router";
@@ -125,7 +125,7 @@ export function IncidentNewPage() {
       submit.setFieldErrors(errors);
       return;
     }
-    const input: IncidentCreateInput = {
+    const input: IncidentCreate = {
       title: v.title.trim(),
       message: v.message.trim(),
       impact: v.impact,

@@ -1,6 +1,7 @@
 import { Link, match, useLocation } from "../lib/router";
 import { AuditPage } from "./AuditPage";
 import { ComponentsPage } from "./ComponentsPage";
+import { GroupsPage } from "./GroupsPage";
 import { IncidentDetailPage, IncidentNewPage, IncidentsPage } from "./incidents";
 import { MaintenanceDetailPage, MaintenanceNewPage, MaintenancesPage } from "./maintenances";
 import { OverviewPage } from "./OverviewPage";
@@ -9,6 +10,7 @@ import { TemplatesPage } from "./TemplatesPage";
 const NAV = [
   { to: "/admin", label: "Visão geral" },
   { to: "/admin/components", label: "Componentes" },
+  { to: "/admin/component-groups", label: "Grupos de componentes" },
   { to: "/admin/incidents", label: "Incidentes" },
   { to: "/admin/incident-templates", label: "Templates de incidente" },
   { to: "/admin/maintenances", label: "Manutenções" },
@@ -20,6 +22,7 @@ function route(pathname: string) {
   let p: Record<string, string> | null;
   if (match("/admin", pathname)) return <OverviewPage />;
   if (match("/admin/components", pathname)) return <ComponentsPage />;
+  if (match("/admin/component-groups", pathname)) return <GroupsPage />;
   if (match("/admin/incidents", pathname)) return <IncidentsPage />;
   if (match("/admin/incidents/new", pathname)) return <IncidentNewPage />;
   if ((p = match("/admin/incidents/:id", pathname))) return <IncidentDetailPage key={p.id} id={p.id} />;

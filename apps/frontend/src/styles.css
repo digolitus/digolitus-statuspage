@@ -313,6 +313,163 @@ main#main {
   gap: 8px;
 }
 
+/* ---------- public page (compact layout) ---------- */
+
+.status-banner-wrap {
+  padding: 28px 0 8px;
+}
+
+.status-banner-wrap .status-actions {
+  margin-top: 10px;
+}
+
+.section-title {
+  margin: 0 0 14px;
+  font-size: 20px;
+}
+
+.page-section {
+  padding-top: 28px;
+}
+
+.link-button {
+  padding: 0;
+  border: 0;
+  color: var(--brand);
+  background: none;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.component-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.component-rows > li + li {
+  border-top: 1px solid var(--line);
+}
+
+.component-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 14px 18px;
+}
+
+.component-row > div,
+.group-title {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.component-name {
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.component-description {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.group-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  width: 100%;
+  padding: 14px 18px;
+  border: 0;
+  color: inherit;
+  background: none;
+  text-align: left;
+}
+
+.group-toggle:hover {
+  background: var(--page);
+}
+
+.group-title {
+  flex: 1;
+}
+
+.group-chevron {
+  display: inline-block;
+  width: 14px;
+  color: var(--muted);
+  transition: transform 0.15s ease;
+}
+
+.group-row-open .group-chevron,
+.section-toggle[aria-expanded="true"] .group-chevron {
+  transform: rotate(90deg);
+}
+
+.group-description {
+  margin: 0;
+  padding: 0 18px 10px 44px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.component-rows.nested {
+  margin: 0 0 12px 30px;
+  border-width: 0 0 0 2px;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.component-rows.nested .component-row {
+  padding: 10px 18px 10px 14px;
+}
+
+.maintenance-rows {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.maintenance-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  font-size: 14px;
+}
+
+.maintenance-row a {
+  font-weight: 650;
+}
+
+.section-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  color: var(--ink);
+  background: none;
+  font: inherit;
+}
+
 /* ---------- badges & status ---------- */
 
 .badge {

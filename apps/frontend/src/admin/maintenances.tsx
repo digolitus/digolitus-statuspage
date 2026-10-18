@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent } from "react";
-import { adminApi, type MaintenanceCreateInput, type MaintenancePatchInput } from "../api/endpoints";
-import type { ExpectedImpact, Maintenance, MaintenanceStatus, MaintenanceTemplate } from "../api/types";
+import { adminApi } from "../api/endpoints";
+import type { ExpectedImpact, Maintenance, MaintenanceCreate, MaintenancePatch, MaintenanceStatus, MaintenanceTemplate } from "../api/types";
 import { Badge, ConfirmButton, EmptyState, ErrorPanel, Field, Loading, Pager, Timeline } from "../components/ui";
 import {
   browserTimeZone,
@@ -153,7 +153,7 @@ export function MaintenanceNewPage() {
     const errors: Record<string, string> = {};
     validateWindow(v, errors);
     if (Object.keys(errors).length) return submit.setFieldErrors(errors);
-    const input: MaintenanceCreateInput = {
+    const input: MaintenanceCreate = {
       title: v.title.trim(),
       description: v.description.trim(),
       expected_impact: v.expected_impact,
@@ -247,7 +247,7 @@ function EditForm({ m, onSaved }: { m: Maintenance; onSaved: (m: Maintenance) =>
     const errors: Record<string, string> = {};
     validateWindow({ ...v, message: "", template_id: "" }, errors);
     if (Object.keys(errors).length) return submit.setFieldErrors(errors);
-    const patch: MaintenancePatchInput = {};
+    const patch: MaintenancePatch = {};
     if (v.title.trim() !== initial.title) patch.title = v.title.trim();
     if (v.description.trim() !== initial.description) patch.description = v.description.trim();
     if (v.expected_impact !== initial.expected_impact) patch.expected_impact = v.expected_impact;

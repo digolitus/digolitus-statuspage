@@ -7,9 +7,8 @@ export interface PollingState<T> {
   error?: unknown;
   /** Error of the latest refresh while older data is still shown. */
   staleError?: unknown;
-  /** When the shown data was received. */
-  receivedAt?: Date;
   loading: boolean;
+  /** A manual refresh is in flight. */
   refreshing: boolean;
 }
 
@@ -28,37 +27,31 @@ export interface PollingOptions {
  */
 export function usePolling<T>(load: (signal: AbortSignal) => Promise<T>, { intervalMs, maxBackoffMs }: PollingOptions) {
   const [state, setState] = useState<PollingState<T>>({ loading: true, refreshing: false });
+  // Latest loader, updated after each render (never during render) so the
+  // timer always calls the current function.
   const loadRef = useRef(load);
-  loadRef.current = load;
+  useEffect(() => {
+    loadRef.current = load;
+  });
   const controller = useRef<AbortController | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const failures = useRef(0);
   const lastRun = useRef(0);
-  const mounted = useRef(true);
+  const active = useRef(true);
 
-  const schedule = useCallback(
-    (run: () => void) => {
-      if (timer.current) clearTimeout(timer.current);
-      const delay = Math.min(intervalMs * 2 ** failures.current, maxBackoffMs);
-      timer.current = setTimeout(run, delay);
-    },
-    [intervalMs, maxBackoffMs],
-  );
-
-  const refresh = useCallback(async () => {
+  const fetchOnce = useCallback(async () => {
     if (timer.current) clearTimeout(timer.current);
     controller.current?.abort();
     const c = new AbortController();
     controller.current = c;
     lastRun.current = Date.now();
-    setState((s) => ({ ...s, refreshing: s.data !== undefined }));
     try {
       const data = await loadRef.current(c.signal);
-      if (c.signal.aborted || !mounted.current) return;
+      if (c.signal.aborted || !active.current) return;
       failures.current = 0;
-      setState({ data, receivedAt: new Date(), loading: false, refreshing: false });
+      setState({ data, loading: false, refreshing: false });
     } catch (error) {
-      if (c.signal.aborted || isAbort(error) || !mounted.current) return;
+      if (c.signal.aborted || isAbort(error) || !active.current) return;
       failures.current += 1;
       setState((s) =>
         s.data !== undefined
@@ -66,31 +59,39 @@ export function usePolling<T>(load: (signal: AbortSignal) => Promise<T>, { inter
           : { loading: false, refreshing: false, error },
       );
     }
-    if (mounted.current && !document.hidden) {
-      schedule(() => void refresh());
+    if (active.current && !document.hidden) {
+      const delay = Math.min(intervalMs * 2 ** failures.current, maxBackoffMs);
+      timer.current = setTimeout(() => void fetchOnce(), delay);
     }
-  }, [schedule]);
+  }, [intervalMs, maxBackoffMs]);
 
   useEffect(() => {
-    mounted.current = true;
-    void refresh();
+    active.current = true;
+    void fetchOnce();
     const onVisibility = () => {
       if (document.hidden) {
         if (timer.current) clearTimeout(timer.current);
       } else if (Date.now() - lastRun.current >= intervalMs) {
-        void refresh();
+        void fetchOnce();
       } else {
-        schedule(() => void refresh());
+        if (timer.current) clearTimeout(timer.current);
+        timer.current = setTimeout(() => void fetchOnce(), intervalMs - (Date.now() - lastRun.current));
       }
     };
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
-      mounted.current = false;
+      active.current = false;
       document.removeEventListener("visibilitychange", onVisibility);
       if (timer.current) clearTimeout(timer.current);
       controller.current?.abort();
     };
-  }, [refresh, schedule, intervalMs]);
+  }, [fetchOnce, intervalMs]);
+
+  /** Manual refresh (event handler): shows a refreshing indicator. */
+  const refresh = useCallback(() => {
+    setState((s) => ({ ...s, refreshing: s.data !== undefined, loading: s.data === undefined }));
+    void fetchOnce();
+  }, [fetchOnce]);
 
   return { ...state, refresh };
 }

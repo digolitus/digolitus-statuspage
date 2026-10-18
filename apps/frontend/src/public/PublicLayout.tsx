@@ -17,8 +17,6 @@ export function PublicLayout({ children }: { children: ReactNode }) {
           </Link>
           <nav className="main-navigation" aria-label="Navegação principal">
             <a href="/#components">Componentes</a>
-            <a href="/#incidents">Incidentes</a>
-            <a href="/#maintenances">Manutenções</a>
             <a href="/#history">Histórico</a>
           </nav>
         </div>

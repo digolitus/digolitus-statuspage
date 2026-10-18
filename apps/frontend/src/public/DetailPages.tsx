@@ -21,7 +21,7 @@ export function IncidentPage({ id }: { id: string }) {
       </p>
       {state.status === "loading" && <Loading />}
       {state.status === "error" && <NotFoundOr error={state.error} onRetry={reload} what="Incidente" />}
-      {state.status === "success" && <IncidentCard incident={state.data} showTimeline />}
+      {state.status === "success" && <IncidentCard incident={state.data} full />}
     </section>
   );
 }
@@ -35,7 +35,7 @@ export function MaintenancePage({ id }: { id: string }) {
       </p>
       {state.status === "loading" && <Loading />}
       {state.status === "error" && <NotFoundOr error={state.error} onRetry={reload} what="Manutenção" />}
-      {state.status === "success" && <MaintenanceCard maintenance={state.data} showTimeline />}
+      {state.status === "success" && <MaintenanceCard maintenance={state.data} full />}
     </section>
   );
 }

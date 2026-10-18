@@ -19,33 +19,67 @@ describe("public status page", () => {
   });
 
   it("states that nothing is declared when there is no data, without claiming health", async () => {
-    mockApi({ "GET /api/v1/status": { body: emptySummary }, ...history });
+    const calls = mockApi({ "GET /api/v1/status": { body: emptySummary }, ...history });
     render(<App />);
     expect(await screen.findByText("Status não informado")).toBeInTheDocument();
-    expect(screen.getByText(/não realiza verificações automáticas/)).toBeInTheDocument();
-    expect(screen.getByText("Nenhum incidente ativo")).toBeInTheDocument();
+    expect(screen.getByText(/sem verificação automática/)).toBeInTheDocument();
     expect(screen.getByText("Nenhum componente publicado")).toBeInTheDocument();
     expect(screen.queryByText(/Todos os sistemas operacionais/)).not.toBeInTheDocument();
+    // Nothing happening: no events section, and history is collapsed (not fetched).
+    expect(screen.queryByRole("heading", { name: "Acontecendo agora" })).not.toBeInTheDocument();
+    expect(calls.some((c) => c.path === "/api/v1/incidents")).toBe(false);
+  });
+
+  it("puts components first when nothing is happening, with groups collapsed", async () => {
+    const summary: StatusSummary = {
+      ...emptySummary,
+      overall: { status: "degraded_performance", basis: "declared", affected_components: 1, components_under_maintenance: 0 },
+      components: [
+        { id: "c1", name: "API de Pagamentos", slug: "api-pag", description: "", status: "degraded_performance", group_id: "g1", display_order: 0, updated_at: "2026-03-01T11:00:00Z" },
+        { id: "c2", name: "Checkout", slug: "checkout", description: "", status: "operational", group_id: "g1", display_order: 1, updated_at: "2026-03-01T11:00:00Z" },
+        { id: "c3", name: "Portal", slug: "portal", description: "", status: "operational", group_id: null, display_order: 5, updated_at: "2026-03-01T11:00:00Z" },
+      ],
+      groups: [
+        { id: "g1", name: "Pagamentos", description: "Cobrança", display_order: 1, status: "degraded_performance", component_count: 2, affected_components: 1, components_under_maintenance: 0 },
+      ],
+    };
+    mockApi({ "GET /api/v1/status": { body: summary }, ...history });
+    render(<App />);
+    const toggle = await screen.findByRole("button", { name: /Pagamentos/ });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByText("2 componentes · 1 afetado")).toBeInTheDocument();
+    expect(screen.queryByText("Checkout")).not.toBeVisible();
+    expect(screen.getByText("Portal")).toBeVisible();
+
+    await userEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("Checkout")).toBeVisible();
+    expect(screen.getByText("Cobrança")).toBeVisible();
   });
 
   it("renders components, active incidents with timeline and maintenances", async () => {
     const summary: StatusSummary = {
       ...emptySummary,
       overall: { status: "partial_outage", basis: "declared", affected_components: 1, components_under_maintenance: 0 },
-      components: [{ id: "c1", name: "API", slug: "api", description: "REST", status: "partial_outage", updated_at: "2026-03-01T11:00:00Z" }],
+      components: [{ id: "c1", name: "API", slug: "api", description: "REST", status: "partial_outage", group_id: null, display_order: 0, updated_at: "2026-03-01T11:00:00Z" }],
       active_incidents: [incident],
       maintenances: { in_progress: [], upcoming: [maintenance] },
     };
     mockApi({ "GET /api/v1/status": { body: summary }, ...history });
     render(<App />);
     expect(await screen.findByText("1 componente afetado.")).toBeInTheDocument();
+    // Active events take the top of the page, above components.
+    const now = screen.getByRole("heading", { name: "Acontecendo agora" });
+    const components = screen.getByRole("heading", { name: "Componentes" });
+    expect(now.compareDocumentPosition(components) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Lentidão na API" })).toBeInTheDocument();
     expect(screen.getByText("Investigando lentidão.")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Atualização do banco" })).toBeInTheDocument();
+    // Scheduled maintenance is a compact row below components.
+    expect(screen.getByRole("link", { name: "Atualização do banco" })).toBeInTheDocument();
     // Planned window shown in the maintenance's own zone.
     expect(screen.getByText(/10\/01\/2030.*02:00/)).toBeInTheDocument();
-    const components = screen.getByRole("region", { name: "Componentes" });
-    expect(within(components).getByText("Indisponibilidade parcial")).toBeInTheDocument();
+    const componentsRegion = screen.getByRole("region", { name: "Componentes" });
+    expect(within(componentsRegion).getByText("Indisponibilidade parcial")).toBeInTheDocument();
   });
 
   it("shows an error with retry when the first load fails", async () => {

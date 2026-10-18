@@ -3,6 +3,7 @@ import type { Incident, Maintenance, StatusSummary } from "../api/types";
 export const emptySummary: StatusSummary = {
   overall: { status: "unknown", basis: "declared", affected_components: 0, components_under_maintenance: 0 },
   components: [],
+  groups: [],
   active_incidents: [],
   maintenances: { in_progress: [], upcoming: [] },
   generated_at: "2026-03-01T12:00:00Z",
