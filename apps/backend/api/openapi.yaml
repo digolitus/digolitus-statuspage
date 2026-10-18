@@ -1,0 +1,3066 @@
+openapi: 3.0.3
+info:
+  title: Digolitus Status Page API
+  version: 1.0.0
+  description: |
+    API do Digolitus Status Page. Toda funcionalidade de negócio está disponível por esta API;
+    a interface web é apenas um cliente dela.
+
+    ## Status declarado, não monitorado
+    Os status publicados são **declarados por operadores** (status dos componentes, incidentes e
+    manutenções). Esta versão não executa verificações automáticas de disponibilidade. O campo
+    `overall.basis` em `/api/v1/status` vale sempre `declared`.
+
+    ## Política de status
+    - O status efetivo de um componente é o mais grave entre o status declarado, o impacto dos
+      incidentes ativos que o afetam (o impacto usa o mesmo vocabulário do status; impacto `operational`
+      é informativo e não degrada componentes) e `maintenance` quando há manutenção em andamento.
+    - Ordem de gravidade: `major_outage` > `partial_outage` > `degraded_performance` > `maintenance` > `operational`.
+    - O status geral é o mais grave entre os componentes públicos ativos e os incidentes ativos que não
+      afetam componentes públicos. Manutenção nunca é tratada como indisponibilidade: se o mais grave for
+      `maintenance`, o status geral é `maintenance`. Sem componentes públicos nem incidentes ativos, o
+      status geral é `unknown`.
+    - Status de terceiros (`third_party`) é informado pelos próprios provedores, aparece separado e **nunca**
+      altera o status geral.
+    - Grupos de componentes não têm status próprio: o status de um grupo é o mais grave entre seus componentes
+      públicos e serve apenas para apresentação.
+
+    ## Autenticação e permissões
+    As rotas sob `/api/v1/admin/` exigem sessão (cookie `dsp_session`, HttpOnly e SameSite=Strict), obtida em
+    `POST /api/v1/auth/login`. Sem sessão válida a resposta é 401; sem a permissão necessária, 403.
+    Cada rota exige uma permissão do catálogo (`GET /api/v1/admin/permissions`), concedida por papéis
+    (roles). O papel de sistema **Administrador** tem todas as permissões. Leituras administrativas de dados
+    operacionais são abertas a qualquer usuário autenticado; usuários, papéis e auditoria exigem permissão.
+
+    O primeiro administrador é criado em `POST /api/v1/auth/setup` com o token de uso único exibido no log
+    do backend enquanto não houver usuários. Ninguém pode conceder permissões que não possui.
+
+    Requisições que alteram dados vindas de outro site (`Sec-Fetch-Site: cross-site` ou `Origin` diferente)
+    são recusadas com 403 `cross_site_request`. Cada alteração é auditada com o usuário (`actor`), a origem e o
+    `X-Request-ID`.
+
+    ## Convenções
+    - JSON em `snake_case`. Requisições com campos desconhecidos são rejeitadas (422).
+    - Instantes em RFC 3339, sempre retornados em UTC (`Z`).
+    - Listas paginadas por `limit` (1–100, padrão 20) e `offset` (0–100000), com ordenação determinística.
+      `sort=campo` ordena de forma crescente; `sort=-campo`, decrescente.
+    - Erros seguem o envelope `Error`, com `code` estável para uso programático.
+    - Corpo limitado a 64 KiB. Toda resposta inclui `X-Request-ID`.
+servers:
+  - url: /
+    description: Mesmo host (via proxy do frontend em http://localhost:8080)
+security:
+  - cookieAuth: []
+tags:
+  - name: health
+    description: Saúde do processo e prontidão para atender requisições.
+  - name: public
+    description: Consulta pública, sem autenticação e somente leitura.
+  - name: admin-components
+    description: Gestão de componentes e grupos de componentes. Requer sessão e permissão.
+  - name: admin-third-party
+    description: Status de terceiros (Atlassian Statuspage). Requer sessão e permissão.
+  - name: admin-incidents
+    description: Ciclo de vida de incidentes. Requer sessão e permissão.
+  - name: admin-maintenances
+    description: Manutenções programadas. Requer sessão e permissão.
+  - name: admin-templates
+    description: Templates de incidentes e manutenções. Requer sessão e permissão.
+  - name: admin-announcements
+    description: Comunicados gerais, categorias e times responsáveis. Requer sessão e permissão.
+  - name: auth
+    description: Configuração inicial, login, logout e sessão atual.
+  - name: admin-users
+    description: Usuários, papéis e catálogo de permissões. Requer `users.manage` ou `roles.manage`.
+  - name: admin-audit
+    description: Histórico operacional (auditoria). Requer sessão e permissão.
+
+paths:
+  /healthz:
+    get:
+      tags: [health]
+      operationId: getLiveness
+      security: []
+      summary: Liveness
+      description: Indica que o processo está vivo e atende HTTP. Não verifica o banco de dados.
+      responses:
+        '200':
+          description: Processo ativo.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+              example: { status: ok }
+  /readyz:
+    get:
+      tags: [health]
+      operationId: getReadiness
+      security: []
+      summary: Readiness
+      description: Indica que o processo está pronto para atender, incluindo conexão com o PostgreSQL (timeout de 2 s).
+      responses:
+        '200':
+          description: Pronto.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+              example: { status: ready }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /api/openapi.yaml:
+    get:
+      tags: [health]
+      operationId: getOpenAPISpec
+      security: []
+      summary: Especificação OpenAPI
+      description: Este documento. A Swagger UI está em `/swagger/`.
+      responses:
+        '200':
+          description: Documento OpenAPI 3.0 em YAML.
+          content:
+            application/yaml:
+              schema: { type: object }
+
+  /api/v1/status:
+    get:
+      tags: [public]
+      operationId: getStatusSummary
+      security: []
+      summary: Resumo público de status
+      description: |
+        Status geral, componentes públicos com status efetivo, incidentes ativos com linha do tempo e
+        manutenções em andamento e futuras. Os dados são lidos em um snapshot consistente.
+      responses:
+        '200':
+          description: Resumo.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StatusSummary' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/components:
+    get:
+      tags: [public]
+      operationId: listPublicComponents
+      security: []
+      summary: Componentes públicos
+      description: Componentes públicos e ativos com status efetivo, na ordem de exibição.
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Lista paginada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicComponentList' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/incidents:
+    get:
+      tags: [public]
+      operationId: listPublicIncidents
+      security: []
+      summary: Incidentes (ativos e históricos)
+      parameters:
+        - $ref: '#/components/parameters/IncidentState'
+        - $ref: '#/components/parameters/IncidentImpactFilter'
+        - $ref: '#/components/parameters/IncidentSort'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Lista paginada com a atualização mais recente de cada incidente.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicIncidentList' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/incidents/{id}:
+    get:
+      tags: [public]
+      operationId: getPublicIncident
+      security: []
+      summary: Incidente com linha do tempo
+      description: Inclui até 100 atualizações, da mais recente para a mais antiga.
+      parameters: [ { $ref: '#/components/parameters/ID' } ]
+      responses:
+        '200':
+          description: Incidente.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicIncident' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/maintenances:
+    get:
+      tags: [public]
+      operationId: listPublicMaintenances
+      security: []
+      summary: Manutenções programadas
+      parameters:
+        - $ref: '#/components/parameters/MaintenanceState'
+        - $ref: '#/components/parameters/MaintenanceSort'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Lista paginada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicMaintenanceList' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/maintenances/{id}:
+    get:
+      tags: [public]
+      operationId: getPublicMaintenance
+      security: []
+      summary: Manutenção com histórico de atualizações
+      parameters: [ { $ref: '#/components/parameters/ID' } ]
+      responses:
+        '200':
+          description: Manutenção.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicMaintenance' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/announcements:
+    get:
+      tags: [public]
+      operationId: listPublicAnnouncements
+      security: []
+      summary: Comunicados publicados
+      description: Somente comunicados publicados cujo horário de publicação já chegou, do mais recente para o mais antigo.
+      parameters:
+        - $ref: '#/components/parameters/AnnouncementCategoryFilter'
+        - $ref: '#/components/parameters/AnnouncementComponentFilter'
+        - $ref: '#/components/parameters/AnnouncementPinnedFilter'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Lista paginada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicAnnouncementList' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/announcements/{id}:
+    get:
+      tags: [public]
+      operationId: getPublicAnnouncement
+      security: []
+      summary: Comunicado publicado
+      description: Rascunhos, agendados e arquivados resultam em 404.
+      parameters: [ { $ref: '#/components/parameters/ID' } ]
+      responses:
+        '200':
+          description: Comunicado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicAnnouncement' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/announcement-categories:
+    get:
+      tags: [public]
+      operationId: listPublicAnnouncementCategories
+      security: []
+      summary: Categorias ativas de comunicados
+      responses:
+        '200':
+          description: Até 100 categorias, na ordem de exibição.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicAnnouncementCategoryList' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/auth/setup:
+    get:
+      tags: [auth]
+      operationId: getSetupStatus
+      security: []
+      summary: Saber se a configuração inicial é necessária
+      responses:
+        '200':
+          description: '`setup_required` é verdadeiro enquanto não existe nenhum usuário.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SetupStatus' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [auth]
+      operationId: completeSetup
+      security: []
+      summary: Criar o primeiro administrador
+      description: |
+        Disponível apenas enquanto não houver usuários. Exige o token de uso único exibido no log do backend
+        na inicialização (ou gerado por `api setup-token`). Cria o usuário com o papel Administrador e inicia a sessão.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SetupInput' }
+      responses:
+        '201':
+          description: Administrador criado; cookie de sessão definido.
+          headers: { Set-Cookie: { schema: { type: string } } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      security: []
+      summary: Entrar
+      description: |
+        Credenciais inválidas, conta desativada ou bloqueada respondem igualmente 401 `invalid_credentials`.
+        Após 5 falhas seguidas a conta fica bloqueada por 15 minutos.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginInput' }
+      responses:
+        '200':
+          description: Sessão iniciada; cookie `dsp_session` definido.
+          headers: { Set-Cookie: { schema: { type: string } } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      security: []
+      summary: Sair
+      description: Encerra a sessão atual (se houver) e remove o cookie.
+      responses:
+        '204': { description: Sessão encerrada. }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/auth/me:
+    get:
+      tags: [auth]
+      operationId: getMe
+      summary: Usuário da sessão e suas permissões
+      responses:
+        '200':
+          description: Sessão válida.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/auth/password:
+    post:
+      tags: [auth]
+      operationId: changeOwnPassword
+      summary: Trocar a própria senha
+      description: Exige a senha atual. Encerra as outras sessões do usuário.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PasswordChange' }
+      responses:
+        '204': { description: Senha alterada. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/components:
+    get:
+      tags: [admin-components]
+      operationId: listComponents
+      summary: Listar componentes
+      parameters:
+        - { name: is_active, in: query, schema: { type: boolean }, description: Filtra por ativo/desativado. }
+        - { name: is_public, in: query, schema: { type: boolean }, description: Filtra por visibilidade pública. }
+        - { name: group_id, in: query, schema: { type: string, format: uuid }, description: Componentes do grupo informado. }
+        - name: sort
+          in: query
+          description: 'Ordenação. Padrão: `display_order`.'
+          schema: { type: string, enum: [display_order, -display_order, name, -name, created_at, -created_at, updated_at, -updated_at] }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Lista paginada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ComponentList' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [admin-components]
+      operationId: createComponent
+      summary: Criar componente
+      description: Quando `slug` é omitido, é derivado do nome (sem acentos).
+      requestBody:
+        $ref: '#/components/requestBodies/ComponentCreate'
+      responses:
+        '201':
+          description: Criado.
+          headers: { Location: { $ref: '#/components/headers/Location' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Component' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/components/{id}:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    get:
+      tags: [admin-components]
+      operationId: getComponent
+      summary: Consultar componente
+      responses:
+        '200':
+          description: Componente.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Component' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    patch:
+      tags: [admin-components]
+      operationId: updateComponent
+      summary: Atualizar, desativar ou reativar componente
+      description: |
+        Atualização parcial. Componentes não são excluídos: `is_active: false` os remove da página pública
+        e de novas associações, preservando o histórico.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ComponentPatch' }
+            example: { status: degraded_performance }
+      responses:
+        '200':
+          description: Atualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Component' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/admin/component-groups:
+    get:
+      tags: [admin-components]
+      operationId: listComponentGroups
+      summary: Listar grupos de componentes
+      parameters:
+        - name: sort
+          in: query
+          description: 'Padrão: `display_order`.'
+          schema: { type: string, enum: [display_order, -display_order, name, -name, created_at, -created_at] }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Lista paginada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ComponentGroupList' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [admin-components]
+      operationId: createComponentGroup
+      summary: Criar grupo de componentes
+      description: Associe componentes ao grupo pelo campo `group_id` do componente.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ComponentGroupCreate' }
+            example: { name: Pagamentos, description: Serviços de cobrança e checkout. }
+      responses:
+        '201':
+          description: Criado.
+          headers: { Location: { $ref: '#/components/headers/Location' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ComponentGroup' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/component-groups/{id}:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    get:
+      tags: [admin-components]
+      operationId: getComponentGroup
+      summary: Consultar grupo
+      responses:
+        '200':
+          description: Grupo.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ComponentGroup' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    patch:
+      tags: [admin-components]
+      operationId: updateComponentGroup
+      summary: Atualizar grupo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ComponentGroupPatch' }
+      responses:
+        '200':
+          description: Atualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ComponentGroup' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    delete:
+      tags: [admin-components]
+      operationId: deleteComponentGroup
+      summary: Excluir grupo vazio
+      description: |
+        Só é possível excluir um grupo sem componentes (inclusive desativados). Mova-os antes
+        (`PATCH /api/v1/admin/components/{id}` com `group_id`); caso contrário retorna 409 `component_group_not_empty`.
+      responses:
+        '204': { description: Excluído. }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+
+  /api/v1/admin/external-sources:
+    get:
+      tags: [admin-third-party]
+      operationId: listExternalSources
+      summary: Listar provedores de status de terceiros
+      responses:
+        '200':
+          description: Provedores na ordem de exibição (no máximo 50).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExternalSourceList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [admin-third-party]
+      operationId: createExternalSource
+      summary: Cadastrar provedor (Atlassian Statuspage)
+      description: |
+        Informe a URL pública da página de status (ex.: `https://www.githubstatus.com`). O backend normaliza para
+        `https://host`, lê `/api/v2/summary.json` uma vez para validar e importar os componentes (nenhum
+        selecionado) e cadastra o provedor. Só HTTPS e endereços públicos são aceitos; redirecionamentos para
+        HTTP e conexões a IPs privados ou de loopback são recusados.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExternalSourceCreate' }
+            example: { url: 'https://www.githubstatus.com' }
+      responses:
+        '201':
+          description: Cadastrado.
+          headers: { Location: { $ref: '#/components/headers/Location' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExternalSource' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/external-sources/{id}:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    get:
+      tags: [admin-third-party]
+      operationId: getExternalSource
+      summary: Consultar provedor
+      responses:
+        '200':
+          description: Provedor.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExternalSource' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    patch:
+      tags: [admin-third-party]
+      operationId: updateExternalSource
+      summary: Renomear, ativar/desativar ou reordenar provedor
+      description: A URL não muda; para trocar de página, cadastre outro provedor.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExternalSourcePatch' }
+      responses:
+        '200':
+          description: Atualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExternalSource' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    delete:
+      tags: [admin-third-party]
+      operationId: deleteExternalSource
+      summary: Remover provedor
+      description: Remove o provedor e os componentes importados (configuração, não histórico).
+      responses:
+        '204': { description: Removido. }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/external-sources/{id}/sync:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    post:
+      tags: [admin-third-party]
+      operationId: syncExternalSource
+      summary: Sincronizar agora
+      description: Lê o provedor imediatamente. Em caso de falha, o erro fica registrado em `last_error` e a resposta é 502.
+      responses:
+        '200':
+          description: Sincronizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExternalSource' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '502': { $ref: '#/components/responses/BadGateway' }
+  /api/v1/admin/external-sources/{id}/components:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    get:
+      tags: [admin-third-party]
+      operationId: listExternalComponents
+      summary: Componentes importados do provedor
+      responses:
+        '200':
+          description: Componentes, agrupados como no provedor (presentes primeiro).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExternalComponentList' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/external-sources/{id}/selection:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    put:
+      tags: [admin-third-party]
+      operationId: setExternalSelection
+      summary: Definir componentes publicados
+      description: Substitui a seleção. Uma lista vazia deixa o provedor fora da página pública.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExternalSelection' }
+      responses:
+        '200':
+          description: Seleção aplicada; retorna todos os componentes.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExternalComponentList' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/admin/incidents:
+    get:
+      tags: [admin-incidents]
+      operationId: listIncidents
+      summary: Listar incidentes
+      parameters:
+        - $ref: '#/components/parameters/IncidentState'
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/IncidentStatus' } }
+        - $ref: '#/components/parameters/IncidentImpactFilter'
+        - { name: component_id, in: query, schema: { type: string, format: uuid }, description: Incidentes associados ao componente. }
+        - $ref: '#/components/parameters/IncidentSort'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Lista paginada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IncidentList' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [admin-incidents]
+      operationId: createIncident
+      summary: Abrir incidente
+      description: |
+        Cria o incidente e publica a primeira atualização na mesma transação. O status inicial deve ser
+        aberto (`investigating`, `identified` ou `monitoring`). Componentes desativados não podem ser associados.
+        `template_id` apenas registra o template usado para preencher o formulário; o texto é copiado.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IncidentCreate' }
+            example:
+              title: Lentidão na API pública
+              message: Estamos investigando relatos de lentidão.
+              impact: degraded_performance
+              component_ids: [3f1c2b4a-8d2e-4c1a-9b7e-1a2b3c4d5e6f]
+      responses:
+        '201':
+          description: Criado, com a linha do tempo.
+          headers: { Location: { $ref: '#/components/headers/Location' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Incident' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/incidents/{id}:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    get:
+      tags: [admin-incidents]
+      operationId: getIncident
+      summary: Consultar incidente
+      responses:
+        '200':
+          description: Incidente com linha do tempo (até 100 atualizações).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Incident' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    patch:
+      tags: [admin-incidents]
+      operationId: updateIncident
+      summary: Editar metadados do incidente
+      description: |
+        Edita título, impacto, notas internas e início, sem publicar atualização. Status, mensagens e
+        componentes afetados mudam apenas por atualizações publicadas (`POST .../updates`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IncidentPatch' }
+      responses:
+        '200':
+          description: Atualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Incident' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/incidents/{id}/updates:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    get:
+      tags: [admin-incidents]
+      operationId: listIncidentUpdates
+      summary: Linha do tempo paginada
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Atualizações, da mais recente para a mais antiga.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IncidentUpdateList' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [admin-incidents]
+      operationId: publishIncidentUpdate
+      summary: Publicar atualização (e transição de status)
+      description: |
+        Publica uma entrada imutável na linha do tempo. Transições válidas: de qualquer status aberto
+        (`investigating`, `identified`, `monitoring`) para qualquer status, inclusive o mesmo (atualização
+        só de mensagem) e `resolved`. Incidentes resolvidos não aceitam atualizações (409 `incident_resolved`).
+        `component_ids`, quando enviado, substitui os componentes afetados e fica registrado na atualização.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IncidentUpdateCreate' }
+            example: { status: identified, message: Identificamos a causa e estamos aplicando a correção. }
+      responses:
+        '201':
+          description: Publicada. Retorna o incidente atualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Incident' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/incidents/{id}/resolve:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    post:
+      tags: [admin-incidents]
+      operationId: resolveIncident
+      summary: Encerrar incidente
+      description: |
+        Publica a mensagem de encerramento, define `resolved_at` e retira o incidente da lista de ativos,
+        mantendo-o no histórico. Encerrar um incidente já resolvido retorna 409 `incident_already_resolved`
+        (não é ignorado silenciosamente, para que nenhuma mensagem seja descartada sem aviso).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IncidentResolve' }
+            example: { message: O problema foi resolvido. }
+      responses:
+        '200':
+          description: Resolvido.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Incident' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/admin/maintenances:
+    get:
+      tags: [admin-maintenances]
+      operationId: listMaintenances
+      summary: Listar manutenções
+      parameters:
+        - $ref: '#/components/parameters/MaintenanceState'
+        - { name: component_id, in: query, schema: { type: string, format: uuid } }
+        - $ref: '#/components/parameters/MaintenanceSort'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Lista paginada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MaintenanceList' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [admin-maintenances]
+      operationId: createMaintenance
+      summary: Programar manutenção
+      description: |
+        `scheduled_start` e `scheduled_end` aceitam RFC 3339 com offset ou data e hora locais
+        (`AAAA-MM-DDTHH:MM[:SS]`) interpretadas no `timezone` IANA informado. O servidor armazena os
+        instantes em UTC; o timezone da máquina ou do navegador nunca é usado. O término deve ser posterior
+        ao início, estar no futuro, e a janela deve ter no máximo 31 dias.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MaintenanceCreate' }
+            example:
+              title: Atualização do banco de dados
+              message: Faremos uma atualização programada.
+              expected_impact: degraded_performance
+              timezone: America/Sao_Paulo
+              scheduled_start: '2026-11-20T02:00'
+              scheduled_end: '2026-11-20T04:00'
+      responses:
+        '201':
+          description: Programada.
+          headers: { Location: { $ref: '#/components/headers/Location' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Maintenance' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/maintenances/{id}:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    get:
+      tags: [admin-maintenances]
+      operationId: getMaintenance
+      summary: Consultar manutenção
+      responses:
+        '200':
+          description: Manutenção com histórico (até 100 atualizações).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Maintenance' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    patch:
+      tags: [admin-maintenances]
+      operationId: updateMaintenance
+      summary: Editar ou reprogramar manutenção
+      description: |
+        Permitido apenas para `scheduled` e `in_progress` (409 `maintenance_closed` caso contrário). O início
+        previsto não pode mudar depois que a manutenção começou (409 `maintenance_already_started`). Alterar
+        apenas `timezone` não muda os instantes, somente a apresentação. Reprogramações ficam no histórico
+        operacional; para explicá-las publicamente, publique uma mensagem.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MaintenancePatch' }
+      responses:
+        '200':
+          description: Atualizada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Maintenance' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/maintenances/{id}/updates:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    get:
+      tags: [admin-maintenances]
+      operationId: listMaintenanceUpdates
+      summary: Histórico paginado
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Atualizações, da mais recente para a mais antiga.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MaintenanceUpdateList' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [admin-maintenances]
+      operationId: publishMaintenanceMessage
+      summary: Publicar mensagem
+      description: Publica uma mensagem sem mudar o status. Apenas para manutenções `scheduled` ou `in_progress`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MaintenanceMessageCreate' }
+      responses:
+        '201':
+          description: Publicada. Retorna a manutenção atualizada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Maintenance' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/maintenances/{id}/start:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    post:
+      tags: [admin-maintenances]
+      operationId: startMaintenance
+      summary: Iniciar manutenção
+      description: '`scheduled` → `in_progress`. `started_at` recebe o horário do servidor; início antecipado é permitido.'
+      requestBody: { $ref: '#/components/requestBodies/MaintenanceTransition' }
+      responses: &transitionResponses
+        '200':
+          description: Transição aplicada. Retorna a manutenção atualizada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Maintenance' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/maintenances/{id}/complete:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    post:
+      tags: [admin-maintenances]
+      operationId: completeMaintenance
+      summary: Concluir manutenção
+      description: '`in_progress` → `completed`. Nunca ocorre automaticamente ao fim da janela prevista.'
+      requestBody: { $ref: '#/components/requestBodies/MaintenanceTransition' }
+      responses: *transitionResponses
+  /api/v1/admin/maintenances/{id}/cancel:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    post:
+      tags: [admin-maintenances]
+      operationId: cancelMaintenance
+      summary: Cancelar manutenção
+      description: '`scheduled` → `cancelled`. Uma manutenção em andamento deve ser concluída, não cancelada.'
+      requestBody: { $ref: '#/components/requestBodies/MaintenanceTransition' }
+      responses: *transitionResponses
+
+  /api/v1/admin/incident-templates:
+    get:
+      tags: [admin-templates]
+      operationId: listIncidentTemplates
+      summary: Listar templates de incidente
+      parameters:
+        - { name: is_active, in: query, schema: { type: boolean } }
+        - $ref: '#/components/parameters/TemplateSort'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Lista paginada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IncidentTemplateList' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [admin-templates]
+      operationId: createIncidentTemplate
+      summary: Criar template de incidente
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IncidentTemplateCreate' }
+      responses:
+        '201':
+          description: Criado.
+          headers: { Location: { $ref: '#/components/headers/Location' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IncidentTemplate' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/incident-templates/{id}:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    get:
+      tags: [admin-templates]
+      operationId: getIncidentTemplate
+      summary: Consultar template de incidente
+      responses:
+        '200':
+          description: Template.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IncidentTemplate' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    patch:
+      tags: [admin-templates]
+      operationId: updateIncidentTemplate
+      summary: Editar, ativar ou desativar template de incidente
+      description: Alterar um template não modifica incidentes já criados.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IncidentTemplatePatch' }
+      responses:
+        '200':
+          description: Atualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IncidentTemplate' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/maintenance-templates:
+    get:
+      tags: [admin-templates]
+      operationId: listMaintenanceTemplates
+      summary: Listar templates de manutenção
+      parameters:
+        - { name: is_active, in: query, schema: { type: boolean } }
+        - $ref: '#/components/parameters/TemplateSort'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Lista paginada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MaintenanceTemplateList' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [admin-templates]
+      operationId: createMaintenanceTemplate
+      summary: Criar template de manutenção
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MaintenanceTemplateCreate' }
+      responses:
+        '201':
+          description: Criado.
+          headers: { Location: { $ref: '#/components/headers/Location' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MaintenanceTemplate' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/maintenance-templates/{id}:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    get:
+      tags: [admin-templates]
+      operationId: getMaintenanceTemplate
+      summary: Consultar template de manutenção
+      responses:
+        '200':
+          description: Template.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MaintenanceTemplate' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    patch:
+      tags: [admin-templates]
+      operationId: updateMaintenanceTemplate
+      summary: Editar, ativar ou desativar template de manutenção
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MaintenanceTemplatePatch' }
+      responses:
+        '200':
+          description: Atualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MaintenanceTemplate' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/admin/announcements:
+    get:
+      tags: [admin-announcements]
+      operationId: listAnnouncements
+      summary: Listar comunicados
+      parameters:
+        - name: state
+          in: query
+          description: '`draft`, `scheduled` (publicado com horário futuro), `published` ou `archived`.'
+          schema: { $ref: '#/components/schemas/AnnouncementState' }
+        - name: q
+          in: query
+          description: Busca no título (sem diferenciar maiúsculas).
+          schema: { type: string, maxLength: 100 }
+        - $ref: '#/components/parameters/AnnouncementCategoryFilter'
+        - name: team_id
+          in: query
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/AnnouncementComponentFilter'
+        - $ref: '#/components/parameters/AnnouncementPinnedFilter'
+        - name: sort
+          in: query
+          description: 'Padrão: `-updated_at`.'
+          schema: { type: string, enum: [updated_at, -updated_at, created_at, -created_at, published_at, -published_at, title, -title] }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Lista paginada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AnnouncementList' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [admin-announcements]
+      operationId: createAnnouncement
+      summary: Criar comunicado (rascunho)
+      description: O comunicado nasce como rascunho. Publique com `POST .../{id}/publish`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AnnouncementCreate' }
+            example: { title: Nova região disponível, body: "A partir de hoje a API também atende a região sa-east-1.", importance: info }
+      responses:
+        '201':
+          description: Criado.
+          headers: { Location: { $ref: '#/components/headers/Location' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Announcement' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/announcements/{id}:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    get:
+      tags: [admin-announcements]
+      operationId: getAnnouncement
+      summary: Consultar comunicado
+      responses:
+        '200':
+          description: Comunicado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Announcement' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    patch:
+      tags: [admin-announcements]
+      operationId: updateAnnouncement
+      summary: Editar comunicado
+      description: Permitido em qualquer estado. Em comunicados publicados, `updated_at` aparece como "atualizado em".
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AnnouncementPatch' }
+      responses:
+        '200':
+          description: Atualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Announcement' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    delete:
+      tags: [admin-announcements]
+      operationId: deleteAnnouncement
+      summary: Excluir rascunho
+      description: Somente rascunhos (409 `announcement_not_draft` nos demais estados).
+      responses:
+        '204': { description: Excluído. }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/announcements/{id}/publish:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    post:
+      tags: [admin-announcements]
+      operationId: publishAnnouncement
+      summary: Publicar ou agendar
+      description: '`draft` → publicado. Sem `publish_at`, publica agora; com horário futuro (até 1 ano), fica agendado (`scheduled`).'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AnnouncementPublish' }
+            example: { publish_at: '2026-11-20T09:00:00-03:00' }
+      responses: &announcementTransition
+        '200':
+          description: Transição aplicada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Announcement' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/announcements/{id}/unpublish:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    post:
+      tags: [admin-announcements]
+      operationId: unpublishAnnouncement
+      summary: Despublicar
+      description: '`published` ou `scheduled` → `draft`. Remove o comunicado da página pública.'
+      responses: *announcementTransition
+  /api/v1/admin/announcements/{id}/archive:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    post:
+      tags: [admin-announcements]
+      operationId: archiveAnnouncement
+      summary: Arquivar
+      description: '`published` → `archived`. Sai da página pública e mantém o registro.'
+      responses: *announcementTransition
+  /api/v1/admin/announcements/{id}/restore:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    post:
+      tags: [admin-announcements]
+      operationId: restoreAnnouncement
+      summary: Restaurar
+      description: '`archived` → `published`, com a data de publicação original.'
+      responses: *announcementTransition
+  /api/v1/admin/announcement-categories:
+    get:
+      tags: [admin-announcements]
+      operationId: listAnnouncementCategorys
+      summary: Listar categorias de comunicados
+      parameters:
+        - name: is_active
+          in: query
+          schema: { type: boolean }
+      responses:
+        '200':
+          description: Até 100 itens.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AnnouncementCategoryList' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [admin-announcements]
+      operationId: createAnnouncementCategory
+      summary: Criar (categorias de comunicados)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AnnouncementCategoryCreate' }
+            example: { name: Novidades, color: blue }
+      responses:
+        '201':
+          description: Criado.
+          headers: { Location: { $ref: '#/components/headers/Location' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AnnouncementCategory' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/announcement-categories/{id}:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    get:
+      tags: [admin-announcements]
+      operationId: getAnnouncementCategory
+      summary: Consultar (categorias de comunicados)
+      responses:
+        '200':
+          description: Item.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AnnouncementCategory' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    patch:
+      tags: [admin-announcements]
+      operationId: updateAnnouncementCategory
+      summary: Atualizar (categorias de comunicados)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AnnouncementCategoryPatch' }
+      responses:
+        '200':
+          description: Atualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AnnouncementCategory' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    delete:
+      tags: [admin-announcements]
+      operationId: deleteAnnouncementCategory
+      summary: Excluir (categorias de comunicados)
+      description: Somente categorias sem comunicados (409 `announcement_category_in_use`); as demais podem ser desativadas.
+      responses:
+        '204': { description: Excluído. }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/teams:
+    get:
+      tags: [admin-announcements]
+      operationId: listTeams
+      summary: Listar times responsáveis
+      parameters:
+        - name: is_active
+          in: query
+          schema: { type: boolean }
+      responses:
+        '200':
+          description: Até 100 itens.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TeamList' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [admin-announcements]
+      operationId: createTeam
+      summary: Criar (times responsáveis)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TeamCreate' }
+            example: { name: Time de Plataforma }
+      responses:
+        '201':
+          description: Criado.
+          headers: { Location: { $ref: '#/components/headers/Location' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Team' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/teams/{id}:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    get:
+      tags: [admin-announcements]
+      operationId: getTeam
+      summary: Consultar (times responsáveis)
+      responses:
+        '200':
+          description: Item.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Team' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    patch:
+      tags: [admin-announcements]
+      operationId: updateTeam
+      summary: Atualizar (times responsáveis)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TeamPatch' }
+      responses:
+        '200':
+          description: Atualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Team' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    delete:
+      tags: [admin-announcements]
+      operationId: deleteTeam
+      summary: Excluir (times responsáveis)
+      description: Somente times sem comunicados (409 `team_in_use`); os demais podem ser desativados.
+      responses:
+        '204': { description: Excluído. }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/permissions:
+    get:
+      tags: [admin-users]
+      operationId: listPermissions
+      summary: Catálogo de permissões
+      description: Disponível para qualquer usuário autenticado.
+      responses:
+        '200':
+          description: Permissões, na ordem de exibição.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PermissionList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/users:
+    get:
+      tags: [admin-users]
+      operationId: listUsers
+      summary: Listar usuários
+      responses:
+        '200':
+          description: Até 500 usuários.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [admin-users]
+      operationId: createUser
+      summary: Criar usuário
+      description: Só é possível atribuir papéis cujas permissões você possui (o papel Administrador exige ser administrador).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserCreate' }
+      responses:
+        '201':
+          description: Criado.
+          headers: { Location: { $ref: '#/components/headers/Location' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/users/{id}:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    get:
+      tags: [admin-users]
+      operationId: getUser
+      summary: Consultar usuário
+      responses:
+        '200':
+          description: Usuário.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    patch:
+      tags: [admin-users]
+      operationId: updateUser
+      summary: Editar, desativar ou desbloquear usuário
+      description: |
+        Só é possível administrar usuários cujas permissões você também possui. Não é possível desativar a
+        própria conta (409 `cannot_deactivate_self`) nem deixar o sistema sem administrador ativo (409 `last_admin`).
+        Desativar encerra as sessões do usuário.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserPatch' }
+      responses:
+        '200':
+          description: Atualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/users/{id}/password:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    post:
+      tags: [admin-users]
+      operationId: resetUserPassword
+      summary: Redefinir a senha de um usuário
+      description: Define uma nova senha, desbloqueia a conta e encerra as sessões do usuário.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PasswordReset' }
+      responses:
+        '204': { description: Senha redefinida. }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/roles:
+    get:
+      tags: [admin-users]
+      operationId: listRoles
+      summary: Listar papéis
+      responses:
+        '200':
+          description: Papéis; o Administrador primeiro.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RoleList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [admin-users]
+      operationId: createRole
+      summary: Criar papel
+      description: As permissões devem ser do catálogo e todas devem ser suas.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RoleCreate' }
+            example: { name: Comunicação, permissions: [announcements.write, announcements.publish] }
+      responses:
+        '201':
+          description: Criado.
+          headers: { Location: { $ref: '#/components/headers/Location' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Role' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/roles/{id}:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    get:
+      tags: [admin-users]
+      operationId: getRole
+      summary: Consultar papel
+      responses:
+        '200':
+          description: Papel.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Role' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    patch:
+      tags: [admin-users]
+      operationId: updateRole
+      summary: Editar papel
+      description: O papel Administrador é fixo (409 `system_role_immutable`). Alterações valem na próxima requisição dos usuários.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RolePatch' }
+      responses:
+        '200':
+          description: Atualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Role' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    delete:
+      tags: [admin-users]
+      operationId: deleteRole
+      summary: Excluir papel sem usuários
+      responses:
+        '204': { description: Excluído. }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/audit-events:
+    get:
+      tags: [admin-audit]
+      operationId: listAuditEvents
+      summary: Histórico operacional
+      description: |
+        Eventos registrados na mesma transação de cada alteração. `source` identifica o canal (`admin_api`);
+        não há identidade de usuário nesta versão.
+      parameters:
+        - name: resource_type
+          in: query
+          schema: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template, external_source, announcement, announcement_category, team, user, role] }
+        - { name: resource_id, in: query, schema: { type: string, format: uuid } }
+        - { name: action, in: query, schema: { type: string, maxLength: 64 }, description: 'Ex.: created, updated, resolved, started.' }
+        - name: sort
+          in: query
+          description: 'Padrão: `-occurred_at`.'
+          schema: { type: string, enum: [occurred_at, -occurred_at] }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Lista paginada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuditEventList' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+components:
+  parameters:
+    ID:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+      description: Identificador do recurso. Valores que não são UUID resultam em 404.
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    Offset:
+      name: offset
+      in: query
+      schema: { type: integer, minimum: 0, maximum: 100000, default: 0 }
+    IncidentState:
+      name: state
+      in: query
+      description: '`active` (não resolvidos) ou `resolved`.'
+      schema: { type: string, enum: [active, resolved] }
+    IncidentImpactFilter:
+      name: impact
+      in: query
+      schema: { $ref: '#/components/schemas/IncidentImpact' }
+    IncidentSort:
+      name: sort
+      in: query
+      description: 'Padrão: `-started_at`.'
+      schema: { type: string, enum: [started_at, -started_at, created_at, -created_at, updated_at, -updated_at] }
+    MaintenanceState:
+      name: state
+      in: query
+      description: |
+        `upcoming` (scheduled), `in_progress`, `completed`, `cancelled`, `open` (scheduled + in_progress) ou
+        `past` (completed + cancelled). Padrão de ordenação: `scheduled_start` para upcoming/in_progress/open e
+        `-scheduled_start` para os demais.
+      schema: { type: string, enum: [upcoming, in_progress, completed, cancelled, open, past] }
+    MaintenanceSort:
+      name: sort
+      in: query
+      schema: { type: string, enum: [scheduled_start, -scheduled_start, created_at, -created_at, updated_at, -updated_at] }
+    AnnouncementCategoryFilter:
+      name: category_id
+      in: query
+      schema: { type: string, format: uuid }
+    AnnouncementComponentFilter:
+      name: component_id
+      in: query
+      description: Comunicados associados ao componente.
+      schema: { type: string, format: uuid }
+    AnnouncementPinnedFilter:
+      name: pinned
+      in: query
+      description: '`true` para somente fixados; `false` para somente não fixados.'
+      schema: { type: boolean }
+    TemplateSort:
+      name: sort
+      in: query
+      description: 'Padrão: `name`.'
+      schema: { type: string, enum: [name, -name, created_at, -created_at, updated_at, -updated_at] }
+
+  headers:
+    Location:
+      description: URL do recurso criado.
+      schema: { type: string }
+
+  requestBodies:
+    ComponentCreate:
+      required: true
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ComponentCreate' }
+          example: { name: API pública, description: Endpoints REST para integrações. }
+    MaintenanceTransition:
+      required: false
+      description: Corpo opcional com mensagem pública da transição.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/MaintenanceTransition' }
+          example: { message: A manutenção foi iniciada. }
+
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: dsp_session
+      description: Sessão criada por `POST /api/v1/auth/login` ou `POST /api/v1/auth/setup`.
+
+  responses:
+    Unauthorized:
+      description: Sem sessão válida (`unauthenticated`) ou credenciais inválidas (`invalid_credentials`).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { code: unauthenticated, message: Faça login para continuar., request_id: 4f2a9c1b7d3e5a6b8c9d0e1f } }
+    Forbidden:
+      description: Sem a permissão necessária (`forbidden`), senha provisória que precisa ser trocada (`password_change_required`) ou requisição de outro site (`cross_site_request`).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { code: forbidden, message: Você não tem permissão para esta ação., request_id: 4f2a9c1b7d3e5a6b8c9d0e1f } }
+    NotFound:
+      description: Recurso inexistente.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { code: incident_not_found, message: Recurso não encontrado., request_id: 4f2a9c1b7d3e5a6b8c9d0e1f } }
+    Conflict:
+      description: |
+        Conflito com o estado atual. Códigos: `component_slug_conflict`, `component_group_name_conflict`,
+        `component_group_not_empty`, `external_source_conflict`, `external_source_limit`, `template_name_conflict`,
+        `incident_resolved`, `incident_already_resolved`, `maintenance_closed`, `maintenance_already_started`,
+        `maintenance_invalid_transition`, `invalid_announcement_transition`, `announcement_not_draft`,
+        `announcement_category_name_conflict`, `announcement_category_in_use`, `announcement_category_limit`,
+        `team_name_conflict`, `team_in_use`, `team_limit`, `setup_already_done`, `user_email_conflict`, `last_admin`,
+        `cannot_deactivate_self`, `role_name_conflict`, `role_in_use`, `role_limit`, `system_role_immutable`.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { code: maintenance_invalid_transition, message: "A ação 'complete' não é permitida para uma manutenção com status 'scheduled'.", request_id: 4f2a9c1b7d3e5a6b8c9d0e1f } }
+    ValidationError:
+      description: Dados inválidos (`validation_failed`, `invalid_json`, `empty_update`).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { code: validation_failed, message: Os dados enviados são inválidos., details: [ { field: title, message: Informe um título com 1 a 200 caracteres. } ], request_id: 4f2a9c1b7d3e5a6b8c9d0e1f } }
+    PayloadTooLarge:
+      description: Corpo maior que 64 KiB (`payload_too_large`).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    UnsupportedMediaType:
+      description: Corpo enviado com Content-Type diferente de application/json (`unsupported_media_type`).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unavailable:
+      description: Dependência indisponível ou tempo limite excedido (`database_unavailable`, `request_timeout`).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    BadGateway:
+      description: Falha ao consultar o provedor externo (`external_fetch_failed`).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    InternalError:
+      description: Erro inesperado (`internal_error`). Detalhes ficam apenas nos logs, correlacionados por `request_id`.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Health:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status: { type: string, enum: [ok, ready] }
+
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message]
+          properties:
+            code: { type: string, description: Código estável para tratamento programático. }
+            message: { type: string, description: Mensagem legível (pt-BR). }
+            details:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [field, message]
+                properties:
+                  field: { type: string }
+                  message: { type: string }
+            request_id: { type: string }
+
+    Pagination:
+      type: object
+      additionalProperties: false
+      required: [limit, offset, total]
+      properties:
+        limit: { type: integer }
+        offset: { type: integer }
+        total: { type: integer }
+
+    ComponentStatus:
+      type: string
+      enum: [operational, degraded_performance, partial_outage, major_outage, maintenance]
+      description: Status declarado (ou efetivo, nas rotas públicas) de um componente.
+    OverallStatus:
+      type: string
+      enum: [operational, degraded_performance, partial_outage, major_outage, maintenance, unknown]
+    IncidentStatus:
+      type: string
+      enum: [investigating, identified, monitoring, resolved]
+      description: '`resolved` é terminal.'
+    OpenIncidentStatus:
+      type: string
+      enum: [investigating, identified, monitoring]
+    IncidentImpact:
+      type: string
+      enum: [operational, degraded_performance, partial_outage, major_outage]
+      description: 'Impacto nos componentes afetados, com o mesmo vocabulário do status. `operational` é informativo.'
+    MaintenanceStatus:
+      type: string
+      enum: [scheduled, in_progress, completed, cancelled]
+      description: 'Transições: scheduled → in_progress → completed; scheduled → cancelled.'
+    ExpectedImpact:
+      type: string
+      enum: [operational, degraded_performance, partial_outage, major_outage]
+      description: 'Impacto esperado, com o mesmo vocabulário do impacto de incidentes.'
+    Timestamp:
+      type: string
+      format: date-time
+      description: RFC 3339 em UTC.
+    NullableTimestamp:
+      type: string
+      format: date-time
+      nullable: true
+    InputInstant:
+      type: string
+      description: RFC 3339 com offset (ex. `2026-11-20T02:00:00-03:00`) ou data e hora locais (`2026-11-20T02:00`) interpretadas no `timezone`.
+      example: '2026-11-20T02:00'
+    UUIDList:
+      type: array
+      maxItems: 50
+      items: { type: string, format: uuid }
+
+    ComponentRef:
+      type: object
+      additionalProperties: false
+      required: [id, name, slug]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        slug: { type: string }
+
+    Component:
+      type: object
+      additionalProperties: false
+      required: [id, name, slug, description, status, is_public, is_active, display_order, group_id, url, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        slug: { type: string }
+        description: { type: string }
+        status: { $ref: '#/components/schemas/ComponentStatus' }
+        is_public: { type: boolean }
+        is_active: { type: boolean }
+        display_order: { type: integer }
+        group_id: { type: string, format: uuid, nullable: true, description: Grupo do componente; `null` quando não agrupado. }
+        url: { type: string, nullable: true, description: 'Link público da página do componente (documentação, produto, endpoint).' }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    ComponentCreate:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        slug: { type: string, maxLength: 80, pattern: '^[a-z0-9]+(-[a-z0-9]+)*$', description: Único. Derivado do nome quando omitido. }
+        description: { type: string, maxLength: 1000 }
+        status: { $ref: '#/components/schemas/ComponentStatus' }
+        is_public: { type: boolean, default: true }
+        display_order: { type: integer, minimum: 0, maximum: 100000, default: 0 }
+        group_id: { type: string, format: uuid, nullable: true }
+        url: &componentUrl { type: string, nullable: true, maxLength: 500, description: 'Endereço http(s) completo, sem credenciais. Vazio ou `null` = sem link.' }
+    ComponentPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        slug: { type: string, maxLength: 80, pattern: '^[a-z0-9]+(-[a-z0-9]+)*$' }
+        description: { type: string, maxLength: 1000 }
+        status: { $ref: '#/components/schemas/ComponentStatus' }
+        is_public: { type: boolean }
+        is_active: { type: boolean }
+        display_order: { type: integer, minimum: 0, maximum: 100000 }
+        group_id: { type: string, format: uuid, nullable: true, description: '`null` remove o componente do grupo.' }
+        url: *componentUrl
+    ComponentList:
+      type: object
+      additionalProperties: false
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Component' } }
+        pagination: { $ref: '#/components/schemas/Pagination' }
+    PublicComponent:
+      type: object
+      additionalProperties: false
+      required: [id, name, slug, description, status, group_id, url, display_order, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        slug: { type: string }
+        description: { type: string }
+        status: { $ref: '#/components/schemas/ComponentStatus' }
+        group_id: { type: string, format: uuid, nullable: true }
+        url: { type: string, nullable: true, description: Link da página do componente. }
+        display_order: { type: integer }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    PublicComponentGroup:
+      type: object
+      additionalProperties: false
+      required: [id, name, description, display_order, status, component_count, affected_components, components_under_maintenance]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        display_order: { type: integer }
+        status: { $ref: '#/components/schemas/ComponentStatus' }
+        component_count: { type: integer, description: Componentes públicos do grupo. }
+        affected_components: { type: integer }
+        components_under_maintenance: { type: integer }
+    ExternalComponentStatus:
+      type: string
+      enum: [operational, degraded_performance, partial_outage, major_outage, maintenance, unknown]
+      description: Status informado pelo provedor (`under_maintenance` vira `maintenance`); `unknown` quando não reconhecido ou desatualizado.
+    ExternalSource:
+      type: object
+      additionalProperties: false
+      required: [id, name, provider, base_url, page_name, is_active, display_order, indicator, indicator_description, last_checked_at, last_success_at, last_error, stale, component_count, selected_count, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        provider: { type: string, enum: [statuspage] }
+        base_url: { type: string, description: 'Normalizada para https://host.' }
+        page_name: { type: string, description: Nome da página informado pelo provedor. }
+        is_active: { type: boolean, description: Inativos não são sincronizados nem publicados. }
+        display_order: { type: integer }
+        indicator: { type: string, nullable: true, enum: [none, minor, major, critical, maintenance], description: Indicador geral do provedor. }
+        indicator_description: { type: string }
+        last_checked_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        last_success_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        last_error: { type: string, nullable: true, description: 'Erro da última tentativa, se falhou.' }
+        stale: { type: boolean, description: 'Última leitura bem-sucedida mais antiga que max(3 × intervalo, 10 min).' }
+        component_count: { type: integer }
+        selected_count: { type: integer }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    ExternalSourceCreate:
+      type: object
+      additionalProperties: false
+      required: [url]
+      properties:
+        url: { type: string, maxLength: 500, description: 'URL pública da página (https). Ex.: https://www.githubstatus.com' }
+        name: { type: string, minLength: 1, maxLength: 120, description: 'Padrão: nome informado pelo provedor.' }
+        display_order: { type: integer, minimum: 0, maximum: 100000, default: 0 }
+    ExternalSourcePatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        is_active: { type: boolean }
+        display_order: { type: integer, minimum: 0, maximum: 100000 }
+    ExternalSourceList:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/ExternalSource' } }
+    ExternalComponent:
+      type: object
+      additionalProperties: false
+      required: [id, external_id, name, description, group_name, status, is_selected, is_present]
+      properties:
+        id: { type: string, format: uuid }
+        external_id: { type: string, description: Identificador no provedor. }
+        name: { type: string }
+        description: { type: string }
+        group_name: { type: string, nullable: true }
+        status: { $ref: '#/components/schemas/ExternalComponentStatus' }
+        is_selected: { type: boolean }
+        is_present: { type: boolean, description: Falso quando o provedor deixou de listar o componente. }
+    ExternalComponentList:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/ExternalComponent' } }
+    ExternalSelection:
+      type: object
+      additionalProperties: false
+      required: [component_ids]
+      properties:
+        component_ids: { type: array, maxItems: 500, items: { type: string, format: uuid } }
+    PublicThirdPartySource:
+      type: object
+      additionalProperties: false
+      required: [id, name, page_url, status, stale, last_success_at, components, events]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        page_url: { type: string, description: Página de status original do provedor. }
+        status: { $ref: '#/components/schemas/OverallStatus' }
+        stale: { type: boolean, description: Dados desatualizados; status reportados como `unknown`. }
+        last_success_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        components:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, name, group_name, status]
+            properties:
+              id: { type: string, format: uuid }
+              name: { type: string }
+              group_name: { type: string, nullable: true }
+              status: { $ref: '#/components/schemas/ExternalComponentStatus' }
+        events:
+          type: array
+          description: Incidentes não resolvidos e manutenções em andamento do provedor que afetam os componentes selecionados.
+          items:
+            type: object
+            additionalProperties: false
+            required: [kind, name, status, impact, url]
+            properties:
+              kind: { type: string, enum: [incident, maintenance] }
+              name: { type: string }
+              status: { type: string }
+              impact: { type: string }
+              url: { type: string, nullable: true }
+    ComponentGroup:
+      type: object
+      additionalProperties: false
+      required: [id, name, description, display_order, component_count, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        display_order: { type: integer }
+        component_count: { type: integer, description: Componentes associados (inclusive ocultos e desativados). }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    ComponentGroupCreate:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120, description: Único (sem diferenciar maiúsculas). }
+        description: { type: string, maxLength: 1000 }
+        display_order: { type: integer, minimum: 0, maximum: 100000, default: 0 }
+    ComponentGroupPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        description: { type: string, maxLength: 1000 }
+        display_order: { type: integer, minimum: 0, maximum: 100000 }
+    ComponentGroupList:
+      type: object
+      additionalProperties: false
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/ComponentGroup' } }
+        pagination: { $ref: '#/components/schemas/Pagination' }
+    PublicComponentList:
+      type: object
+      additionalProperties: false
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/PublicComponent' } }
+        pagination: { $ref: '#/components/schemas/Pagination' }
+
+    IncidentUpdate:
+      type: object
+      additionalProperties: false
+      required: [id, status, message, components, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/IncidentStatus' }
+        message: { type: string }
+        components:
+          type: array
+          nullable: true
+          description: Componentes afetados definidos por esta atualização; `null` quando não foram alterados.
+          items: { $ref: '#/components/schemas/ComponentRef' }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+    Incident:
+      type: object
+      additionalProperties: false
+      required: [id, title, impact, status, internal_notes, started_at, resolved_at, template_id, components, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        impact: { $ref: '#/components/schemas/IncidentImpact' }
+        status: { $ref: '#/components/schemas/IncidentStatus' }
+        internal_notes: { type: string, description: Notas operacionais; nunca expostas publicamente. }
+        started_at: { $ref: '#/components/schemas/Timestamp' }
+        resolved_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        template_id: { type: string, format: uuid, nullable: true }
+        components: { type: array, items: { $ref: '#/components/schemas/ComponentRef' } }
+        latest_update: { $ref: '#/components/schemas/IncidentUpdate' }
+        updates:
+          type: array
+          description: Presente nas consultas individuais.
+          items: { $ref: '#/components/schemas/IncidentUpdate' }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    PublicIncident:
+      type: object
+      additionalProperties: false
+      required: [id, title, impact, status, started_at, resolved_at, components, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        impact: { $ref: '#/components/schemas/IncidentImpact' }
+        status: { $ref: '#/components/schemas/IncidentStatus' }
+        started_at: { $ref: '#/components/schemas/Timestamp' }
+        resolved_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        components:
+          type: array
+          description: Apenas componentes públicos.
+          items: { $ref: '#/components/schemas/ComponentRef' }
+        latest_update: { $ref: '#/components/schemas/IncidentUpdate' }
+        updates: { type: array, items: { $ref: '#/components/schemas/IncidentUpdate' } }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    IncidentCreate:
+      type: object
+      additionalProperties: false
+      required: [title, message, impact]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        message: { type: string, minLength: 1, maxLength: 5000, description: Primeira mensagem pública. }
+        status: { $ref: '#/components/schemas/OpenIncidentStatus' }
+        impact: { $ref: '#/components/schemas/IncidentImpact' }
+        component_ids: { $ref: '#/components/schemas/UUIDList' }
+        started_at: { type: string, format: date-time, description: 'Início conhecido (RFC 3339 com offset, não futuro). Padrão: agora.' }
+        internal_notes: { type: string, maxLength: 5000 }
+        template_id: { type: string, format: uuid }
+    IncidentPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        impact: { $ref: '#/components/schemas/IncidentImpact' }
+        internal_notes: { type: string, maxLength: 5000 }
+        started_at: { type: string, format: date-time }
+    IncidentUpdateCreate:
+      type: object
+      additionalProperties: false
+      required: [status, message]
+      properties:
+        status: { $ref: '#/components/schemas/IncidentStatus' }
+        message: { type: string, minLength: 1, maxLength: 5000 }
+        component_ids: { $ref: '#/components/schemas/UUIDList' }
+    IncidentResolve:
+      type: object
+      additionalProperties: false
+      required: [message]
+      properties:
+        message: { type: string, minLength: 1, maxLength: 5000 }
+    IncidentList:
+      type: object
+      additionalProperties: false
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Incident' } }
+        pagination: { $ref: '#/components/schemas/Pagination' }
+    PublicIncidentList:
+      type: object
+      additionalProperties: false
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/PublicIncident' } }
+        pagination: { $ref: '#/components/schemas/Pagination' }
+    IncidentUpdateList:
+      type: object
+      additionalProperties: false
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/IncidentUpdate' } }
+        pagination: { $ref: '#/components/schemas/Pagination' }
+
+    MaintenanceUpdate:
+      type: object
+      additionalProperties: false
+      required: [id, kind, status, message, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [created, message, started, completed, cancelled] }
+        status: { $ref: '#/components/schemas/MaintenanceStatus' }
+        message: { type: string, nullable: true, description: '`null` em transições publicadas sem mensagem.' }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+    Maintenance:
+      type: object
+      additionalProperties: false
+      required: [id, title, description, expected_impact, status, timezone, scheduled_start, scheduled_end, started_at, completed_at, cancelled_at, start_overdue, end_overdue, internal_notes, template_id, components, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        description: { type: string }
+        expected_impact: { $ref: '#/components/schemas/ExpectedImpact' }
+        status: { $ref: '#/components/schemas/MaintenanceStatus' }
+        timezone: { type: string }
+        scheduled_start: { $ref: '#/components/schemas/Timestamp' }
+        scheduled_end: { $ref: '#/components/schemas/Timestamp' }
+        started_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        completed_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        cancelled_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        start_overdue: { type: boolean }
+        end_overdue: { type: boolean }
+        internal_notes: { type: string }
+        template_id: { type: string, format: uuid, nullable: true }
+        components: { type: array, items: { $ref: '#/components/schemas/ComponentRef' } }
+        latest_update: { $ref: '#/components/schemas/MaintenanceUpdate' }
+        updates: { type: array, items: { $ref: '#/components/schemas/MaintenanceUpdate' } }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    PublicMaintenance:
+      type: object
+      additionalProperties: false
+      required: [id, title, description, expected_impact, status, timezone, scheduled_start, scheduled_end, started_at, completed_at, cancelled_at, start_overdue, end_overdue, components, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        description: { type: string }
+        expected_impact: { $ref: '#/components/schemas/ExpectedImpact' }
+        status: { $ref: '#/components/schemas/MaintenanceStatus' }
+        timezone: { type: string }
+        scheduled_start: { $ref: '#/components/schemas/Timestamp' }
+        scheduled_end: { $ref: '#/components/schemas/Timestamp' }
+        started_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        completed_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        cancelled_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        start_overdue: { type: boolean }
+        end_overdue: { type: boolean }
+        components:
+          type: array
+          description: Apenas componentes públicos.
+          items: { $ref: '#/components/schemas/ComponentRef' }
+        latest_update: { $ref: '#/components/schemas/MaintenanceUpdate' }
+        updates: { type: array, items: { $ref: '#/components/schemas/MaintenanceUpdate' } }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    MaintenanceCreate:
+      type: object
+      additionalProperties: false
+      required: [title, timezone, scheduled_start, scheduled_end]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: string, maxLength: 5000 }
+        message: { type: string, maxLength: 5000, description: Mensagem pública inicial (opcional). }
+        expected_impact: { $ref: '#/components/schemas/ExpectedImpact' }
+        timezone: { type: string, maxLength: 64, example: America/Sao_Paulo }
+        scheduled_start: { $ref: '#/components/schemas/InputInstant' }
+        scheduled_end: { $ref: '#/components/schemas/InputInstant' }
+        component_ids: { $ref: '#/components/schemas/UUIDList' }
+        internal_notes: { type: string, maxLength: 5000 }
+        template_id: { type: string, format: uuid }
+    MaintenancePatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: string, maxLength: 5000 }
+        expected_impact: { $ref: '#/components/schemas/ExpectedImpact' }
+        timezone: { type: string, maxLength: 64 }
+        scheduled_start: { $ref: '#/components/schemas/InputInstant' }
+        scheduled_end: { $ref: '#/components/schemas/InputInstant' }
+        component_ids: { $ref: '#/components/schemas/UUIDList' }
+        internal_notes: { type: string, maxLength: 5000 }
+    MaintenanceMessageCreate:
+      type: object
+      additionalProperties: false
+      required: [message]
+      properties:
+        message: { type: string, minLength: 1, maxLength: 5000 }
+    MaintenanceTransition:
+      type: object
+      additionalProperties: false
+      properties:
+        message: { type: string, maxLength: 5000 }
+    MaintenanceList:
+      type: object
+      additionalProperties: false
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Maintenance' } }
+        pagination: { $ref: '#/components/schemas/Pagination' }
+    PublicMaintenanceList:
+      type: object
+      additionalProperties: false
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/PublicMaintenance' } }
+        pagination: { $ref: '#/components/schemas/Pagination' }
+    MaintenanceUpdateList:
+      type: object
+      additionalProperties: false
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/MaintenanceUpdate' } }
+        pagination: { $ref: '#/components/schemas/Pagination' }
+
+    IncidentTemplate:
+      type: object
+      additionalProperties: false
+      required: [id, name, description, title, message, impact, status, guidance, is_active, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        title: { type: string, description: Título sugerido. }
+        message: { type: string, description: Mensagem sugerida. }
+        impact: { $ref: '#/components/schemas/IncidentImpact' }
+        status: { $ref: '#/components/schemas/IncidentStatus' }
+        guidance: { type: string, description: Orientação para quem preenche; não é publicada. }
+        is_active: { type: boolean }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    IncidentTemplateCreate:
+      type: object
+      additionalProperties: false
+      required: [name, title, message, impact]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120, description: Único (sem diferenciar maiúsculas). }
+        description: { type: string, maxLength: 1000 }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        message: { type: string, minLength: 1, maxLength: 5000 }
+        impact: { $ref: '#/components/schemas/IncidentImpact' }
+        status: { $ref: '#/components/schemas/IncidentStatus' }
+        guidance: { type: string, maxLength: 2000 }
+        is_active: { type: boolean, default: true }
+    IncidentTemplatePatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        description: { type: string, maxLength: 1000 }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        message: { type: string, minLength: 1, maxLength: 5000 }
+        impact: { $ref: '#/components/schemas/IncidentImpact' }
+        status: { $ref: '#/components/schemas/IncidentStatus' }
+        guidance: { type: string, maxLength: 2000 }
+        is_active: { type: boolean }
+    IncidentTemplateList:
+      type: object
+      additionalProperties: false
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/IncidentTemplate' } }
+        pagination: { $ref: '#/components/schemas/Pagination' }
+    MaintenanceTemplate:
+      type: object
+      additionalProperties: false
+      required: [id, name, description, title, message, expected_impact, guidance, is_active, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        title: { type: string }
+        message: { type: string }
+        expected_impact: { $ref: '#/components/schemas/ExpectedImpact' }
+        guidance: { type: string }
+        is_active: { type: boolean }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    MaintenanceTemplateCreate:
+      type: object
+      additionalProperties: false
+      required: [name, title, message]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        description: { type: string, maxLength: 1000 }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        message: { type: string, minLength: 1, maxLength: 5000 }
+        expected_impact: { $ref: '#/components/schemas/ExpectedImpact' }
+        guidance: { type: string, maxLength: 2000 }
+        is_active: { type: boolean, default: true }
+    MaintenanceTemplatePatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        description: { type: string, maxLength: 1000 }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        message: { type: string, minLength: 1, maxLength: 5000 }
+        expected_impact: { $ref: '#/components/schemas/ExpectedImpact' }
+        guidance: { type: string, maxLength: 2000 }
+        is_active: { type: boolean }
+    MaintenanceTemplateList:
+      type: object
+      additionalProperties: false
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/MaintenanceTemplate' } }
+        pagination: { $ref: '#/components/schemas/Pagination' }
+
+    AuditEvent:
+      type: object
+      additionalProperties: false
+      required: [id, occurred_at, resource_type, resource_id, action, source, request_id, actor, changes]
+      properties:
+        id: { type: integer, format: int64 }
+        occurred_at: { $ref: '#/components/schemas/Timestamp' }
+        resource_type: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template, external_source, announcement, announcement_category, team, user, role] }
+        resource_id: { type: string, format: uuid }
+        action: { type: string }
+        source: { type: string, description: 'Canal de origem (ex.: admin_api).' }
+        request_id: { type: string, nullable: true }
+        actor:
+          type: object
+          nullable: true
+          additionalProperties: false
+          required: [id, name]
+          description: Usuário autenticado que fez a alteração; `null` em registros anteriores à autenticação.
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string, description: 'Nome e e-mail no momento da alteração.' }
+        changes:
+          type: object
+          description: Valores relevantes anteriores (`before`) e posteriores (`after`).
+          additionalProperties: true
+    AuditEventList:
+      type: object
+      additionalProperties: false
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/AuditEvent' } }
+        pagination: { $ref: '#/components/schemas/Pagination' }
+
+    StatusSummary:
+      type: object
+      additionalProperties: false
+      required: [overall, components, groups, active_incidents, maintenances, third_party, generated_at]
+      properties:
+        overall:
+          type: object
+          additionalProperties: false
+          required: [status, basis, affected_components, components_under_maintenance]
+          properties:
+            status: { $ref: '#/components/schemas/OverallStatus' }
+            basis:
+              type: string
+              enum: [declared]
+              description: Origem do status. `declared` = informado por operadores, sem verificação automática.
+            affected_components: { type: integer, description: Componentes públicos com status pior que operational (exceto manutenção). }
+            components_under_maintenance: { type: integer }
+        components:
+          type: array
+          description: Todos os componentes públicos (agrupados ou não), na ordem de exibição.
+          items: { $ref: '#/components/schemas/PublicComponent' }
+        groups:
+          type: array
+          description: Grupos com ao menos um componente público, com status derivado.
+          items: { $ref: '#/components/schemas/PublicComponentGroup' }
+        active_incidents: { type: array, items: { $ref: '#/components/schemas/PublicIncident' } }
+        maintenances:
+          type: object
+          additionalProperties: false
+          required: [in_progress, upcoming]
+          properties:
+            in_progress: { type: array, items: { $ref: '#/components/schemas/PublicMaintenance' } }
+            upcoming: { type: array, items: { $ref: '#/components/schemas/PublicMaintenance' } }
+        third_party:
+          type: array
+          description: |
+            Serviços de terceiros com componentes selecionados. Status informado pelos provedores; **não afeta**
+            `overall`. Dados desatualizados vêm com `stale: true` e status `unknown`.
+          items: { $ref: '#/components/schemas/PublicThirdPartySource' }
+        generated_at: { $ref: '#/components/schemas/Timestamp' }
+
+    AnnouncementState:
+      type: string
+      enum: [draft, scheduled, published, archived]
+      description: '`scheduled` = publicado com horário de publicação futuro.'
+    AnnouncementImportance:
+      type: string
+      enum: [info, important]
+      description: '`important` recebe destaque na página pública.'
+    CategoryColor:
+      type: string
+      enum: [gray, blue, green, yellow, orange, red, purple]
+    AnnouncementCategoryRef:
+      type: object
+      additionalProperties: false
+      nullable: true
+      required: [id, name, color]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        color: { $ref: '#/components/schemas/CategoryColor' }
+    TeamRef:
+      type: object
+      additionalProperties: false
+      nullable: true
+      required: [id, name]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+    Announcement:
+      type: object
+      additionalProperties: false
+      required: [id, title, body, importance, is_pinned, state, category, team, components, published_at, archived_at, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        body: { type: string, description: 'Texto com formatação leve: parágrafos, listas com `- `, `**negrito**` e links `[texto](https://...)`.' }
+        importance: { $ref: '#/components/schemas/AnnouncementImportance' }
+        is_pinned: { type: boolean }
+        state: { $ref: '#/components/schemas/AnnouncementState' }
+        category: { $ref: '#/components/schemas/AnnouncementCategoryRef' }
+        team: { $ref: '#/components/schemas/TeamRef' }
+        components: { type: array, items: { $ref: '#/components/schemas/ComponentRef' } }
+        published_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        archived_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    AnnouncementCreate:
+      type: object
+      additionalProperties: false
+      required: [title, body]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        body: { type: string, minLength: 1, maxLength: 10000 }
+        importance: { $ref: '#/components/schemas/AnnouncementImportance' }
+        is_pinned: { type: boolean, default: false }
+        category_id: { type: string, format: uuid, nullable: true, description: Categoria ativa. }
+        team_id: { type: string, format: uuid, nullable: true, description: Time responsável ativo. }
+        component_ids: { $ref: '#/components/schemas/UUIDList' }
+    AnnouncementPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        body: { type: string, minLength: 1, maxLength: 10000 }
+        importance: { $ref: '#/components/schemas/AnnouncementImportance' }
+        is_pinned: { type: boolean }
+        category_id: { type: string, format: uuid, nullable: true, description: '`null` remove a categoria.' }
+        team_id: { type: string, format: uuid, nullable: true, description: '`null` remove o time.' }
+        component_ids: { $ref: '#/components/schemas/UUIDList' }
+    AnnouncementPublish:
+      type: object
+      additionalProperties: false
+      properties:
+        publish_at: { type: string, nullable: true, description: 'RFC 3339 com offset. Omitido ou vazio = publicar agora.' }
+    AnnouncementList:
+      type: object
+      additionalProperties: false
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Announcement' } }
+        pagination: { $ref: '#/components/schemas/Pagination' }
+    PublicAnnouncement:
+      type: object
+      additionalProperties: false
+      required: [id, title, body, importance, is_pinned, category, team, components, published_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        body: { type: string }
+        importance: { $ref: '#/components/schemas/AnnouncementImportance' }
+        is_pinned: { type: boolean }
+        category: { $ref: '#/components/schemas/AnnouncementCategoryRef' }
+        team: { $ref: '#/components/schemas/TeamRef' }
+        components: { type: array, items: { $ref: '#/components/schemas/ComponentRef' }, description: Somente componentes públicos. }
+        published_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    PublicAnnouncementList:
+      type: object
+      additionalProperties: false
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/PublicAnnouncement' } }
+        pagination: { $ref: '#/components/schemas/Pagination' }
+    PublicAnnouncementCategory:
+      type: object
+      additionalProperties: false
+      required: [id, name, description, color]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        color: { $ref: '#/components/schemas/CategoryColor' }
+    PublicAnnouncementCategoryList:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/PublicAnnouncementCategory' } }
+    AnnouncementCategory:
+      type: object
+      additionalProperties: false
+      required: [id, name, description, color, display_order, is_active, announcement_count, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        color: { $ref: '#/components/schemas/CategoryColor' }
+        display_order: { type: integer }
+        is_active: { type: boolean }
+        announcement_count: { type: integer }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    AnnouncementCategoryCreate:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 60 }
+        description: { type: string, maxLength: 500 }
+        color: { $ref: '#/components/schemas/CategoryColor' }
+        display_order: { type: integer, minimum: 0, maximum: 100000, default: 0 }
+        is_active: { type: boolean, default: true }
+    AnnouncementCategoryPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 60 }
+        description: { type: string, maxLength: 500 }
+        color: { $ref: '#/components/schemas/CategoryColor' }
+        display_order: { type: integer, minimum: 0, maximum: 100000 }
+        is_active: { type: boolean }
+    AnnouncementCategoryList:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/AnnouncementCategory' } }
+    Team:
+      type: object
+      additionalProperties: false
+      required: [id, name, description, is_active, announcement_count, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        is_active: { type: boolean }
+        announcement_count: { type: integer }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    TeamCreate:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        description: { type: string, maxLength: 500 }
+        is_active: { type: boolean, default: true }
+    TeamPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        description: { type: string, maxLength: 500 }
+        is_active: { type: boolean }
+    TeamList:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Team' } }
+
+    PermissionKey:
+      type: string
+      enum: [components.status, components.manage, third_party.manage, incidents.manage, maintenances.manage, templates.manage, announcements.write, announcements.publish, announcements.settings, audit.read, users.manage, roles.manage]
+    PermissionInfo:
+      type: object
+      additionalProperties: false
+      required: [key, group, label, description, sensitive]
+      properties:
+        key: { $ref: '#/components/schemas/PermissionKey' }
+        group: { type: string }
+        label: { type: string }
+        description: { type: string }
+        sensitive: { type: boolean, description: 'Permite mudar quem pode fazer o quê (usuários e papéis).' }
+    PermissionList:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/PermissionInfo' } }
+    RoleRef:
+      type: object
+      additionalProperties: false
+      required: [id, name, is_system]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        is_system: { type: boolean }
+    User:
+      type: object
+      additionalProperties: false
+      required: [id, email, name, is_active, must_change_password, roles, last_login_at, locked_until, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string }
+        name: { type: string }
+        is_active: { type: boolean }
+        must_change_password: { type: boolean, description: 'Senha definida por um administrador (criação ou redefinição): a API administrativa responde 403 `password_change_required` até o usuário escolher a própria senha em `POST /api/v1/auth/password`.' }
+        roles: { type: array, items: { $ref: '#/components/schemas/RoleRef' } }
+        last_login_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        locked_until: { $ref: '#/components/schemas/NullableTimestamp' }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    UserList:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/User' } }
+    Password:
+      type: string
+      minLength: 12
+      maxLength: 128
+      description: 12 a 128 caracteres; não pode ser igual ao e-mail.
+    UserCreate:
+      type: object
+      additionalProperties: false
+      required: [email, name, password]
+      properties:
+        email: { type: string, maxLength: 254 }
+        name: { type: string, minLength: 1, maxLength: 120 }
+        password: { $ref: '#/components/schemas/Password' }
+        role_ids: { type: array, maxItems: 20, items: { type: string, format: uuid } }
+    UserPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        email: { type: string, maxLength: 254 }
+        name: { type: string, minLength: 1, maxLength: 120 }
+        is_active: { type: boolean }
+        role_ids: { type: array, maxItems: 20, items: { type: string, format: uuid }, description: Substitui os papéis do usuário. }
+        unlock: { type: boolean, description: '`true` remove o bloqueio por tentativas de login.' }
+    PasswordReset:
+      type: object
+      additionalProperties: false
+      required: [password]
+      properties:
+        password: { $ref: '#/components/schemas/Password' }
+    PasswordChange:
+      type: object
+      additionalProperties: false
+      required: [current_password, new_password]
+      properties:
+        current_password: { type: string, maxLength: 128 }
+        new_password: { $ref: '#/components/schemas/Password' }
+    Role:
+      type: object
+      additionalProperties: false
+      required: [id, name, description, permissions, is_system, user_count, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        permissions: { type: array, items: { $ref: '#/components/schemas/PermissionKey' }, description: 'O Administrador lista todas.' }
+        is_system: { type: boolean, description: 'Papel Administrador: acesso total e imutável.' }
+        user_count: { type: integer }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    RoleList:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Role' } }
+    RoleCreate:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 60 }
+        description: { type: string, maxLength: 500 }
+        permissions: { type: array, maxItems: 100, items: { $ref: '#/components/schemas/PermissionKey' } }
+    RolePatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 60 }
+        description: { type: string, maxLength: 500 }
+        permissions: { type: array, maxItems: 100, items: { $ref: '#/components/schemas/PermissionKey' } }
+    Me:
+      type: object
+      additionalProperties: false
+      required: [user, permissions, is_admin]
+      properties:
+        user: { $ref: '#/components/schemas/User' }
+        permissions: { type: array, items: { $ref: '#/components/schemas/PermissionKey' } }
+        is_admin: { type: boolean }
+    SetupStatus:
+      type: object
+      additionalProperties: false
+      required: [setup_required]
+      properties:
+        setup_required: { type: boolean }
+    SetupInput:
+      type: object
+      additionalProperties: false
+      required: [setup_token, name, email, password]
+      properties:
+        setup_token: { type: string, maxLength: 200 }
+        name: { type: string, minLength: 1, maxLength: 120 }
+        email: { type: string, maxLength: 254 }
+        password: { $ref: '#/components/schemas/Password' }
+    LoginInput:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email: { type: string, maxLength: 254 }
+        password: { type: string, maxLength: 128 }

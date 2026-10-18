@@ -1,0 +1,15 @@
+# Override: run images published by .github/workflows/publish.yml instead of
+# building locally. Prefer an immutable tag (sha-<commit>) over "main".
+#
+#   IMAGE_TAG=sha-<commit> docker compose \
+#     -f deploy/docker-compose.yml -f deploy/docker-compose.ghcr.yml up -d --no-build
+#
+# The packages are private while the repository is private: run
+# `docker login ghcr.io` with a token that has read:packages first.
+services:
+  backend:
+    image: ghcr.io/digolitus/digolitus-statuspage-backend:${IMAGE_TAG:?set IMAGE_TAG, e.g. sha-<commit>}
+    pull_policy: always
+  frontend:
+    image: ghcr.io/digolitus/digolitus-statuspage-frontend:${IMAGE_TAG:?set IMAGE_TAG, e.g. sha-<commit>}
+    pull_policy: always

@@ -1,0 +1,13 @@
+body {
+  margin: 0;
+  background: #fafafa;
+}
+
+.docs-warning {
+  padding: 12px 20px;
+  background: #fff4e5;
+  border-bottom: 1px solid #f0c27b;
+  color: #5c3b00;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 14px;
+}

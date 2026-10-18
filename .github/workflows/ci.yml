@@ -1,0 +1,258 @@
+# Continuous integration: validation, tests, contract checks and security
+# scans. It never publishes images or deploys. Third-party actions are pinned
+# to commit SHAs (tag in the trailing comment) resolved from their GitHub
+# repositories; update them deliberately (e.g. via Dependabot PRs).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    # Release tags run the full pipeline; publish.yml then publishes them.
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TRIVY_VERSION: v0.76.0
+  GOVULNCHECK_VERSION: v1.9.0
+  GOSEC_VERSION: v2.29.0
+
+jobs:
+  changes:
+    name: Detect changed modules
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      shared: ${{ steps.filter.outputs.shared }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: filter
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          filters: |
+            backend:
+              - 'apps/backend/**'
+              # Generated from the backend contract; drift is checked by backend tests.
+              - 'apps/frontend/src/api/schema.gen.ts'
+            frontend:
+              - 'apps/frontend/**'
+            shared:
+              - 'deploy/**'
+              - '.github/**'
+              - 'Makefile'
+              - '.trivyignore'
+
+  backend:
+    name: Backend (Go)
+    needs: changes
+    # Shared files (workflows, Compose) widen validation to every module.
+    # Tags and manual runs validate everything.
+    if: >-
+      needs.changes.outputs.backend == 'true' || needs.changes.outputs.shared == 'true' ||
+      github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/backend
+    services:
+      postgres:
+        image: postgres:18.6-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: apps/backend/go.mod
+          cache-dependency-path: apps/backend/go.sum
+      - name: Formatting
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then echo "Run gofmt on:"; echo "$unformatted"; exit 1; fi
+      - name: Module integrity
+        run: |
+          go mod verify
+          go mod tidy -diff
+      - name: Vet
+        run: go vet ./...
+      - name: Tests (unit, PostgreSQL integration, OpenAPI contract)
+        env:
+          TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+          REQUIRE_DB_TESTS: "1"
+        run: go test -race -count=1 -coverpkg=./internal/... -coverprofile=coverage.out ./...
+      - name: Coverage summary
+        run: go tool cover -func=coverage.out | tail -1
+      - name: Known vulnerabilities (govulncheck)
+        run: go run golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION} ./...
+      - name: SAST (gosec)
+        # Findings are printed and also published as annotations on the PR
+        # (file and line), so they can be read without downloading logs.
+        run: |
+          go run github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION} -severity medium -confidence medium \
+            -exclude-generated -no-fail -fmt=json -out=gosec.json -stdout -verbose=text ./...
+          jq -r '.Issues[]? | "::error file=apps/backend/\(.file | sub("^.*/apps/backend/"; "")),line=\(.line | split("-")[0]),title=gosec \(.rule_id)::\(.details) (severity \(.severity), confidence \(.confidence))"' gosec.json
+          test "$(jq '.Issues | length' gosec.json)" -eq 0
+
+  frontend:
+    name: Frontend (React)
+    needs: changes
+    if: >-
+      needs.changes.outputs.frontend == 'true' || needs.changes.outputs.shared == 'true' ||
+      github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/frontend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: Lint
+        run: npm run lint
+      - name: Tests
+        run: npm test -- --run
+      - name: Type-check and build
+        run: npm run build
+      - name: Production dependency audit
+        run: npm audit --omit=dev --audit-level=high
+
+  containers:
+    name: Containers and Compose
+    needs: [changes, backend, frontend]
+    # Runs after module checks pass or are skipped, when anything relevant changed.
+    if: >-
+      !cancelled() && !contains(needs.*.result, 'failure') &&
+      (needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true' || needs.changes.outputs.shared == 'true' ||
+       github.ref_type == 'tag' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Validate Compose file
+        run: docker compose -f deploy/docker-compose.yml config --quiet
+      - name: Build backend image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: apps/backend
+          load: true
+          push: false
+          tags: digolitus-statuspage-backend:local
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+      - name: Build frontend image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: apps/frontend
+          load: true
+          push: false
+          tags: digolitus-statuspage-frontend:local
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+      - name: Start stack
+        run: docker compose -f deploy/docker-compose.yml up --no-build --detach --wait --wait-timeout 120
+      - name: Smoke test through Nginx
+        run: |
+          set -eu
+          curl -fsS http://127.0.0.1:8080/readyz
+          curl -fsS http://127.0.0.1:8080/api/v1/status | grep -q '"basis":"declared"'
+          curl -fsS http://127.0.0.1:8080/api/openapi.yaml | head -1 | grep -q 'openapi: 3.0.3'
+          curl -fsS -o /dev/null http://127.0.0.1:8080/swagger/
+          curl -fsS http://127.0.0.1:8080/ | grep -q '<div id="root">'
+          # Backend and database must not be published on the host.
+          if timeout 2 bash -c '</dev/tcp/127.0.0.1/5432' 2>/dev/null; then echo "PostgreSQL is exposed"; exit 1; fi
+          docker compose -f deploy/docker-compose.yml port backend 8080 && { echo "backend is published"; exit 1; } || true
+      - name: Compose logs
+        if: failure()
+        run: docker compose -f deploy/docker-compose.yml logs --no-color
+      - name: Stop stack
+        if: always()
+        run: docker compose -f deploy/docker-compose.yml down --volumes
+      - name: Scan backend image (Trivy)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          scan-type: image
+          image-ref: digolitus-statuspage-backend:local
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Scan frontend image (Trivy)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          scan-type: image
+          image-ref: digolitus-statuspage-frontend:local
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+  repository-scan:
+    name: Repository scan (Trivy fs, secrets, misconfiguration)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+  dependency-review:
+    name: Dependency review
+    # Needs the dependency graph (public repositories, or private ones with
+    # GitHub Advanced Security). Elsewhere it is skipped; govulncheck, npm
+    # audit and Trivy still cover known vulnerabilities. Set the repository
+    # variable ENABLE_DEPENDENCY_REVIEW=true once the feature is available.
+    if: >-
+      github.event_name == 'pull_request' &&
+      (!github.event.repository.private || vars.ENABLE_DEPENDENCY_REVIEW == 'true')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
