@@ -1,5 +1,8 @@
 .git
 .env
+.env.*
 *.log
 *.test
 coverage.out
+Dockerfile
+.dockerignore

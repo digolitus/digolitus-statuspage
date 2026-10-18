@@ -1,55 +1,90 @@
+# Local environment: docker compose -f deploy/docker-compose.yml up --build
+#
+# Only the frontend (Nginx) is published, and only on 127.0.0.1. The backend
+# and PostgreSQL live on an internal network with no host ports and no
+# outbound internet access. The admin API has NO authentication in this
+# version: do not change the published address to 0.0.0.0 or expose this
+# stack publicly. See docs/operations.md.
+#
+# Settings come from environment variables or deploy/.env (see .env.example).
+# The default database password is a local development value, not a secret:
+# the database is unreachable from outside the internal network.
 name: digolitus-status-page
 
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  restart: unless-stopped
+
 services:
+  db:
+    image: postgres:18.6-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-statuspage}
+      POSTGRES_USER: ${POSTGRES_USER:-statuspage}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-dev-only}
+    volumes:
+      # PostgreSQL 18 images keep data under /var/lib/postgresql/<major>/.
+      - pgdata:/var/lib/postgresql
+    networks: [internal]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    shm_size: 128mb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
   backend:
+    <<: *hardening
     build:
       context: ../apps/backend
-      dockerfile: Dockerfile
     image: digolitus-statuspage-backend:local
-    container_name: digolitus-status-page-backend
     environment:
       PORT: "8080"
-    expose:
-      - "8080"
-    networks:
-      - status-page
-    restart: unless-stopped
+      DATABASE_URL: postgres://${POSTGRES_USER:-statuspage}:${POSTGRES_PASSWORD:-local-dev-only}@db:5432/${POSTGRES_DB:-statuspage}?sslmode=disable
+      DB_MAX_CONNS: ${DB_MAX_CONNS:-10}
+      DB_AUTO_MIGRATE: ${DB_AUTO_MIGRATE:-true}
+      ADMIN_API_ENABLED: ${ADMIN_API_ENABLED:-true}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [internal]
     healthcheck:
-      test:
-        - "CMD"
-        - "/healthcheck"
+      test: ["CMD", "/healthcheck", "ready"]
       interval: 10s
       timeout: 3s
       retries: 5
-      start_period: 5s
+      start_period: 10s
 
   frontend:
+    <<: *hardening
     build:
       context: ../apps/frontend
-      dockerfile: Dockerfile
     image: digolitus-statuspage-frontend:local
-    container_name: digolitus-status-page-frontend
     depends_on:
       backend:
         condition: service_healthy
     ports:
-      - "8080:8080"
-    networks:
-      - status-page
-    restart: unless-stopped
+      - "127.0.0.1:${STATUSPAGE_PORT:-8080}:8080"
+    networks: [internal, edge]
+    tmpfs:
+      - /tmp
     healthcheck:
-      test:
-        - "CMD"
-        - "wget"
-        - "--spider"
-        - "--quiet"
-        - "http://127.0.0.1:8080/"
+      test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:8080/"]
       interval: 10s
       timeout: 3s
       retries: 5
       start_period: 5s
 
 networks:
-  status-page:
-    name: digolitus-status-page-network
-    driver: bridge
+  internal:
+    internal: true
+  edge: {}
+
+volumes:
+  pgdata:
