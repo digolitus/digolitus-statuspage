@@ -33,7 +33,8 @@ export function mockApi(routes: Record<string, Route>) {
       : typeof route === "function"
         ? await route(call)
         : route;
-    return new Response(reply.body === undefined ? "" : JSON.stringify(reply.body), {
+    // No body (null, not ""): responses such as 204 must not carry one.
+    return new Response(reply.body === undefined ? null : JSON.stringify(reply.body), {
       status: reply.status ?? 200,
       headers: { "Content-Type": "application/json" },
     });

@@ -441,7 +441,8 @@ describe("impact selector", () => {
     const user = userEvent.setup();
     const combo = await screen.findByRole("combobox", { name: "Impacto" });
     await user.click(combo);
-    const options = screen.getAllByRole("option").map((o: HTMLElement) => o.textContent);
+    // Only the impact list (the status <select> also has options).
+    const options = within(screen.getByRole("listbox")).getAllByRole("option").map((o: HTMLElement) => o.textContent);
     expect(options).toEqual(["Operacional", "Performance degradada", "Interrupção parcial", "Interrupção grave"]);
     await user.click(screen.getByRole("option", { name: "Interrupção grave" }));
     expect(combo).toHaveTextContent("Interrupção grave");
