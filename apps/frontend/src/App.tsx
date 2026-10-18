@@ -3,6 +3,7 @@ import { AnnouncementDetailPage, AnnouncementsPage } from "./public/Announcement
 import { IncidentPage, MaintenancePage } from "./public/DetailPages";
 import { PublicLayout } from "./public/PublicLayout";
 import { StatusPage } from "./public/StatusPage";
+import { SubscriptionConfirmPage, SubscriptionManagePage } from "./public/Subscribe";
 import { match, useLocation } from "./lib/router";
 
 /**
@@ -22,6 +23,10 @@ export default function App() {
     content = <MaintenancePage id={params.id} />;
   } else if (match("/announcements", pathname)) {
     content = <AnnouncementsPage />;
+  } else if (match("/subscriptions/confirm", pathname)) {
+    content = <SubscriptionConfirmPage />;
+  } else if (match("/subscriptions/manage", pathname)) {
+    content = <SubscriptionManagePage />;
   } else if ((params = match("/announcements/:id", pathname))) {
     content = <AnnouncementDetailPage key={params.id} id={params.id} />;
   }

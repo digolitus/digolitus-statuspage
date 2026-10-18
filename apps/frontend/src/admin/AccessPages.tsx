@@ -1,11 +1,11 @@
-import { useState, type FormEvent } from "react";
+import { useId, useState, type FormEvent } from "react";
 import { authApi, adminApi } from "../api/endpoints";
-import type { PermissionInfo, PermissionKey, Role, User } from "../api/types";
+import type { PermissionInfo, PermissionKey, Role, RoleScope, Team, User } from "../api/types";
 import { Badge, ConfirmButton, EmptyState, ErrorPanel, Field, Loading } from "../components/ui";
 import { formatDateTime, isFuture } from "../lib/format";
 import { useApi } from "../lib/useApi";
 import { useAuth } from "./authContext";
-import { FormStatus, PageHeader, requireText, useSubmit } from "./shared";
+import { FormStatus, PageHeader, requireText, useSubmit, useTeams } from "./shared";
 
 const MIN_PASSWORD = 12;
 
@@ -44,6 +44,7 @@ export function AccountPage() {
           Papéis: {me.user.roles.map((r) => r.name).join(", ") || "nenhum"}
           {me.is_admin && " · acesso total"}
         </p>
+        <p className="muted small">Times: {me.user.teams.map((t) => t.name).join(", ") || "nenhum"}</p>
       </section>
       <section className="panel" aria-labelledby="pw-title">
         <h2 id="pw-title">Trocar senha</h2>
@@ -101,8 +102,9 @@ function RolePicker({
               disabled={!allowed.has(r.id)}
               onChange={(e) => onChange(e.target.checked ? [...selected, r.id] : selected.filter((x) => x !== r.id))}
             />
-            {r.name}
+            <span>{r.name}</span>
             {r.is_system && <span className="tag">acesso total</span>}
+            {r.scope === "team" && <span className="tag tag-team">só nos times</span>}
           </label>
         ))}
       </div>
@@ -111,8 +113,37 @@ function RolePicker({
   );
 }
 
-function NewUserForm({ roles, allowed, onCreated }: { roles: Role[]; allowed: Set<string>; onCreated: () => void }) {
-  const [v, setV] = useState({ name: "", email: "", password: "", role_ids: [] as string[] });
+/** Teams the user belongs to; team-scoped roles act on their components. */
+function TeamPicker({ teams, selected, onChange, error }: { teams: Team[]; selected: string[]; onChange: (ids: string[]) => void; error?: string }) {
+  const options = teams.filter((t) => t.is_active || selected.includes(t.id));
+  return (
+    <fieldset className={`field picker${error ? " field-invalid" : ""}`}>
+      <legend>Times</legend>
+      {options.length === 0 ? (
+        <small className="field-hint">Nenhum time cadastrado.</small>
+      ) : (
+        <div className="picker-options">
+          {options.map((t) => (
+            <label key={t.id} className="checkbox">
+              <input
+                type="checkbox"
+                checked={selected.includes(t.id)}
+                onChange={(e) => onChange(e.target.checked ? [...selected, t.id] : selected.filter((x) => x !== t.id))}
+              />
+              <span>{t.name}</span>
+              {t.kind && <span className="tag">{t.kind}</span>}
+            </label>
+          ))}
+        </div>
+      )}
+      <small className="field-hint">Papéis com escopo “times” valem só para os componentes destes times.</small>
+      {error && <small className="field-error">{error}</small>}
+    </fieldset>
+  );
+}
+
+function NewUserForm({ roles, teams, allowed, onCreated }: { roles: Role[]; teams: Team[]; allowed: Set<string>; onCreated: () => void }) {
+  const [v, setV] = useState({ name: "", email: "", password: "", role_ids: [] as string[], team_ids: [] as string[] });
   const submit = useSubmit();
   async function handle(e: FormEvent) {
     e.preventDefault();
@@ -122,11 +153,11 @@ function NewUserForm({ roles, allowed, onCreated }: { roles: Role[]; allowed: Se
     checkPassword(errors, "password", v.password);
     if (Object.keys(errors).length) return submit.setFieldErrors(errors);
     const ok = await submit.run(
-      () => adminApi.users.create({ name: v.name.trim(), email: v.email.trim(), password: v.password, role_ids: v.role_ids }),
+      () => adminApi.users.create({ name: v.name.trim(), email: v.email.trim(), password: v.password, role_ids: v.role_ids, team_ids: v.team_ids }),
       "Usuário criado. Informe a senha inicial por um canal seguro; ela será trocada no primeiro acesso.",
     );
     if (ok) {
-      setV({ name: "", email: "", password: "", role_ids: [] });
+      setV({ name: "", email: "", password: "", role_ids: [], team_ids: [] });
       onCreated();
     }
   }
@@ -144,7 +175,10 @@ function NewUserForm({ roles, allowed, onCreated }: { roles: Role[]; allowed: Se
           {(p) => <input {...p} type="password" autoComplete="new-password" value={v.password} maxLength={128} onChange={(e) => setV({ ...v, password: e.target.value })} />}
         </Field>
       </div>
-      <RolePicker roles={roles} selected={v.role_ids} allowed={allowed} onChange={(ids) => setV({ ...v, role_ids: ids })} error={fe.role_ids} />
+      <div className="picker-row">
+        <RolePicker roles={roles} selected={v.role_ids} allowed={allowed} onChange={(ids) => setV({ ...v, role_ids: ids })} error={fe.role_ids} />
+        <TeamPicker teams={teams} selected={v.team_ids} onChange={(ids) => setV({ ...v, team_ids: ids })} error={fe.team_ids} />
+      </div>
       <FormStatus error={submit.formError} success={submit.success} />
       <div className="form-actions">
         <button type="submit" className="primary-button" disabled={submit.busy}>
@@ -155,10 +189,11 @@ function NewUserForm({ roles, allowed, onCreated }: { roles: Role[]; allowed: Se
   );
 }
 
-function UserItem({ u, roles, allowed, onChanged }: { u: User; roles: Role[]; allowed: Set<string>; onChanged: () => void }) {
+function UserItem({ u, roles, teams, allowed, onChanged }: { u: User; roles: Role[]; teams: Team[]; allowed: Set<string>; onChanged: () => void }) {
   const { me } = useAuth();
   const [editing, setEditing] = useState(false);
   const [roleIds, setRoleIds] = useState(u.roles.map((r) => r.id));
+  const [teamIds, setTeamIds] = useState(u.teams.map((t) => t.id));
   const [password, setPassword] = useState("");
   const submit = useSubmit();
   const self = u.id === me.user.id;
@@ -170,6 +205,11 @@ function UserItem({ u, roles, allowed, onChanged }: { u: User; roles: Role[]; al
           <strong>{u.name}</strong> <span className="muted">{u.email}</span>
           <div className="admin-item-tags">
             {u.roles.length === 0 ? <span className="tag">Sem papel (somente leitura)</span> : u.roles.map((r) => <span key={r.id} className="tag">{r.name}</span>)}
+            {u.teams.map((t) => (
+              <span key={t.id} className="tag tag-team">
+                Time: {t.name}
+              </span>
+            ))}
             {self && <span className="tag">Você</span>}
             {u.must_change_password && <span className="tag">Senha provisória</span>}
             {locked && <span className="tag tag-warn">Bloqueado até {formatDateTime(u.locked_until)}</span>}
@@ -202,15 +242,20 @@ function UserItem({ u, roles, allowed, onChanged }: { u: User; roles: Role[]; al
       </div>
       {editing && (
         <div className="form">
-          <RolePicker roles={roles} selected={roleIds} allowed={allowed} onChange={setRoleIds} error={submit.fieldErrors.role_ids} />
+          <div className="picker-row">
+            <RolePicker roles={roles} selected={roleIds} allowed={allowed} onChange={setRoleIds} error={submit.fieldErrors.role_ids} />
+            <TeamPicker teams={teams} selected={teamIds} onChange={setTeamIds} error={submit.fieldErrors.team_ids} />
+          </div>
           <div className="form-actions">
             <button
               type="button"
               className="primary-button"
               disabled={submit.busy}
-              onClick={() => submit.run(() => adminApi.users.update(u.id, { role_ids: roleIds }), "Papéis atualizados.").then((r) => r && onChanged())}
+              onClick={() =>
+                submit.run(() => adminApi.users.update(u.id, { role_ids: roleIds, team_ids: teamIds }), "Acesso atualizado.").then((r) => r && onChanged())
+              }
             >
-              Salvar papéis
+              Salvar acesso
             </button>
           </div>
           {!self && (
@@ -246,6 +291,7 @@ function UserItem({ u, roles, allowed, onChanged }: { u: User; roles: Role[]; al
 
 export function UsersPage() {
   const { me, can } = useAuth();
+  const teams = useTeams();
   const data = useApi(async (signal) => {
     const [users, roles] = await Promise.all([adminApi.users.list({ signal }), adminApi.roles.list({ signal })]);
     return { users: users.data, roles: roles.data };
@@ -255,7 +301,8 @@ export function UsersPage() {
       <PageHeader title="Usuários" />
       <p className="muted">
         Cada usuário recebe um ou mais papéis; as permissões são a soma deles. Sem papel, o usuário só consulta os dados.
-        Você só pode conceder papéis cujas permissões também possui.
+        Você só pode conceder papéis cujas permissões também possui. Papéis com escopo “times” valem apenas para os
+        componentes dos times do usuário.
       </p>
       {data.state.status === "loading" && <Loading />}
       {data.state.status === "error" && <ErrorPanel error={data.state.error} onRetry={data.reload} />}
@@ -263,7 +310,7 @@ export function UsersPage() {
         <>
           <section className="panel" aria-label="Novo usuário">
             <h2>Novo usuário</h2>
-            <NewUserForm roles={data.state.data.roles} allowed={grantable(data.state.data.roles, can, me.is_admin)} onCreated={data.reload} />
+            <NewUserForm roles={data.state.data.roles} teams={teams} allowed={grantable(data.state.data.roles, can, me.is_admin)} onCreated={data.reload} />
           </section>
           {data.state.data.users.length === 0 ? (
             <EmptyState title="Nenhum usuário" />
@@ -274,6 +321,7 @@ export function UsersPage() {
                   key={`${u.id}-${u.updated_at}`}
                   u={u}
                   roles={data.state.data!.roles}
+                  teams={teams}
                   allowed={grantable(data.state.data!.roles, can, me.is_admin)}
                   onChanged={data.reload}
                 />
@@ -291,7 +339,9 @@ function PermissionPicker({
   selected,
   onChange,
   disabled,
+  scope,
 }: {
+  scope: RoleScope;
   catalogue: PermissionInfo[];
   selected: PermissionKey[];
   onChange: (p: PermissionKey[]) => void;
@@ -310,12 +360,13 @@ function PermissionPicker({
                 <input
                   type="checkbox"
                   checked={selected.includes(c.key)}
-                  disabled={disabled(c.key)}
+                  disabled={disabled(c.key) || (scope === "team" && !c.scopable)}
                   onChange={(e) => onChange(e.target.checked ? [...selected, c.key] : selected.filter((x) => x !== c.key))}
                 />
                 <span>
                   <strong>{c.label}</strong>
                   {c.sensitive && <span className="tag tag-warn">sensível</span>}
+                  {scope === "team" && !c.scopable && <span className="tag">só global</span>}
                   <small className="muted">{c.description}</small>
                 </span>
               </label>
@@ -328,17 +379,26 @@ function PermissionPicker({
 
 function RoleForm({ catalogue, role, onSaved }: { catalogue: PermissionInfo[]; role?: Role; onSaved: () => void }) {
   const { can } = useAuth();
-  const [v, setV] = useState({ name: role?.name ?? "", description: role?.description ?? "", permissions: (role?.permissions ?? []) as PermissionKey[] });
+  const [v, setV] = useState({
+    name: role?.name ?? "",
+    description: role?.description ?? "",
+    scope: (role?.scope ?? "global") as RoleScope,
+    permissions: (role?.permissions ?? []) as PermissionKey[],
+  });
+  const scopeName = useId();
+  const scopable = new Set(catalogue.filter((c) => c.scopable).map((c) => c.key));
+  const setScope = (scope: RoleScope) =>
+    setV((s) => ({ ...s, scope, permissions: scope === "team" ? s.permissions.filter((p) => scopable.has(p)) : s.permissions }));
   const submit = useSubmit();
   async function handle(e: FormEvent) {
     e.preventDefault();
     const errors: Record<string, string> = {};
     requireText(errors, "name", v.name, 60, "Nome");
     if (Object.keys(errors).length) return submit.setFieldErrors(errors);
-    const body = { name: v.name.trim(), description: v.description.trim(), permissions: v.permissions };
+    const body = { name: v.name.trim(), description: v.description.trim(), scope: v.scope, permissions: v.permissions };
     const ok = await submit.run(() => (role ? adminApi.roles.update(role.id, body) : adminApi.roles.create(body)), role ? "Papel atualizado." : "Papel criado.");
     if (ok) {
-      if (!role) setV({ name: "", description: "", permissions: [] });
+      if (!role) setV({ name: "", description: "", scope: "global", permissions: [] });
       onSaved();
     }
   }
@@ -353,7 +413,28 @@ function RoleForm({ catalogue, role, onSaved }: { catalogue: PermissionInfo[]; r
           {(p) => <input {...p} value={v.description} maxLength={500} onChange={(e) => setV({ ...v, description: e.target.value })} />}
         </Field>
       </div>
-      <PermissionPicker catalogue={catalogue} selected={v.permissions} onChange={(permissions) => setV({ ...v, permissions })} disabled={(p) => !can(p)} />
+      <fieldset className="field segmented-field">
+        <legend>Escopo</legend>
+        <div className="segmented" role="radiogroup" aria-label="Escopo">
+          {(
+            [
+              ["global", "Toda a plataforma"],
+              ["team", "Componentes dos times do usuário"],
+            ] as const
+          ).map(([value, label]) => (
+            <label key={value} className={v.scope === value ? "segmented-option segmented-option-active" : "segmented-option"}>
+              <input type="radio" name={scopeName} value={value} checked={v.scope === value} onChange={() => setScope(value)} />
+              {label}
+            </label>
+          ))}
+        </div>
+        <small className="field-hint">
+          {v.scope === "team"
+            ? "Cada usuário age só nos componentes dos próprios times (e nos incidentes, manutenções e comunicados deles)."
+            : "As permissões valem para tudo."}
+        </small>
+      </fieldset>
+      <PermissionPicker scope={v.scope} catalogue={catalogue} selected={v.permissions} onChange={(permissions) => setV({ ...v, permissions })} disabled={(p) => !can(p)} />
       {fe.permissions && <p className="field-error">{fe.permissions}</p>}
       <FormStatus error={submit.formError} success={submit.success} />
       <div className="form-actions">
@@ -403,6 +484,7 @@ export function RolesPage() {
                     <strong>{r.name}</strong>
                     <div className="admin-item-tags">
                       <span className="tag">{r.user_count} usuário(s)</span>
+                      {r.scope === "team" && <span className="tag tag-team">Escopo: times do usuário</span>}
                       {r.is_system ? <span className="tag">Acesso total · fixo</span> : <span className="tag">{r.permissions.length} permissão(ões)</span>}
                     </div>
                     {r.description && <p className="muted small">{r.description}</p>}

@@ -64,7 +64,12 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const value = useMemo(() => {
     if (!me) return null;
     const perms = new Set<PermissionKey>(me.permissions);
-    return { me, can: (p: PermissionKey) => me.is_admin || perms.has(p), refresh, logout };
+    const teamPerms = new Set<PermissionKey>(me.is_admin ? [] : me.team_permissions);
+    const teams = new Set(me.user.teams.map((t) => t.id));
+    const can = (p: PermissionKey) => me.is_admin || perms.has(p);
+    const teamOnly = (p: PermissionKey) => teamPerms.has(p);
+    const canFor = (p: PermissionKey, owner: string | null | undefined) => can(p) && (!teamOnly(p) || (!!owner && teams.has(owner)));
+    return { me, can, canFor, teamOnly, refresh, logout };
   }, [me, refresh, logout]);
 
   if (gate.kind === "loading") {

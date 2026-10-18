@@ -53,6 +53,16 @@ import type {
   Team,
   TeamCreate,
   TeamPatch,
+  SubscribeInput,
+  Subscription,
+  SubscriptionAdminCreate,
+  SubscriptionAdminPatch,
+  SubscriptionChannel,
+  SubscriptionCreated,
+  SubscriptionList,
+  SubscriptionManageView,
+  SubscriptionOptions,
+  SubscriptionStatus,
 } from "./types";
 
 type Signal = { signal?: AbortSignal };
@@ -76,6 +86,19 @@ export const publicApi = {
     request<{ data: PublicAnnouncementCategory[] }>("GET", "/api/v1/announcement-categories", o),
 };
 
+const S = "/api/v1/subscriptions";
+
+/** Public self-service subscriptions; tokens come from links sent by e-mail. */
+export const subscriptionApi = {
+  options: (o: Signal = {}) => request<SubscriptionOptions>("GET", `${S}/options`, o),
+  subscribe: (body: SubscribeInput) => request<{ message: string }>("POST", S, { body }),
+  confirm: (token: string) => request<SubscriptionManageView>("POST", `${S}/confirm`, { body: { token } }),
+  manage: (token: string, o: Signal = {}) => request<SubscriptionManageView>("POST", `${S}/manage`, { ...o, body: { token } }),
+  updatePreferences: (token: string, componentIds: string[]) =>
+    request<SubscriptionManageView>("PUT", `${S}/manage`, { body: { token, component_ids: componentIds } }),
+  unsubscribe: (token: string) => request<void>("POST", `${S}/unsubscribe`, { body: { token } }),
+};
+
 export const authApi = {
   setupStatus: (o: Signal = {}) => request<{ setup_required: boolean }>("GET", "/api/v1/auth/setup", o),
   setup: (body: SetupInput) => request<Me>("POST", "/api/v1/auth/setup", { body }),
@@ -91,7 +114,7 @@ const id = (v: string) => encodeURIComponent(v);
 
 export const adminApi = {
   components: {
-    list: (query: ListQuery & { is_active?: boolean; is_public?: boolean; group_id?: string }, o: Signal = {}) =>
+    list: (query: ListQuery & { is_active?: boolean; is_public?: boolean; group_id?: string; team_id?: string }, o: Signal = {}) =>
       request<Page<Component>>("GET", `${A}/components`, { ...o, query }),
     create: (body: ComponentCreate) => request<Component>("POST", `${A}/components`, { body }),
     update: (cid: string, body: ComponentPatch) => request<Component>("PATCH", `${A}/components/${id(cid)}`, { body }),
@@ -179,6 +202,14 @@ export const adminApi = {
     create: (body: TeamCreate) => request<Team>("POST", `${A}/teams`, { body }),
     update: (tid: string, body: TeamPatch) => request<Team>("PATCH", `${A}/teams/${id(tid)}`, { body }),
     remove: (tid: string) => request<void>("DELETE", `${A}/teams/${id(tid)}`),
+  },
+  subscriptions: {
+    list: (query: ListQuery & { channel?: SubscriptionChannel; status?: SubscriptionStatus; q?: string }, o: Signal = {}) =>
+      request<SubscriptionList>("GET", `${A}/subscriptions`, { ...o, query }),
+    create: (body: SubscriptionAdminCreate) => request<SubscriptionCreated>("POST", `${A}/subscriptions`, { body }),
+    update: (sid: string, body: SubscriptionAdminPatch) => request<Subscription>("PATCH", `${A}/subscriptions/${id(sid)}`, { body }),
+    remove: (sid: string) => request<void>("DELETE", `${A}/subscriptions/${id(sid)}`),
+    test: (sid: string) => request<{ message: string }>("POST", `${A}/subscriptions/${id(sid)}/test`),
   },
   permissions: (o: Signal = {}) => request<{ data: PermissionInfo[] }>("GET", `${A}/permissions`, o),
   users: {

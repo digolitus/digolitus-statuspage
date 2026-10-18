@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { useUnseenAnnouncements } from "../lib/announcementsSeen";
 import { Link, useLocation } from "../lib/router";
+import { SubscribeMenu } from "./Subscribe";
 
 function AnnouncementsLink() {
   const unseen = useUnseenAnnouncements();
@@ -38,6 +39,7 @@ export function PublicLayout({ children }: { children: ReactNode }) {
             <a href="/#history">Histórico</a>
             <AnnouncementsLink />
           </nav>
+          <SubscribeMenu />
         </div>
       </header>
       <main id="main">{children}</main>

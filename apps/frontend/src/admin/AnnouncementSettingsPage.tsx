@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { adminApi } from "../api/endpoints";
-import type { AnnouncementCategory, CategoryColor, Team } from "../api/types";
+import type { AnnouncementCategory, CategoryColor } from "../api/types";
 import { ConfirmButton, EmptyState, ErrorPanel, Field, Loading } from "../components/ui";
 import { Link } from "../lib/router";
 import { useApi } from "../lib/useApi";
@@ -78,47 +78,6 @@ function CategoryForm({ initial, onSaved, existing }: { initial: CategoryValues;
   );
 }
 
-type TeamValues = { name: string; description: string };
-
-function TeamForm({ initial, existing, onSaved }: { initial: TeamValues; existing?: Team; onSaved: () => void }) {
-  const [v, setV] = useState(initial);
-  const submit = useSubmit();
-  async function handle(e: FormEvent) {
-    e.preventDefault();
-    const errors: Record<string, string> = {};
-    requireText(errors, "name", v.name, 80, "Nome");
-    if (Object.keys(errors).length) return submit.setFieldErrors(errors);
-    const body = { name: v.name.trim(), description: v.description.trim() };
-    const ok = await submit.run(
-      () => (existing ? adminApi.teams.update(existing.id, body) : adminApi.teams.create(body)),
-      existing ? "Time atualizado." : "Time criado.",
-    );
-    if (ok) {
-      if (!existing) setV({ name: "", description: "" });
-      onSaved();
-    }
-  }
-  const fe = submit.fieldErrors;
-  return (
-    <form className="form" onSubmit={handle} noValidate aria-label={existing ? `Editar time ${existing.name}` : "Novo time"}>
-      <div className="form-grid">
-        <Field label="Nome do time" error={fe.name}>
-          {(p) => <input {...p} value={v.name} maxLength={80} placeholder="Ex.: Time de Plataforma" onChange={(e) => setV({ ...v, name: e.target.value })} />}
-        </Field>
-        <Field label="Descrição" error={fe.description}>
-          {(p) => <input {...p} value={v.description} maxLength={500} onChange={(e) => setV({ ...v, description: e.target.value })} />}
-        </Field>
-      </div>
-      <FormStatus error={submit.formError} success={submit.success} />
-      <div className="form-actions">
-        <button type="submit" className="primary-button" disabled={submit.busy}>
-          {existing ? "Salvar time" : "Criar time"}
-        </button>
-      </div>
-    </form>
-  );
-}
-
 function ItemActions({
   name,
   active,
@@ -167,20 +126,19 @@ function ItemActions({
 
 export function AnnouncementSettingsPage() {
   const categories = useApi((signal) => adminApi.announcementCategories.list({}, { signal }), []);
-  const teams = useApi((signal) => adminApi.teams.list({}, { signal }), []);
   const [editing, setEditing] = useState<string | null>(null);
   const toggle = (id: string) => setEditing((e) => (e === id ? null : id));
   const canManage = useAuth().can("announcements.settings");
 
   return (
     <div className="admin-content">
-      <PageHeader title="Categorias e times" />
+      <PageHeader title="Categorias de comunicado" />
       <p>
         <Link to="/admin/announcements">← Comunicados</Link>
       </p>
       <p className="muted">
-        Categorias organizam os comunicados (ex.: Novidades, Avisos, Segurança) e viram filtros na página pública. Times
-        identificam quem responde pelo comunicado. Itens em uso não podem ser excluídos; desative-os.
+        Categorias organizam os comunicados (ex.: Novidades, Avisos, Segurança) e viram filtros na página pública. Categorias
+        em uso não podem ser excluídas; desative-as. Os times responsáveis ficam em <Link to="/admin/teams">Times</Link>.
       </p>
 
       <section className="panel" aria-labelledby="cat-title">
@@ -188,7 +146,7 @@ export function AnnouncementSettingsPage() {
         {canManage ? (
           <CategoryForm initial={{ name: "", description: "", color: "blue", display_order: "0" }} onSaved={categories.reload} />
         ) : (
-          <ReadOnlyNote what="criar ou alterar categorias e times" />
+          <ReadOnlyNote what="criar ou alterar categorias" />
         )}
         {categories.state.status === "loading" && <Loading />}
         {categories.state.status === "error" && <ErrorPanel error={categories.state.error} onRetry={categories.reload} />}
@@ -232,43 +190,6 @@ export function AnnouncementSettingsPage() {
           ))}
       </section>
 
-      <section className="panel" aria-labelledby="team-title">
-        <h2 id="team-title">Times responsáveis</h2>
-        {canManage && <TeamForm initial={{ name: "", description: "" }} onSaved={teams.reload} />}
-        {teams.state.status === "loading" && <Loading />}
-        {teams.state.status === "error" && <ErrorPanel error={teams.state.error} onRetry={teams.reload} />}
-        {teams.state.status === "success" &&
-          (teams.state.data.data.length === 0 ? (
-            <EmptyState title="Nenhum time" />
-          ) : (
-            <ul className="admin-list">
-              {teams.state.data.data.map((t) => (
-                <li key={t.id} className="admin-item">
-                  <div className="admin-item-head">
-                    <div>
-                      <strong>{t.name}</strong>
-                      <div className="admin-item-tags">
-                        <span className="tag">{t.announcement_count} comunicado(s)</span>
-                        {!t.is_active && <span className="tag tag-warn">Desativado</span>}
-                      </div>
-                      {t.description && <p className="muted small">{t.description}</p>}
-                    </div>
-                  </div>
-                  {canManage && <ItemActions
-                    name={t.name}
-                    active={t.is_active}
-                    count={t.announcement_count}
-                    editing={editing === t.id}
-                    onEdit={() => toggle(t.id)}
-                    onToggle={() => adminApi.teams.update(t.id, { is_active: !t.is_active }).then(teams.reload)}
-                    onDelete={() => adminApi.teams.remove(t.id).then(teams.reload)}
-                  />}
-                  {editing === t.id && <TeamForm existing={t} initial={{ name: t.name, description: t.description }} onSaved={teams.reload} />}
-                </li>
-              ))}
-            </ul>
-          ))}
-      </section>
     </div>
   );
 }
