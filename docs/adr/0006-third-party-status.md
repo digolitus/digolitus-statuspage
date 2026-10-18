@@ -7,7 +7,7 @@
 
 A plataforma depende de serviços externos (GitHub, Veracode etc.). Quem acompanha a página precisa ver o estado desses serviços sem sair dela, como nos "third-party components" do Atlassian Statuspage. Muitos provedores publicam páginas Statuspage, que expõem o endpoint público `GET /api/v2/summary.json` com componentes, incidentes e manutenções.
 
-Ler URLs informadas pela administração é um vetor de SSRF, agravado porque a administração ainda não tem autenticação ([ADR 0004](0004-admin-without-authentication.md)).
+Ler URLs informadas pela administração é um vetor de SSRF. Desde o [ADR 0008](0008-local-authentication-and-rbac.md), só usuários com a permissão `third_party.manage` cadastram provedores; as proteções abaixo continuam valendo para eles.
 
 ## Decisão
 

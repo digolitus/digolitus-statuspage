@@ -47,26 +47,50 @@ O processo falha de forma explícita se uma migração já aplicada foi modifica
 
 O Nginx gera um `X-Request-ID` para cada requisição e o encaminha ao backend. O backend registra o ID nos logs, devolve no header da resposta, inclui em respostas de erro (`error.request_id`) e grava no histórico operacional. Para investigar um erro relatado na interface, use o ID exibido para buscar nos logs.
 
-## Administração sem autenticação
+## Acesso e usuários
 
-**Risco:** nesta versão, qualquer cliente que alcance `/admin` ou `/api/v1/admin/` pode criar, alterar e encerrar incidentes, manutenções, componentes e templates. O histórico registra a origem `admin_api`, mas não identifica pessoas.
+A administração exige login. As decisões estão no [ADR 0008](adr/0008-local-authentication-and-rbac.md).
 
-Controles existentes:
+**Primeiro acesso.** Enquanto não existe usuário, o backend registra um token de uso único a cada inicialização:
 
-- O Compose publica apenas o frontend, e somente em `127.0.0.1`. Backend e PostgreSQL ficam numa rede interna sem portas no host e sem acesso à internet.
-- Limitação de taxa no Nginx (5 req/s por IP com rajada de 20 nas rotas admin; 20 req/s no restante da API), limite de corpo de 64 KiB e timeouts.
-- `ADMIN_API_ENABLED=false` remove todas as rotas administrativas do backend, deixando uma API pública somente leitura.
+```bash
+docker compose -f deploy/docker-compose.yml logs backend | grep setup_token
+# ou gere outro token (vale o mais recente):
+docker compose -f deploy/docker-compose.yml exec backend /api setup-token
+```
 
-O que **não** é controle de acesso: a Swagger UI, CORS, a URL `/admin` "não divulgada" e a limitação de taxa.
+Em `/admin`, informe o token e os dados do primeiro administrador. Depois que ele é criado, o token deixa de valer e a tela de configuração não aparece mais.
 
-**Não publique esta stack em rede não confiável** (não troque `127.0.0.1` por `0.0.0.0`, não coloque atrás de um proxy público) sem antes implementar autenticação e autorização. Para um ambiente remoto somente leitura, use `ADMIN_API_ENABLED=false`. Veja o [ADR 0004](adr/0004-admin-without-authentication.md).
+**Papéis.** Em *Papéis e permissões*, combine as permissões do catálogo. O banco começa com três papéis:
+
+| Papel | Permissões |
+|---|---|
+| Administrador (fixo) | Todas, inclusive usuários e papéis |
+| Operador de incidentes | Incidentes, manutenções e status de componentes |
+| Gestor de catálogo e comunicados | Componentes e grupos, status, serviços de terceiros, templates, comunicados (escrever e publicar), categorias e times |
+
+Usuários sem papel só consultam os dados. Ninguém concede permissões que não tem. *Gerenciar usuários* e *Gerenciar papéis* são sensíveis: dê-as só a quem pode decidir quem faz o quê.
+
+**Senhas e bloqueio.** As senhas têm de 12 a 128 caracteres. Após 5 falhas seguidas, a conta fica bloqueada por 15 minutos; um administrador pode desbloqueá-la em *Usuários*. Senhas definidas por um administrador (criação ou redefinição) precisam ser trocadas no primeiro login.
+
+**Recuperação** (ninguém consegue entrar, por exemplo o único administrador esqueceu a senha):
+
+```bash
+docker compose -f deploy/docker-compose.yml exec backend /api reset-password admin@empresa.com
+```
+
+O comando imprime uma senha provisória, desbloqueia e reativa a conta e encerra as sessões dela. A operação fica no histórico com a origem `cli`.
+
+**Sessões.** O cookie `dsp_session` é `HttpOnly` e `SameSite=Strict`. Atrás de HTTPS, use `SESSION_COOKIE_SECURE=true`; o Compose local usa `false` porque serve HTTP em `127.0.0.1`. `SESSION_TTL` (padrão 12 h) limita a duração total da sessão, e `SESSION_IDLE_TIMEOUT` (padrão 2 h) a inatividade. Desativar um usuário, redefinir sua senha ou ele trocar a própria senha encerra as outras sessões dele.
+
+**Controles complementares.** O Nginx limita login e configuração inicial a 10 tentativas por minuto por IP, além dos limites da API, do corpo de 64 KiB e dos timeouts. `ADMIN_API_ENABLED=false` remove toda a administração (API pública somente leitura). O Compose continua publicando apenas em `127.0.0.1`.
 
 ## Serviços de terceiros
 
 O backend lê `https://<provedor>/api/v2/summary.json` a cada `EXTERNAL_STATUS_INTERVAL` (padrão `2m`, entre `30s` e `1h`). Para isso ele usa a rede `egress` do Compose; o PostgreSQL continua isolado. Em outra infraestrutura, libere saída HTTPS (443) apenas para o backend.
 
 - `EXTERNAL_STATUS_SYNC=false` desliga a leitura periódica (o cadastro e o botão "Sincronizar agora" continuam funcionando).
-- Conexões a endereços privados, loopback e link-local são recusadas. `EXTERNAL_STATUS_ALLOW_PRIVATE_NETWORKS=true` libera essas redes; use apenas para páginas internas conhecidas, pois a administração não tem autenticação.
+- Conexões a endereços privados, loopback e link-local são recusadas. `EXTERNAL_STATUS_ALLOW_PRIVATE_NETWORKS=true` libera essas redes; use apenas para páginas internas conhecidas.
 - Falhas de leitura ficam em `last_error` (visível em `/admin/third-party`) e no log (`external status: sync failed`). Sem leitura bem-sucedida por `max(3 × intervalo, 10 min)`, o provedor aparece como desatualizado e seus componentes como "Desconhecido".
 - Decisão e controles: [ADR 0006](adr/0006-third-party-status.md).
 
@@ -81,7 +105,7 @@ scripts/update-swagger-ui.sh v5.33.3   # informe a tag desejada; revise o diff e
 Ainda não existe deploy automatizado. Antes de criar um, é preciso decidir:
 
 1. **Destino:** VPS com Docker Compose, Kubernetes, serviço gerenciado de containers etc.
-2. **Proteção da administração:** autenticação ([ADR 0004](adr/0004-admin-without-authentication.md)) ou instância pública com `ADMIN_API_ENABLED=false` e a administração só em rede privada/VPN.
+2. **HTTPS:** obrigatório fora de `127.0.0.1`, com `SESSION_COOKIE_SECURE=true`. Opcionalmente, mantenha a instância pública com `ADMIN_API_ENABLED=false` e a administração em rede privada ou VPN.
 3. **Credenciais:** de preferência identidade federada (OIDC do GitHub Actions) em vez de segredos de longa duração; banco gerenciado ou com backup.
 4. **Promoção:** usar sempre a tag imutável `sha-<commit>` publicada pelo `publish.yml`, com GitHub Environments e aprovação manual para produção.
 5. **Rollback:** reimplantar a tag `sha-` anterior. As migrações só avançam, então mudanças de esquema devem ser compatíveis com a versão anterior.

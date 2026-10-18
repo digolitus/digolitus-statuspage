@@ -22,6 +22,7 @@ internal/
   templates/       templates de incidente e manutenção
   audit/           histórico operacional (gravação e consulta)
   announcement/    comunicados, categorias e times responsáveis
+  auth/            login, sessões, configuração inicial, usuários, papéis e catálogo de permissões
   external/        serviços de terceiros: cadastro, leitura de Statuspage (anti-SSRF) e poller
   tsgen/           gerador de tipos TypeScript a partir do OpenAPI (cmd/openapi-ts)
   docs/            Swagger UI embutida (assets oficiais vendorizados)
@@ -44,7 +45,7 @@ Cada módulo de domínio segue o mesmo formato enxuto, sem interfaces artificiai
 
 `X-Request-ID` (aceito se válido, senão gerado) → log de acesso (JSON, sem query string) → recuperação de pânico → headers de segurança (`nosniff`, `no-store`) → timeout por contexto → roteador. Corpos são limitados a 64 KiB, campos desconhecidos são rejeitados e erros seguem um envelope único com `code` estável. Rotas inexistentes e métodos não permitidos também respondem em JSON.
 
-As rotas administrativas passam por um único wrapper (`app.New`), que marca a origem `admin_api` para a auditoria. É o ponto previsto para inserir autenticação e autorização ([ADR 0004](adr/0004-admin-without-authentication.md)).
+As rotas administrativas passam por um único wrapper (`app.New`). Ele valida a sessão (`auth.Guard`), recusa requisições de outros sites, aplica a permissão da rota conforme `adminPolicy` (`internal/app/policy.go`, negando o que não estiver listado) e coloca o usuário no contexto, para que a auditoria registre o autor ([ADR 0008](adr/0008-local-authentication-and-rbac.md)).
 
 ### Modelo de dados
 
@@ -64,7 +65,11 @@ As rotas administrativas passam por um único wrapper (`app.New`), que marca a o
 | `announcement_components` | Componentes relacionados a um comunicado |
 | `external_sources` | Provedores de terceiros (URL base `https`), último resultado da leitura e eventos abertos |
 | `external_components` | Componentes importados do provedor; `is_selected` define o que é publicado; `is_present = false` quando sumiram do provedor |
-| `audit_events` | Histórico operacional com diff antes/depois, origem e request ID |
+| `users`, `user_roles` | Contas locais (hash Argon2id, bloqueio por tentativas, senha provisória) e seus papéis |
+| `roles` | Papéis com subconjunto do catálogo de permissões; o papel de sistema concede todas |
+| `sessions` | Sessões do servidor; guarda só o SHA-256 do token do cookie |
+| `setup_tokens` | Token de uso único da configuração inicial (só o hash) |
+| `audit_events` | Histórico operacional com diff antes/depois, autor, origem e request ID |
 | `schema_migrations` | Versão e checksum de cada migração aplicada |
 
 O estado atual fica separado do histórico: editar um incidente nunca reescreve atualizações já publicadas, e incidentes copiam o texto do template em vez de referenciá-lo.

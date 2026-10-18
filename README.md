@@ -3,12 +3,12 @@
 Plataforma para publicar o status de serviços e comunicar incidentes e manutenções programadas.
 
 - **Área pública** (`/`): status geral, eventos em andamento (só quando existem), componentes com grupos recolhíveis, manutenções programadas e histórico sob demanda.
-- **Área administrativa** (`/admin`): componentes, grupos de componentes, incidentes, manutenções, templates e histórico operacional.
+- **Área administrativa** (`/admin`): login local, usuários e papéis com permissões, componentes, grupos, incidentes, manutenções, templates, comunicados, serviços de terceiros e histórico operacional com autor.
 - **API REST** (`/api/v1`), documentada em OpenAPI 3.0, com Swagger UI em `/swagger/`.
 
 > **Status declarado, não monitorado.** Todos os status são informados por operadores. A aplicação não faz verificações automáticas de disponibilidade, e a interface diz isso explicitamente.
 >
-> **Administração sem autenticação.** Nesta versão, quem alcança `/admin` ou `/api/v1/admin/` pode alterar todos os dados. Por padrão, o Compose publica a aplicação apenas em `127.0.0.1`. Leia [docs/operations.md](docs/operations.md#administração-sem-autenticação) antes de expor a aplicação em qualquer rede.
+> **Administração com login.** A área administrativa exige usuário e senha. Cada usuário tem papéis que definem o que pode alterar ([ADR 0008](docs/adr/0008-local-authentication-and-rbac.md)). O primeiro administrador é criado na primeira execução, com um token exibido no log do backend (veja abaixo).
 
 ## Início rápido
 
@@ -24,6 +24,18 @@ docker compose -f deploy/docker-compose.yml up --build
 | <http://localhost:8080/admin> | Área administrativa |
 | <http://localhost:8080/swagger/> | Swagger UI |
 | <http://localhost:8080/api/openapi.yaml> | Especificação OpenAPI |
+
+### Primeiro acesso
+
+Na primeira execução não existe usuário. O backend registra no log um token de uso único:
+
+```bash
+docker compose -f deploy/docker-compose.yml logs backend | grep setup_token
+```
+
+Abra <http://localhost:8080/admin>, informe o token, seu nome, e-mail e uma senha (12+ caracteres). Esse primeiro usuário recebe o papel **Administrador** (acesso total). Depois, em **Usuários** e **Papéis e permissões**, crie as contas da equipe. Quem recebe uma senha definida por um administrador escolhe a própria no primeiro login.
+
+Perdeu o acesso? No servidor: `docker compose -f deploy/docker-compose.yml exec backend /api reset-password <e-mail>` (gera uma senha provisória). Detalhes em [docs/operations.md](docs/operations.md#acesso-e-usuários).
 
 As migrações do banco são aplicadas automaticamente na inicialização do backend. O banco começa com 7 templates de incidente e 6 de manutenção, sem componentes, incidentes ou manutenções.
 
@@ -74,6 +86,8 @@ Toda funcionalidade de negócio está disponível pela API. Resumo:
 | Templates | `GET/POST /api/v1/admin/incident-templates`, `GET/PATCH .../{id}` (idem para `maintenance-templates`) |
 | Comunicados | `GET/POST /api/v1/admin/announcements`, `GET/PATCH/DELETE .../{id}`, `POST .../{id}/publish\|unpublish\|archive\|restore`; categorias em `/api/v1/admin/announcement-categories` e times em `/api/v1/admin/teams` |
 | Terceiros | `GET/POST /api/v1/admin/external-sources`, `GET/PATCH/DELETE .../{id}`, `POST .../{id}/sync`, `GET .../{id}/components`, `PUT .../{id}/selection` |
+| Sessão | `GET/POST /api/v1/auth/setup`, `POST /api/v1/auth/login\|logout\|password`, `GET /api/v1/auth/me` |
+| Acesso | `GET/POST /api/v1/admin/users`, `GET/PATCH .../{id}`, `POST .../{id}/password`; `GET/POST /api/v1/admin/roles`, `GET/PATCH/DELETE .../{id}`; `GET /api/v1/admin/permissions` |
 | Auditoria | `GET /api/v1/admin/audit-events` |
 
 O contrato completo (schemas, erros, paginação, filtros, ordenação e transições de estado) está em [`apps/backend/api/openapi.yaml`](apps/backend/api/openapi.yaml). Os testes falham se uma rota implementada não estiver documentada (ou vice-versa) e validam as respostas reais contra os schemas.
@@ -139,6 +153,9 @@ Configuração do backend (variáveis de ambiente, validadas na inicialização)
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` (logs JSON) |
 | `EXTERNAL_STATUS_SYNC` | `true` | Leitura periódica das páginas de status de terceiros |
 | `EXTERNAL_STATUS_INTERVAL` | `2m` | Intervalo da leitura (30s–1h) |
+| `SESSION_COOKIE_SECURE` | `true` | Cookie de sessão só por HTTPS. O Compose local usa `false` (HTTP em 127.0.0.1) |
+| `SESSION_TTL` | `12h` | Duração máxima da sessão (15m–720h) |
+| `SESSION_IDLE_TIMEOUT` | `2h` | Encerra a sessão após inatividade (5m–`SESSION_TTL`) |
 | `EXTERNAL_STATUS_ALLOW_PRIVATE_NETWORKS` | `false` | Permite provedores em redes privadas/loopback (veja [ADR 0006](docs/adr/0006-third-party-status.md)) |
 
 ## Testes e verificações
@@ -192,7 +209,7 @@ IMAGE_TAG=sha-<commit> docker compose -f deploy/docker-compose.yml -f deploy/doc
 
 ### Deploy
 
-**Ainda não existe workflow de deploy.** Ele depende de decisões que não estão no repositório: o destino (VPS, Kubernetes, serviço gerenciado), as credenciais, a política de aprovação por ambiente e a de rollback. Além disso, a administração não tem autenticação e não pode ser exposta. Um ambiente remoto só é aceitável hoje como somente leitura (`ADMIN_API_ENABLED=false`) ou atrás de controle de acesso na rede. Veja [docs/operations.md](docs/operations.md#deploy).
+**Ainda não existe workflow de deploy.** Ele depende de decisões que não estão no repositório: o destino (VPS, Kubernetes, serviço gerenciado), as credenciais, a política de aprovação por ambiente e a de rollback. Um ambiente remoto precisa de HTTPS (com `SESSION_COOKIE_SECURE=true`) para proteger senhas e sessões. Veja [docs/operations.md](docs/operations.md#deploy).
 
 ## Estrutura
 
@@ -207,7 +224,7 @@ CONTEXT.md        Princípios de engenharia do projeto
 
 ## Limitações conhecidas
 
-- Sem autenticação e autorização na administração (veja [ADR 0004](docs/adr/0004-admin-without-authentication.md)).
+- Autenticação apenas local (sem SSO/OIDC, 2FA ou recuperação de senha por e-mail).
 - Serviços de terceiros: apenas páginas no formato Atlassian Statuspage.
 - Comunicados: o aviso de novidade é por navegador; não há envio por e-mail ou assinatura.
 - Sem verificações automáticas de saúde, cálculo de uptime, notificações ou assinaturas.

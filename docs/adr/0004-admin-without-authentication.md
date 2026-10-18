@@ -1,6 +1,6 @@
 # ADR 0004 — Administração sem autenticação nesta versão
 
-- **Status:** aceito (temporário)
+- **Status:** substituído pelo [ADR 0008](0008-local-authentication-and-rbac.md)
 - **Data:** 2026-10-18
 
 ## Contexto
