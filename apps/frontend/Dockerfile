@@ -17,6 +17,11 @@ LABEL org.opencontainers.image.title="Digolitus Status Page Frontend" \
       org.opencontainers.image.description="Frontend for Digolitus Status Page" \
       org.opencontainers.image.source="https://github.com/digolitus/digolitus-statuspage"
 
+# CVE-2026-77214 (libexpat < 2.9.0) is fixed in Alpine but not yet in the
+# base image: upgrade just that package. Remove once the base ships it.
+USER root
+RUN apk upgrade --no-cache libexpat
+
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
