@@ -1,58 +1,114 @@
+// Command api runs the Digolitus Status Page HTTP API.
+//
+// Usage:
+//
+//	api           start the server (applies migrations when DB_AUTO_MIGRATE=true)
+//	api migrate   apply pending migrations and exit
 package main
 
 import (
-    "context"
-    "errors"
-    "log/slog"
-    "net/http"
-    "os"
-    "os/signal"
-    "syscall"
-    "time"
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
-    "github.com/digolitus/digolitus-statuspage/apps/backend/internal/config"
-    "github.com/digolitus/digolitus-statuspage/apps/backend/internal/handlers"
+	// Embedded IANA database: maintenance timezones must not depend on the
+	// container image providing tzdata.
+	_ "time/tzdata"
+
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/app"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/config"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/database"
 )
 
 func main() {
-    cfg := config.Load()
+	if err := run(os.Args[1:]); err != nil {
+		slog.Error("fatal", "error", err)
+		os.Exit(1)
+	}
+}
 
-    server := &http.Server{
-        Addr:              ":" + cfg.Port,
-        Handler:           handlers.New().Routes(),
-        ReadHeaderTimeout: 5 * time.Second,
-        ReadTimeout:       10 * time.Second,
-        WriteTimeout:      10 * time.Second,
-        IdleTimeout:       60 * time.Second,
-    }
+func run(args []string) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("invalid configuration:\n%w", err)
+	}
+	var level slog.Level
+	_ = level.UnmarshalText([]byte(cfg.LogLevel))
+	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
+	slog.SetDefault(log)
 
-    serverErrors := make(chan error, 1)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
-    go func() {
-        slog.Info("backend listening", "port", cfg.Port)
-        serverErrors <- server.ListenAndServe()
-    }()
+	command := "serve"
+	if len(args) > 0 {
+		command = args[0]
+	}
+	if command != "serve" && command != "migrate" {
+		return fmt.Errorf("unknown command %q (use: serve, migrate)", command)
+	}
 
-    signals := make(chan os.Signal, 1)
-    signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
+	pool, err := database.Open(ctx, database.Options{
+		URL:             cfg.DatabaseURL,
+		MaxConns:        cfg.DBMaxConns,
+		MaxConnLifetime: 30 * time.Minute,
+		ConnectTimeout:  5 * time.Second,
+	})
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
 
-    select {
-    case err := <-serverErrors:
-        if !errors.Is(err, http.ErrServerClosed) {
-            slog.Error("server failed", "error", err)
-            os.Exit(1)
-        }
-    case signal := <-signals:
-        slog.Info("shutdown signal received", "signal", signal.String())
+	if command == "migrate" {
+		return database.Migrate(ctx, pool, log)
+	}
+	if cfg.AutoMigrate {
+		if err := database.Migrate(ctx, pool, log); err != nil {
+			return err
+		}
+	}
+	if !cfg.AdminAPIEnabled {
+		log.Info("admin API disabled (ADMIN_API_ENABLED=false): serving public endpoints only")
+	} else {
+		log.Warn("admin API enabled without authentication: do not expose it beyond a trusted network")
+	}
 
-        ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-        defer cancel()
+	application := app.New(pool, app.Options{AdminAPIEnabled: cfg.AdminAPIEnabled, RequestTimeout: cfg.RequestTimeout})
+	server := &http.Server{
+		Addr:              ":" + cfg.Port,
+		Handler:           application.Handler,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      cfg.RequestTimeout + 5*time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    32 << 10,
+	}
 
-        if err := server.Shutdown(ctx); err != nil {
-            slog.Error("graceful shutdown failed", "error", err)
-            os.Exit(1)
-        }
-    }
+	errs := make(chan error, 1)
+	go func() {
+		log.Info("backend listening", "port", cfg.Port)
+		errs <- server.ListenAndServe()
+	}()
 
-    slog.Info("server stopped")
+	select {
+	case err := <-errs:
+		if !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+	case <-ctx.Done():
+		log.Info("shutdown signal received")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			return fmt.Errorf("graceful shutdown: %w", err)
+		}
+	}
+	log.Info("server stopped")
+	return nil
 }
