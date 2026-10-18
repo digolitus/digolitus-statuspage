@@ -8,6 +8,8 @@ on:
   pull_request:
   push:
     branches: [main]
+    # Release tags run the full pipeline; publish.yml then publishes them.
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
@@ -43,6 +45,8 @@ jobs:
           filters: |
             backend:
               - 'apps/backend/**'
+              # Generated from the backend contract; drift is checked by backend tests.
+              - 'apps/frontend/src/api/schema.gen.ts'
             frontend:
               - 'apps/frontend/**'
             shared:
@@ -55,7 +59,10 @@ jobs:
     name: Backend (Go)
     needs: changes
     # Shared files (workflows, Compose) widen validation to every module.
-    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.shared == 'true'
+    # Tags and manual runs validate everything.
+    if: >-
+      needs.changes.outputs.backend == 'true' || needs.changes.outputs.shared == 'true' ||
+      github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     defaults:
@@ -106,7 +113,9 @@ jobs:
   frontend:
     name: Frontend (React)
     needs: changes
-    if: needs.changes.outputs.frontend == 'true' || needs.changes.outputs.shared == 'true'
+    if: >-
+      needs.changes.outputs.frontend == 'true' || needs.changes.outputs.shared == 'true' ||
+      github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     defaults:
@@ -137,7 +146,8 @@ jobs:
     # Runs after module checks pass or are skipped, when anything relevant changed.
     if: >-
       !cancelled() && !contains(needs.*.result, 'failure') &&
-      (needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true' || needs.changes.outputs.shared == 'true')
+      (needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true' || needs.changes.outputs.shared == 'true' ||
+       github.ref_type == 'tag' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
