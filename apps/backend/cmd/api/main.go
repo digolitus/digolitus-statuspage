@@ -23,6 +23,7 @@ import (
 
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/app"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/config"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/external"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/database"
 )
 
@@ -79,7 +80,19 @@ func run(args []string) error {
 		log.Warn("admin API enabled without authentication: do not expose it beyond a trusted network")
 	}
 
-	application := app.New(pool, app.Options{AdminAPIEnabled: cfg.AdminAPIEnabled, RequestTimeout: cfg.RequestTimeout})
+	application := app.New(pool, app.Options{
+		AdminAPIEnabled:  cfg.AdminAPIEnabled,
+		RequestTimeout:   cfg.RequestTimeout,
+		ExternalInterval: cfg.ExternalInterval,
+		ExternalFetcher:  external.NewHTTPFetcher(10*time.Second, cfg.ExternalAllowPrivate),
+	})
+	if cfg.ExternalAllowPrivate {
+		log.Warn("third-party sources may target private networks (EXTERNAL_STATUS_ALLOW_PRIVATE_NETWORKS=true)")
+	}
+	if cfg.ExternalSync {
+		go external.NewPoller(application.External, log).Run(ctx)
+		log.Info("third-party status sync enabled", "interval", cfg.ExternalInterval.String())
+	}
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           application.Handler,

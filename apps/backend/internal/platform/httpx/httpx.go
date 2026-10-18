@@ -115,6 +115,8 @@ func WriteError(w http.ResponseWriter, r *http.Request, e *apperror.Error, statu
 			status = http.StatusRequestEntityTooLarge
 		case "unsupported_media_type":
 			status = http.StatusUnsupportedMediaType
+		case "external_fetch_failed":
+			status = http.StatusBadGateway
 		default:
 			status = statusFor(e.Kind)
 		}

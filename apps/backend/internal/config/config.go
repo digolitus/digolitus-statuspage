@@ -20,6 +20,12 @@ type Config struct {
 	AdminAPIEnabled bool
 	RequestTimeout  time.Duration
 	LogLevel        string
+	// Third-party status pages (e.g. githubstatus.com).
+	ExternalSync     bool
+	ExternalInterval time.Duration
+	// Allows sources on private/loopback addresses (intranet status pages).
+	// Off by default: with the admin API unauthenticated it widens SSRF risk.
+	ExternalAllowPrivate bool
 }
 
 // Load reads configuration from the process environment.
@@ -64,6 +70,14 @@ func FromLookup(lookup func(string) (string, bool)) (Config, error) {
 	}
 	parseBool("DB_AUTO_MIGRATE", "true", &cfg.AutoMigrate)
 	parseBool("ADMIN_API_ENABLED", "true", &cfg.AdminAPIEnabled)
+	parseBool("EXTERNAL_STATUS_SYNC", "true", &cfg.ExternalSync)
+	parseBool("EXTERNAL_STATUS_ALLOW_PRIVATE_NETWORKS", "false", &cfg.ExternalAllowPrivate)
+
+	interval, err := time.ParseDuration(get("EXTERNAL_STATUS_INTERVAL", "2m"))
+	if err != nil || interval < 30*time.Second || interval > time.Hour {
+		errs = append(errs, errors.New("EXTERNAL_STATUS_INTERVAL must be a duration between 30s and 1h"))
+	}
+	cfg.ExternalInterval = interval
 
 	timeout, err := time.ParseDuration(get("REQUEST_TIMEOUT", "10s"))
 	if err != nil || timeout < time.Second || timeout > time.Minute {

@@ -18,6 +18,9 @@ func TestDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !cfg.ExternalSync || cfg.ExternalInterval != 2*time.Minute {
+		t.Fatalf("unexpected external defaults: %+v", cfg)
+	}
 	if cfg.Port != "8080" || cfg.DBMaxConns != 10 || !cfg.AutoMigrate || !cfg.AdminAPIEnabled || cfg.RequestTimeout != 10*time.Second || cfg.LogLevel != "info" {
 		t.Fatalf("unexpected defaults: %+v", cfg)
 	}

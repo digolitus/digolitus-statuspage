@@ -17,6 +17,7 @@ import (
 	legacyrouter "github.com/getkin/kin-openapi/routers/legacy"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/external"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/clock"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/testsupport"
 )
@@ -42,11 +43,46 @@ func (c *fakeClock) Advance(d time.Duration) {
 // harness runs the full application against a fresh PostgreSQL database and
 // validates every request and response against the OpenAPI contract.
 type harness struct {
-	t      *testing.T
-	pool   *pgxpool.Pool
-	server *httptest.Server
-	router routers.Router
-	clock  *fakeClock
+	t       *testing.T
+	pool    *pgxpool.Pool
+	server  *httptest.Server
+	router  routers.Router
+	clock   *fakeClock
+	fetcher *fakeFetcher
+	app     *App
+}
+
+// fakeFetcher serves third-party snapshots from memory, keyed by base URL.
+type fakeFetcher struct {
+	mu    sync.Mutex
+	snaps map[string]external.Snapshot
+	errs  map[string]error
+	calls int
+}
+
+func (f *fakeFetcher) Fetch(_ context.Context, base string) (external.Snapshot, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	if err, ok := f.errs[base]; ok {
+		return external.Snapshot{}, err
+	}
+	snap, ok := f.snaps[base]
+	if !ok {
+		return external.Snapshot{}, &external.FetchError{Message: "o provedor respondeu HTTP 404 em /api/v2/summary.json"}
+	}
+	return snap, nil
+}
+
+func (f *fakeFetcher) set(base string, snap external.Snapshot, err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err != nil {
+		f.errs[base] = err
+		return
+	}
+	delete(f.errs, base)
+	f.snaps[base] = snap
 }
 
 var epoch = time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
@@ -55,7 +91,9 @@ func newHarness(t *testing.T) *harness {
 	t.Helper()
 	pool := testsupport.NewPool(t)
 	fc := &fakeClock{now: epoch}
-	application := New(pool, Options{AdminAPIEnabled: true, Clock: func() time.Time { return clock.Normalize(fc.Now()) }})
+	ff := &fakeFetcher{snaps: map[string]external.Snapshot{}, errs: map[string]error{}}
+	application := New(pool, Options{AdminAPIEnabled: true, Clock: func() time.Time { return clock.Normalize(fc.Now()) },
+		ExternalFetcher: ff, ExternalInterval: 2 * time.Minute})
 	srv := httptest.NewServer(application.Handler)
 	t.Cleanup(srv.Close)
 	doc := loadSpec(t)
@@ -64,7 +102,7 @@ func newHarness(t *testing.T) *harness {
 	if err != nil {
 		t.Fatalf("build OpenAPI router: %v", err)
 	}
-	return &harness{t: t, pool: pool, server: srv, router: router, clock: fc}
+	return &harness{t: t, pool: pool, server: srv, router: router, clock: fc, fetcher: ff, app: application}
 }
 
 // with returns a copy of the harness bound to t (for subtests).

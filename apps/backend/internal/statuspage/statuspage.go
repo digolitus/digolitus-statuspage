@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/component"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/external"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/incident"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/maintenance"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/clock"
@@ -68,17 +69,22 @@ type Summary struct {
 	Groups          []PublicGroup             `json:"groups"`
 	ActiveIncidents []incident.PublicIncident `json:"active_incidents"`
 	Maintenances    Maintenances              `json:"maintenances"`
-	GeneratedAt     time.Time                 `json:"generated_at"`
+	// ThirdParty is reported by external providers and never affects Overall.
+	ThirdParty  []external.PublicSource `json:"third_party"`
+	GeneratedAt time.Time               `json:"generated_at"`
 }
 
 // Service builds summaries.
 type Service struct {
-	pool *pgxpool.Pool
-	now  clock.Clock
+	pool     *pgxpool.Pool
+	now      clock.Clock
+	external *external.Service
 }
 
 // NewService creates a Service.
-func NewService(pool *pgxpool.Pool, now clock.Clock) *Service { return &Service{pool: pool, now: now} }
+func NewService(pool *pgxpool.Pool, now clock.Clock, ext *external.Service) *Service {
+	return &Service{pool: pool, now: now, external: ext}
+}
 
 // Build reads everything in one read-only, repeatable-read transaction so
 // the summary is a consistent snapshot.
@@ -100,6 +106,9 @@ func (s *Service) Build(ctx context.Context) (Summary, error) {
 		}
 		groups, err := component.AllGroups(ctx, tx)
 		if err != nil {
+			return err
+		}
+		if sum.ThirdParty, err = s.external.Public(ctx, tx); err != nil {
 			return err
 		}
 

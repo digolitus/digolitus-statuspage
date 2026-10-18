@@ -20,6 +20,7 @@ import (
 const (
 	ResourceComponent           = "component"
 	ResourceComponentGroup      = "component_group"
+	ResourceExternalSource      = "external_source"
 	ResourceIncident            = "incident"
 	ResourceMaintenance         = "maintenance"
 	ResourceIncidentTemplate    = "incident_template"
@@ -27,7 +28,7 @@ const (
 )
 
 // ResourceTypes lists every resource type, for filter validation.
-var ResourceTypes = []string{ResourceComponent, ResourceComponentGroup, ResourceIncident, ResourceMaintenance, ResourceIncidentTemplate, ResourceMaintenanceTemplate}
+var ResourceTypes = []string{ResourceComponent, ResourceComponentGroup, ResourceIncident, ResourceMaintenance, ResourceIncidentTemplate, ResourceMaintenanceTemplate, ResourceExternalSource}
 
 // Changes holds the relevant before/after values of an operation.
 type Changes struct {

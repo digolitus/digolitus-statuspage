@@ -14,6 +14,7 @@ import (
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/audit"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/component"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/docs"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/external"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/incident"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/maintenance"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/clock"
@@ -27,12 +28,18 @@ type Options struct {
 	AdminAPIEnabled bool
 	RequestTimeout  time.Duration
 	Clock           clock.Clock
+	// External reads third-party status pages; nil uses the default HTTP
+	// fetcher (public addresses only).
+	ExternalFetcher  external.Fetcher
+	ExternalInterval time.Duration
 }
 
-// App exposes the handler and its route registry.
+// App exposes the handler, its route registry and the third-party service
+// (whose poller the caller may run).
 type App struct {
-	Router  *httpx.Router
-	Handler http.Handler
+	Router   *httpx.Router
+	Handler  http.Handler
+	External *external.Service
 }
 
 // New builds the application.
@@ -44,6 +51,13 @@ func New(pool *pgxpool.Pool, opts Options) *App {
 	if opts.RequestTimeout == 0 {
 		opts.RequestTimeout = 10 * time.Second
 	}
+	if opts.ExternalInterval == 0 {
+		opts.ExternalInterval = 2 * time.Minute
+	}
+	if opts.ExternalFetcher == nil {
+		opts.ExternalFetcher = external.NewHTTPFetcher(10*time.Second, false)
+	}
+	externalSvc := external.NewService(pool, now, opts.ExternalFetcher, opts.ExternalInterval)
 	rt := httpx.NewRouter()
 
 	rt.Handle(http.MethodGet, "/healthz", liveness)
@@ -57,7 +71,7 @@ func New(pool *pgxpool.Pool, opts Options) *App {
 	incidentHandler := incident.NewHandler(incident.NewService(pool, now), pool)
 	maintenanceHandler := maintenance.NewHandler(maintenance.NewService(pool, now), pool, now)
 
-	statuspage.NewHandler(statuspage.NewService(pool, now)).Register(rt)
+	statuspage.NewHandler(statuspage.NewService(pool, now, externalSvc)).Register(rt)
 	incidentHandler.RegisterPublic(rt)
 	maintenanceHandler.RegisterPublic(rt)
 
@@ -76,9 +90,10 @@ func New(pool *pgxpool.Pool, opts Options) *App {
 		maintenanceHandler.RegisterAdmin(rt, admin)
 		templates.NewHandler(templates.NewService(pool, now), pool).Register(rt, admin)
 		audit.NewHandler(audit.NewStore(pool)).Register(rt, admin)
+		external.NewHandler(externalSvc).Register(rt, admin)
 	}
 
-	return &App{Router: rt, Handler: httpx.Chain(rt, opts.RequestTimeout)}
+	return &App{Router: rt, Handler: httpx.Chain(rt, opts.RequestTimeout), External: externalSvc}
 }
 
 type healthBody struct {
