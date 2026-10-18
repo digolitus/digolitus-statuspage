@@ -46,8 +46,8 @@ describe("request", () => {
 
   it("times out slow requests", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(
-      (_input, init) =>
-        new Promise((_resolve, reject) => {
+      (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
           init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
         }),
     );

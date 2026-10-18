@@ -13,7 +13,7 @@ const history = {
 
 describe("public status page", () => {
   it("shows a loading state first", () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(() => new Promise(() => undefined));
+    vi.spyOn(globalThis, "fetch").mockImplementation(() => new Promise<Response>(() => undefined));
     render(<App />);
     expect(screen.getByText("Carregando o status da plataforma…")).toBeInTheDocument();
   });

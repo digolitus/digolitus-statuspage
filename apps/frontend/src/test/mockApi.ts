@@ -17,7 +17,7 @@ type Route = Reply | ((call: Call) => Reply | Promise<Reply>);
  */
 export function mockApi(routes: Record<string, Route>) {
   const calls: Call[] = [];
-  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), "http://localhost");
     const method = (init?.method ?? "GET").toUpperCase();
     const call: Call = {
@@ -41,4 +41,7 @@ export function mockApi(routes: Record<string, Route>) {
   return calls;
 }
 
-export const page = <T,>(data: T[]) => ({ data, pagination: { limit: 20, offset: 0, total: data.length } });
+/** A 200 reply carrying a paginated list envelope. */
+export const page = <T,>(data: T[]): Reply => ({
+  body: { data, pagination: { limit: 20, offset: 0, total: data.length } },
+});
