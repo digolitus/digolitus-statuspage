@@ -59,11 +59,12 @@ func FromLookup(lookup func(string) (string, bool)) (Config, error) {
 		errs = append(errs, errors.New("DATABASE_URL is required (e.g. postgres://user:password@host:5432/db?sslmode=disable)"))
 	}
 
-	maxConns, err := strconv.Atoi(get("DB_MAX_CONNS", "10"))
+	// Parsed directly as 32 bits: no narrowing conversion is needed.
+	maxConns, err := strconv.ParseInt(get("DB_MAX_CONNS", "10"), 10, 32)
 	if err != nil || maxConns < 1 || maxConns > 100 {
 		errs = append(errs, errors.New("DB_MAX_CONNS must be an integer between 1 and 100"))
 	}
-	cfg.DBMaxConns = int32(maxConns) // #nosec G115 -- validated to 1..100 above.
+	cfg.DBMaxConns = int32(maxConns)
 
 	parseBool := func(key, def string, dst *bool) {
 		b, err := strconv.ParseBool(get(key, def))
