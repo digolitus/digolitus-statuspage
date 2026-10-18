@@ -139,6 +139,10 @@ func statusFor(k apperror.Kind) int {
 		return http.StatusConflict
 	case apperror.KindUnavailable:
 		return http.StatusServiceUnavailable
+	case apperror.KindUnauthenticated:
+		return http.StatusUnauthorized
+	case apperror.KindForbidden:
+		return http.StatusForbidden
 	default:
 		return http.StatusInternalServerError
 	}

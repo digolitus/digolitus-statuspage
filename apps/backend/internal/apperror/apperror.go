@@ -16,6 +16,8 @@ const (
 	KindNotFound
 	KindConflict
 	KindUnavailable
+	KindUnauthenticated
+	KindForbidden
 )
 
 // FieldError describes a validation problem with a single input field.
@@ -57,6 +59,19 @@ func NotFound(resource string) *Error {
 // Conflict reports a request incompatible with the current resource state.
 func Conflict(code, message string) *Error {
 	return &Error{Kind: KindConflict, Code: code, Message: message}
+}
+
+// Unauthenticated reports a missing, expired or invalid session.
+func Unauthenticated() *Error {
+	return &Error{Kind: KindUnauthenticated, Code: "unauthenticated", Message: "Faça login para continuar."}
+}
+
+// Forbidden reports an authenticated user without the required permission.
+func Forbidden(message string) *Error {
+	if message == "" {
+		message = "Você não tem permissão para esta ação."
+	}
+	return &Error{Kind: KindForbidden, Code: "forbidden", Message: message}
 }
 
 // Invalid reports a request-level validation failure without field details.

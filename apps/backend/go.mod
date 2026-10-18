@@ -5,7 +5,8 @@ go 1.27.2
 require (
 	github.com/getkin/kin-openapi v0.151.0
 	github.com/jackc/pgx/v5 v5.11.0
-	golang.org/x/text v0.29.0
+	golang.org/x/crypto v0.57.0
+	golang.org/x/text v0.42.0
 )
 
 require (
@@ -18,5 +19,6 @@ require (
 	github.com/oasdiff/yaml3 v0.0.14 // indirect
 	github.com/rogpeppe/go-internal v1.6.1 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 // indirect
-	golang.org/x/sync v0.17.0 // indirect
+	golang.org/x/sync v0.23.0 // indirect
+	golang.org/x/sys v0.48.0 // indirect
 )

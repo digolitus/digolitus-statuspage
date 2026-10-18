@@ -41,6 +41,8 @@ func TestMaintenanceLifecycle(t *testing.T) {
 	// No automatic transition: past the planned start it stays scheduled,
 	// flagged as overdue.
 	h.clock.now = time.Date(2026, 3, 6, 6, 0, 0, 0, time.UTC)
+	// Days later: the earlier session has expired; sign in again.
+	h = h.login(adminEmail, adminPassword)
 	got := mustStatus(t, h.call(http.MethodGet, "/api/v1/maintenances/"+id, nil), http.StatusOK).json(t)
 	if str(got, "status") != "scheduled" || got["start_overdue"] != true {
 		t.Fatalf("expected overdue scheduled maintenance: %v", got)

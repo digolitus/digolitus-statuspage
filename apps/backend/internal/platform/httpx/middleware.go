@@ -18,11 +18,29 @@ type ctxKey int
 const (
 	requestIDKey ctxKey = iota
 	sourceKey
+	actorKey
 )
 
-// SourceAdminAPI identifies changes made through the unauthenticated admin
-// API. It is a channel, not a person: no user identity exists yet.
+// SourceAdminAPI identifies changes made through the admin API. The person
+// is recorded separately as the actor.
 const SourceAdminAPI = "admin_api"
+
+// Actor identifies the authenticated user behind a request, for auditing.
+type Actor struct {
+	ID   string
+	Name string
+}
+
+// WithActor attaches the authenticated actor to ctx.
+func WithActor(ctx context.Context, a Actor) context.Context {
+	return context.WithValue(ctx, actorKey, a)
+}
+
+// ActorFrom returns the authenticated actor, if any.
+func ActorFrom(ctx context.Context) (Actor, bool) {
+	a, ok := ctx.Value(actorKey).(Actor)
+	return a, ok
+}
 
 var validRequestID = regexp.MustCompile(`^[A-Za-z0-9._-]{1,128}$`)
 
@@ -40,9 +58,15 @@ func Source(ctx context.Context) string {
 	return "unknown"
 }
 
-// WithSource tags requests handled by next with an audit source. When
-// authentication is added, this is where the authenticated principal would
-// be attached instead.
+// SourceCLI identifies changes made with server-side commands (recovery).
+const SourceCLI = "cli"
+
+// ContextWithSource tags ctx with an audit source (for non-HTTP callers).
+func ContextWithSource(ctx context.Context, source string) context.Context {
+	return context.WithValue(ctx, sourceKey, source)
+}
+
+// WithSource tags requests handled by next with an audit source.
 func WithSource(source string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), sourceKey, source)))

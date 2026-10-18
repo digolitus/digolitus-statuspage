@@ -7,7 +7,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/apperror"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/audit"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/auth"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/clock"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/database"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/httpx"
@@ -149,6 +151,11 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	var in UpdateInput
 	if err := httpx.DecodeJSON(r, &in); err != nil {
 		httpx.Fail(w, r, err)
+		return
+	}
+	// Users with only components.status may change the status, nothing else.
+	if !auth.Can(r.Context(), auth.PermComponentsManage) && !in.statusOnly() {
+		httpx.Fail(w, r, apperror.Forbidden("Sua permissão permite alterar apenas o status do componente."))
 		return
 	}
 	c, err := h.svc.Update(r.Context(), id, in)

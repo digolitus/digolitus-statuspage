@@ -18,6 +18,9 @@ func TestDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !cfg.SessionCookieSecure || cfg.SessionTTL != 12*time.Hour || cfg.SessionIdleTimeout != 2*time.Hour {
+		t.Fatalf("unexpected session defaults: %+v", cfg)
+	}
 	if !cfg.ExternalSync || cfg.ExternalInterval != 2*time.Minute {
 		t.Fatalf("unexpected external defaults: %+v", cfg)
 	}
@@ -35,17 +38,19 @@ func TestRequiresDatabaseURL(t *testing.T) {
 
 func TestRejectsInvalidValues(t *testing.T) {
 	_, err := FromLookup(lookup(map[string]string{
-		"DATABASE_URL":      "postgres://x",
-		"PORT":              "http",
-		"DB_MAX_CONNS":      "0",
-		"ADMIN_API_ENABLED": "maybe",
-		"REQUEST_TIMEOUT":   "1h",
-		"LOG_LEVEL":         "loud",
+		"DATABASE_URL":         "postgres://x",
+		"PORT":                 "http",
+		"DB_MAX_CONNS":         "0",
+		"ADMIN_API_ENABLED":    "maybe",
+		"REQUEST_TIMEOUT":      "1h",
+		"LOG_LEVEL":            "loud",
+		"SESSION_TTL":          "1m",
+		"SESSION_IDLE_TIMEOUT": "1s",
 	}))
 	if err == nil {
 		t.Fatal("expected errors")
 	}
-	for _, key := range []string{"PORT", "DB_MAX_CONNS", "ADMIN_API_ENABLED", "REQUEST_TIMEOUT", "LOG_LEVEL"} {
+	for _, key := range []string{"PORT", "DB_MAX_CONNS", "ADMIN_API_ENABLED", "REQUEST_TIMEOUT", "LOG_LEVEL", "SESSION_TTL", "SESSION_IDLE_TIMEOUT"} {
 		if !strings.Contains(err.Error(), key) {
 			t.Errorf("error should mention %s: %v", key, err)
 		}

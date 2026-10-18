@@ -25,12 +25,19 @@ info:
     - Grupos de componentes não têm status próprio: o status de um grupo é o mais grave entre seus componentes
       públicos e serve apenas para apresentação.
 
-    ## Administração sem autenticação
-    As rotas sob `/api/v1/admin/` **não possuem autenticação nesta versão** e permitem alterar todos os
-    dados. Mantenha-as acessíveis apenas em rede confiável (por padrão o Docker Compose publica a
-    aplicação somente em `127.0.0.1`). Swagger UI, CORS ou rotas não divulgadas **não** substituem
-    autenticação. Cada alteração é auditada com a origem `admin_api` e o `X-Request-ID`; não há identidade
-    de usuário verificável.
+    ## Autenticação e permissões
+    As rotas sob `/api/v1/admin/` exigem sessão (cookie `dsp_session`, HttpOnly e SameSite=Strict), obtida em
+    `POST /api/v1/auth/login`. Sem sessão válida a resposta é 401; sem a permissão necessária, 403.
+    Cada rota exige uma permissão do catálogo (`GET /api/v1/admin/permissions`), concedida por papéis
+    (roles). O papel de sistema **Administrador** tem todas as permissões. Leituras administrativas de dados
+    operacionais são abertas a qualquer usuário autenticado; usuários, papéis e auditoria exigem permissão.
+
+    O primeiro administrador é criado em `POST /api/v1/auth/setup` com o token de uso único exibido no log
+    do backend enquanto não houver usuários. Ninguém pode conceder permissões que não possui.
+
+    Requisições que alteram dados vindas de outro site (`Sec-Fetch-Site: cross-site` ou `Origin` diferente)
+    são recusadas com 403 `cross_site_request`. Cada alteração é auditada com o usuário (`actor`), a origem e o
+    `X-Request-ID`.
 
     ## Convenções
     - JSON em `snake_case`. Requisições com campos desconhecidos são rejeitadas (422).
@@ -42,31 +49,38 @@ info:
 servers:
   - url: /
     description: Mesmo host (via proxy do frontend em http://localhost:8080)
+security:
+  - cookieAuth: []
 tags:
   - name: health
     description: Saúde do processo e prontidão para atender requisições.
   - name: public
     description: Consulta pública, sem autenticação e somente leitura.
   - name: admin-components
-    description: Gestão de componentes e grupos de componentes. **Sem autenticação nesta versão.**
+    description: Gestão de componentes e grupos de componentes. Requer sessão e permissão.
   - name: admin-third-party
-    description: Status de terceiros (Atlassian Statuspage). **Sem autenticação nesta versão.**
+    description: Status de terceiros (Atlassian Statuspage). Requer sessão e permissão.
   - name: admin-incidents
-    description: Ciclo de vida de incidentes. **Sem autenticação nesta versão.**
+    description: Ciclo de vida de incidentes. Requer sessão e permissão.
   - name: admin-maintenances
-    description: Manutenções programadas. **Sem autenticação nesta versão.**
+    description: Manutenções programadas. Requer sessão e permissão.
   - name: admin-templates
-    description: Templates de incidentes e manutenções. **Sem autenticação nesta versão.**
+    description: Templates de incidentes e manutenções. Requer sessão e permissão.
   - name: admin-announcements
-    description: Comunicados gerais, categorias e times responsáveis. **Sem autenticação nesta versão.**
+    description: Comunicados gerais, categorias e times responsáveis. Requer sessão e permissão.
+  - name: auth
+    description: Configuração inicial, login, logout e sessão atual.
+  - name: admin-users
+    description: Usuários, papéis e catálogo de permissões. Requer `users.manage` ou `roles.manage`.
   - name: admin-audit
-    description: Histórico operacional (auditoria). **Sem autenticação nesta versão.**
+    description: Histórico operacional (auditoria). Requer sessão e permissão.
 
 paths:
   /healthz:
     get:
       tags: [health]
       operationId: getLiveness
+      security: []
       summary: Liveness
       description: Indica que o processo está vivo e atende HTTP. Não verifica o banco de dados.
       responses:
@@ -80,6 +94,7 @@ paths:
     get:
       tags: [health]
       operationId: getReadiness
+      security: []
       summary: Readiness
       description: Indica que o processo está pronto para atender, incluindo conexão com o PostgreSQL (timeout de 2 s).
       responses:
@@ -94,6 +109,7 @@ paths:
     get:
       tags: [health]
       operationId: getOpenAPISpec
+      security: []
       summary: Especificação OpenAPI
       description: Este documento. A Swagger UI está em `/swagger/`.
       responses:
@@ -107,6 +123,7 @@ paths:
     get:
       tags: [public]
       operationId: getStatusSummary
+      security: []
       summary: Resumo público de status
       description: |
         Status geral, componentes públicos com status efetivo, incidentes ativos com linha do tempo e
@@ -123,6 +140,7 @@ paths:
     get:
       tags: [public]
       operationId: listPublicComponents
+      security: []
       summary: Componentes públicos
       description: Componentes públicos e ativos com status efetivo, na ordem de exibição.
       parameters:
@@ -140,6 +158,7 @@ paths:
     get:
       tags: [public]
       operationId: listPublicIncidents
+      security: []
       summary: Incidentes (ativos e históricos)
       parameters:
         - $ref: '#/components/parameters/IncidentState'
@@ -159,6 +178,7 @@ paths:
     get:
       tags: [public]
       operationId: getPublicIncident
+      security: []
       summary: Incidente com linha do tempo
       description: Inclui até 100 atualizações, da mais recente para a mais antiga.
       parameters: [ { $ref: '#/components/parameters/ID' } ]
@@ -174,6 +194,7 @@ paths:
     get:
       tags: [public]
       operationId: listPublicMaintenances
+      security: []
       summary: Manutenções programadas
       parameters:
         - $ref: '#/components/parameters/MaintenanceState'
@@ -192,6 +213,7 @@ paths:
     get:
       tags: [public]
       operationId: getPublicMaintenance
+      security: []
       summary: Manutenção com histórico de atualizações
       parameters: [ { $ref: '#/components/parameters/ID' } ]
       responses:
@@ -207,6 +229,7 @@ paths:
     get:
       tags: [public]
       operationId: listPublicAnnouncements
+      security: []
       summary: Comunicados publicados
       description: Somente comunicados publicados cujo horário de publicação já chegou, do mais recente para o mais antigo.
       parameters:
@@ -227,6 +250,7 @@ paths:
     get:
       tags: [public]
       operationId: getPublicAnnouncement
+      security: []
       summary: Comunicado publicado
       description: Rascunhos, agendados e arquivados resultam em 404.
       parameters: [ { $ref: '#/components/parameters/ID' } ]
@@ -242,6 +266,7 @@ paths:
     get:
       tags: [public]
       operationId: listPublicAnnouncementCategories
+      security: []
       summary: Categorias ativas de comunicados
       responses:
         '200':
@@ -249,6 +274,115 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/PublicAnnouncementCategoryList' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/auth/setup:
+    get:
+      tags: [auth]
+      operationId: getSetupStatus
+      security: []
+      summary: Saber se a configuração inicial é necessária
+      responses:
+        '200':
+          description: '`setup_required` é verdadeiro enquanto não existe nenhum usuário.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SetupStatus' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [auth]
+      operationId: completeSetup
+      security: []
+      summary: Criar o primeiro administrador
+      description: |
+        Disponível apenas enquanto não houver usuários. Exige o token de uso único exibido no log do backend
+        na inicialização (ou gerado por `api setup-token`). Cria o usuário com o papel Administrador e inicia a sessão.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SetupInput' }
+      responses:
+        '201':
+          description: Administrador criado; cookie de sessão definido.
+          headers: { Set-Cookie: { schema: { type: string } } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      security: []
+      summary: Entrar
+      description: |
+        Credenciais inválidas, conta desativada ou bloqueada respondem igualmente 401 `invalid_credentials`.
+        Após 5 falhas seguidas a conta fica bloqueada por 15 minutos.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginInput' }
+      responses:
+        '200':
+          description: Sessão iniciada; cookie `dsp_session` definido.
+          headers: { Set-Cookie: { schema: { type: string } } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      security: []
+      summary: Sair
+      description: Encerra a sessão atual (se houver) e remove o cookie.
+      responses:
+        '204': { description: Sessão encerrada. }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/auth/me:
+    get:
+      tags: [auth]
+      operationId: getMe
+      summary: Usuário da sessão e suas permissões
+      responses:
+        '200':
+          description: Sessão válida.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/auth/password:
+    post:
+      tags: [auth]
+      operationId: changeOwnPassword
+      summary: Trocar a própria senha
+      description: Exige a senha atual. Encerra as outras sessões do usuário.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PasswordChange' }
+      responses:
+        '204': { description: Senha alterada. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
         '500': { $ref: '#/components/responses/InternalError' }
   /api/v1/admin/components:
     get:
@@ -272,6 +406,8 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ComponentList' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
     post:
       tags: [admin-components]
@@ -291,6 +427,8 @@ paths:
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
   /api/v1/admin/components/{id}:
     parameters: [ { $ref: '#/components/parameters/ID' } ]
@@ -305,6 +443,8 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Component' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
     patch:
       tags: [admin-components]
@@ -330,6 +470,8 @@ paths:
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
 
   /api/v1/admin/component-groups:
@@ -351,6 +493,8 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ComponentGroupList' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
     post:
       tags: [admin-components]
@@ -374,6 +518,8 @@ paths:
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
   /api/v1/admin/component-groups/{id}:
     parameters: [ { $ref: '#/components/parameters/ID' } ]
@@ -388,6 +534,8 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ComponentGroup' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
     patch:
       tags: [admin-components]
@@ -409,6 +557,8 @@ paths:
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
     delete:
       tags: [admin-components]
@@ -421,6 +571,8 @@ paths:
         '204': { description: Excluído. }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
 
 
@@ -435,6 +587,8 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ExternalSourceList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
     post:
       tags: [admin-third-party]
@@ -462,6 +616,8 @@ paths:
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
   /api/v1/admin/external-sources/{id}:
     parameters: [ { $ref: '#/components/parameters/ID' } ]
@@ -476,6 +632,8 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ExternalSource' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
     patch:
       tags: [admin-third-party]
@@ -497,6 +655,8 @@ paths:
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
     delete:
       tags: [admin-third-party]
@@ -506,6 +666,8 @@ paths:
       responses:
         '204': { description: Removido. }
         '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
   /api/v1/admin/external-sources/{id}/sync:
     parameters: [ { $ref: '#/components/parameters/ID' } ]
@@ -521,6 +683,8 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ExternalSource' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
         '502': { $ref: '#/components/responses/BadGateway' }
   /api/v1/admin/external-sources/{id}/components:
@@ -536,6 +700,8 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ExternalComponentList' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
   /api/v1/admin/external-sources/{id}/selection:
     parameters: [ { $ref: '#/components/parameters/ID' } ]
@@ -559,6 +725,8 @@ paths:
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
 
   /api/v1/admin/incidents:
@@ -581,6 +749,8 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/IncidentList' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
     post:
       tags: [admin-incidents]
@@ -610,6 +780,8 @@ paths:
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
   /api/v1/admin/incidents/{id}:
     parameters: [ { $ref: '#/components/parameters/ID' } ]
@@ -624,6 +796,8 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Incident' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
     patch:
       tags: [admin-incidents]
@@ -647,6 +821,8 @@ paths:
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
   /api/v1/admin/incidents/{id}/updates:
     parameters: [ { $ref: '#/components/parameters/ID' } ]
@@ -665,6 +841,8 @@ paths:
               schema: { $ref: '#/components/schemas/IncidentUpdateList' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
     post:
       tags: [admin-incidents]
@@ -692,6 +870,8 @@ paths:
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
   /api/v1/admin/incidents/{id}/resolve:
     parameters: [ { $ref: '#/components/parameters/ID' } ]
@@ -720,6 +900,8 @@ paths:
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
 
   /api/v1/admin/maintenances:
@@ -740,6 +922,8 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/MaintenanceList' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
     post:
       tags: [admin-maintenances]
@@ -772,6 +956,8 @@ paths:
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
   /api/v1/admin/maintenances/{id}:
     parameters: [ { $ref: '#/components/parameters/ID' } ]
@@ -786,6 +972,8 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Maintenance' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
     patch:
       tags: [admin-maintenances]
@@ -812,6 +1000,8 @@ paths:
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
   /api/v1/admin/maintenances/{id}/updates:
     parameters: [ { $ref: '#/components/parameters/ID' } ]
@@ -830,6 +1020,8 @@ paths:
               schema: { $ref: '#/components/schemas/MaintenanceUpdateList' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
     post:
       tags: [admin-maintenances]
@@ -852,6 +1044,8 @@ paths:
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
   /api/v1/admin/maintenances/{id}/start:
     parameters: [ { $ref: '#/components/parameters/ID' } ]
@@ -872,6 +1066,8 @@ paths:
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
   /api/v1/admin/maintenances/{id}/complete:
     parameters: [ { $ref: '#/components/parameters/ID' } ]
@@ -909,6 +1105,8 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/IncidentTemplateList' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
     post:
       tags: [admin-templates]
@@ -930,6 +1128,8 @@ paths:
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
   /api/v1/admin/incident-templates/{id}:
     parameters: [ { $ref: '#/components/parameters/ID' } ]
@@ -944,6 +1144,8 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/IncidentTemplate' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
     patch:
       tags: [admin-templates]
@@ -966,6 +1168,8 @@ paths:
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
   /api/v1/admin/maintenance-templates:
     get:
@@ -984,6 +1188,8 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/MaintenanceTemplateList' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
     post:
       tags: [admin-templates]
@@ -1005,6 +1211,8 @@ paths:
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
   /api/v1/admin/maintenance-templates/{id}:
     parameters: [ { $ref: '#/components/parameters/ID' } ]
@@ -1019,6 +1227,8 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/MaintenanceTemplate' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
     patch:
       tags: [admin-templates]
@@ -1040,6 +1250,8 @@ paths:
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
 
   /api/v1/admin/announcements:
@@ -1075,6 +1287,8 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/AnnouncementList' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
     post:
       tags: [admin-announcements]
@@ -1097,6 +1311,8 @@ paths:
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
   /api/v1/admin/announcements/{id}:
     parameters: [ { $ref: '#/components/parameters/ID' } ]
@@ -1111,6 +1327,8 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Announcement' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
     patch:
       tags: [admin-announcements]
@@ -1132,6 +1350,8 @@ paths:
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
     delete:
       tags: [admin-announcements]
@@ -1142,6 +1362,8 @@ paths:
         '204': { description: Excluído. }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
   /api/v1/admin/announcements/{id}/publish:
     parameters: [ { $ref: '#/components/parameters/ID' } ]
@@ -1167,6 +1389,8 @@ paths:
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
   /api/v1/admin/announcements/{id}/unpublish:
     parameters: [ { $ref: '#/components/parameters/ID' } ]
@@ -1208,6 +1432,8 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/AnnouncementCategoryList' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
     post:
       tags: [admin-announcements]
@@ -1230,6 +1456,8 @@ paths:
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
   /api/v1/admin/announcement-categories/{id}:
     parameters: [ { $ref: '#/components/parameters/ID' } ]
@@ -1244,6 +1472,8 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/AnnouncementCategory' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
     patch:
       tags: [admin-announcements]
@@ -1265,6 +1495,8 @@ paths:
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
     delete:
       tags: [admin-announcements]
@@ -1275,6 +1507,8 @@ paths:
         '204': { description: Excluído. }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
   /api/v1/admin/teams:
     get:
@@ -1292,6 +1526,8 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/TeamList' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
     post:
       tags: [admin-announcements]
@@ -1314,6 +1550,8 @@ paths:
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
   /api/v1/admin/teams/{id}:
     parameters: [ { $ref: '#/components/parameters/ID' } ]
@@ -1328,6 +1566,8 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Team' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
     patch:
       tags: [admin-announcements]
@@ -1349,6 +1589,8 @@ paths:
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
     delete:
       tags: [admin-announcements]
@@ -1359,6 +1601,215 @@ paths:
         '204': { description: Excluído. }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/permissions:
+    get:
+      tags: [admin-users]
+      operationId: listPermissions
+      summary: Catálogo de permissões
+      description: Disponível para qualquer usuário autenticado.
+      responses:
+        '200':
+          description: Permissões, na ordem de exibição.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PermissionList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/users:
+    get:
+      tags: [admin-users]
+      operationId: listUsers
+      summary: Listar usuários
+      responses:
+        '200':
+          description: Até 500 usuários.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [admin-users]
+      operationId: createUser
+      summary: Criar usuário
+      description: Só é possível atribuir papéis cujas permissões você possui (o papel Administrador exige ser administrador).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserCreate' }
+      responses:
+        '201':
+          description: Criado.
+          headers: { Location: { $ref: '#/components/headers/Location' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/users/{id}:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    get:
+      tags: [admin-users]
+      operationId: getUser
+      summary: Consultar usuário
+      responses:
+        '200':
+          description: Usuário.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    patch:
+      tags: [admin-users]
+      operationId: updateUser
+      summary: Editar, desativar ou desbloquear usuário
+      description: |
+        Só é possível administrar usuários cujas permissões você também possui. Não é possível desativar a
+        própria conta (409 `cannot_deactivate_self`) nem deixar o sistema sem administrador ativo (409 `last_admin`).
+        Desativar encerra as sessões do usuário.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserPatch' }
+      responses:
+        '200':
+          description: Atualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/users/{id}/password:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    post:
+      tags: [admin-users]
+      operationId: resetUserPassword
+      summary: Redefinir a senha de um usuário
+      description: Define uma nova senha, desbloqueia a conta e encerra as sessões do usuário.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PasswordReset' }
+      responses:
+        '204': { description: Senha redefinida. }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/roles:
+    get:
+      tags: [admin-users]
+      operationId: listRoles
+      summary: Listar papéis
+      responses:
+        '200':
+          description: Papéis; o Administrador primeiro.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RoleList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [admin-users]
+      operationId: createRole
+      summary: Criar papel
+      description: As permissões devem ser do catálogo e todas devem ser suas.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RoleCreate' }
+            example: { name: Comunicação, permissions: [announcements.write, announcements.publish] }
+      responses:
+        '201':
+          description: Criado.
+          headers: { Location: { $ref: '#/components/headers/Location' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Role' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/roles/{id}:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    get:
+      tags: [admin-users]
+      operationId: getRole
+      summary: Consultar papel
+      responses:
+        '200':
+          description: Papel.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Role' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    patch:
+      tags: [admin-users]
+      operationId: updateRole
+      summary: Editar papel
+      description: O papel Administrador é fixo (409 `system_role_immutable`). Alterações valem na próxima requisição dos usuários.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RolePatch' }
+      responses:
+        '200':
+          description: Atualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Role' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    delete:
+      tags: [admin-users]
+      operationId: deleteRole
+      summary: Excluir papel sem usuários
+      responses:
+        '204': { description: Excluído. }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
   /api/v1/admin/audit-events:
     get:
@@ -1371,7 +1822,7 @@ paths:
       parameters:
         - name: resource_type
           in: query
-          schema: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template, external_source, announcement, announcement_category, team] }
+          schema: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template, external_source, announcement, announcement_category, team, user, role] }
         - { name: resource_id, in: query, schema: { type: string, format: uuid } }
         - { name: action, in: query, schema: { type: string, maxLength: 64 }, description: 'Ex.: created, updated, resolved, started.' }
         - name: sort
@@ -1387,6 +1838,8 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/AuditEventList' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
 
 components:
@@ -1471,7 +1924,26 @@ components:
           schema: { $ref: '#/components/schemas/MaintenanceTransition' }
           example: { message: A manutenção foi iniciada. }
 
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: dsp_session
+      description: Sessão criada por `POST /api/v1/auth/login` ou `POST /api/v1/auth/setup`.
+
   responses:
+    Unauthorized:
+      description: Sem sessão válida (`unauthenticated`) ou credenciais inválidas (`invalid_credentials`).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { code: unauthenticated, message: Faça login para continuar., request_id: 4f2a9c1b7d3e5a6b8c9d0e1f } }
+    Forbidden:
+      description: Sem a permissão necessária (`forbidden`), senha provisória que precisa ser trocada (`password_change_required`) ou requisição de outro site (`cross_site_request`).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { code: forbidden, message: Você não tem permissão para esta ação., request_id: 4f2a9c1b7d3e5a6b8c9d0e1f } }
     NotFound:
       description: Recurso inexistente.
       content:
@@ -1485,7 +1957,8 @@ components:
         `incident_resolved`, `incident_already_resolved`, `maintenance_closed`, `maintenance_already_started`,
         `maintenance_invalid_transition`, `invalid_announcement_transition`, `announcement_not_draft`,
         `announcement_category_name_conflict`, `announcement_category_in_use`, `announcement_category_limit`,
-        `team_name_conflict`, `team_in_use`, `team_limit`.
+        `team_name_conflict`, `team_in_use`, `team_limit`, `setup_already_done`, `user_email_conflict`, `last_admin`,
+        `cannot_deactivate_self`, `role_name_conflict`, `role_in_use`, `role_limit`, `system_role_immutable`.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -2176,15 +2649,24 @@ components:
     AuditEvent:
       type: object
       additionalProperties: false
-      required: [id, occurred_at, resource_type, resource_id, action, source, request_id, changes]
+      required: [id, occurred_at, resource_type, resource_id, action, source, request_id, actor, changes]
       properties:
         id: { type: integer, format: int64 }
         occurred_at: { $ref: '#/components/schemas/Timestamp' }
-        resource_type: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template, external_source, announcement, announcement_category, team] }
+        resource_type: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template, external_source, announcement, announcement_category, team, user, role] }
         resource_id: { type: string, format: uuid }
         action: { type: string }
-        source: { type: string, description: 'Canal de origem (ex.: admin_api). Não identifica uma pessoa.' }
+        source: { type: string, description: 'Canal de origem (ex.: admin_api).' }
         request_id: { type: string, nullable: true }
+        actor:
+          type: object
+          nullable: true
+          additionalProperties: false
+          required: [id, name]
+          description: Usuário autenticado que fez a alteração; `null` em registros anteriores à autenticação.
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string, description: 'Nome e e-mail no momento da alteração.' }
         changes:
           type: object
           description: Valores relevantes anteriores (`before`) e posteriores (`after`).
@@ -2431,3 +2913,154 @@ components:
       required: [data]
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/Team' } }
+
+    PermissionKey:
+      type: string
+      enum: [components.status, components.manage, third_party.manage, incidents.manage, maintenances.manage, templates.manage, announcements.write, announcements.publish, announcements.settings, audit.read, users.manage, roles.manage]
+    PermissionInfo:
+      type: object
+      additionalProperties: false
+      required: [key, group, label, description, sensitive]
+      properties:
+        key: { $ref: '#/components/schemas/PermissionKey' }
+        group: { type: string }
+        label: { type: string }
+        description: { type: string }
+        sensitive: { type: boolean, description: 'Permite mudar quem pode fazer o quê (usuários e papéis).' }
+    PermissionList:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/PermissionInfo' } }
+    RoleRef:
+      type: object
+      additionalProperties: false
+      required: [id, name, is_system]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        is_system: { type: boolean }
+    User:
+      type: object
+      additionalProperties: false
+      required: [id, email, name, is_active, must_change_password, roles, last_login_at, locked_until, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string }
+        name: { type: string }
+        is_active: { type: boolean }
+        must_change_password: { type: boolean, description: 'Senha definida por um administrador (criação ou redefinição): a API administrativa responde 403 `password_change_required` até o usuário escolher a própria senha em `POST /api/v1/auth/password`.' }
+        roles: { type: array, items: { $ref: '#/components/schemas/RoleRef' } }
+        last_login_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        locked_until: { $ref: '#/components/schemas/NullableTimestamp' }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    UserList:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/User' } }
+    Password:
+      type: string
+      minLength: 12
+      maxLength: 128
+      description: 12 a 128 caracteres; não pode ser igual ao e-mail.
+    UserCreate:
+      type: object
+      additionalProperties: false
+      required: [email, name, password]
+      properties:
+        email: { type: string, maxLength: 254 }
+        name: { type: string, minLength: 1, maxLength: 120 }
+        password: { $ref: '#/components/schemas/Password' }
+        role_ids: { type: array, maxItems: 20, items: { type: string, format: uuid } }
+    UserPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        email: { type: string, maxLength: 254 }
+        name: { type: string, minLength: 1, maxLength: 120 }
+        is_active: { type: boolean }
+        role_ids: { type: array, maxItems: 20, items: { type: string, format: uuid }, description: Substitui os papéis do usuário. }
+        unlock: { type: boolean, description: '`true` remove o bloqueio por tentativas de login.' }
+    PasswordReset:
+      type: object
+      additionalProperties: false
+      required: [password]
+      properties:
+        password: { $ref: '#/components/schemas/Password' }
+    PasswordChange:
+      type: object
+      additionalProperties: false
+      required: [current_password, new_password]
+      properties:
+        current_password: { type: string, maxLength: 128 }
+        new_password: { $ref: '#/components/schemas/Password' }
+    Role:
+      type: object
+      additionalProperties: false
+      required: [id, name, description, permissions, is_system, user_count, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        permissions: { type: array, items: { $ref: '#/components/schemas/PermissionKey' }, description: 'O Administrador lista todas.' }
+        is_system: { type: boolean, description: 'Papel Administrador: acesso total e imutável.' }
+        user_count: { type: integer }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    RoleList:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Role' } }
+    RoleCreate:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 60 }
+        description: { type: string, maxLength: 500 }
+        permissions: { type: array, maxItems: 100, items: { $ref: '#/components/schemas/PermissionKey' } }
+    RolePatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 60 }
+        description: { type: string, maxLength: 500 }
+        permissions: { type: array, maxItems: 100, items: { $ref: '#/components/schemas/PermissionKey' } }
+    Me:
+      type: object
+      additionalProperties: false
+      required: [user, permissions, is_admin]
+      properties:
+        user: { $ref: '#/components/schemas/User' }
+        permissions: { type: array, items: { $ref: '#/components/schemas/PermissionKey' } }
+        is_admin: { type: boolean }
+    SetupStatus:
+      type: object
+      additionalProperties: false
+      required: [setup_required]
+      properties:
+        setup_required: { type: boolean }
+    SetupInput:
+      type: object
+      additionalProperties: false
+      required: [setup_token, name, email, password]
+      properties:
+        setup_token: { type: string, maxLength: 200 }
+        name: { type: string, minLength: 1, maxLength: 120 }
+        email: { type: string, maxLength: 254 }
+        password: { $ref: '#/components/schemas/Password' }
+    LoginInput:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email: { type: string, maxLength: 254 }
+        password: { type: string, maxLength: 128 }

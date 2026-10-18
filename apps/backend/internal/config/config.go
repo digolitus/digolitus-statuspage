@@ -24,8 +24,12 @@ type Config struct {
 	ExternalSync     bool
 	ExternalInterval time.Duration
 	// Allows sources on private/loopback addresses (intranet status pages).
-	// Off by default: with the admin API unauthenticated it widens SSRF risk.
+	// Off by default: it widens SSRF risk.
 	ExternalAllowPrivate bool
+	// Admin sessions.
+	SessionTTL          time.Duration
+	SessionIdleTimeout  time.Duration
+	SessionCookieSecure bool
 }
 
 // Load reads configuration from the process environment.
@@ -72,6 +76,18 @@ func FromLookup(lookup func(string) (string, bool)) (Config, error) {
 	parseBool("ADMIN_API_ENABLED", "true", &cfg.AdminAPIEnabled)
 	parseBool("EXTERNAL_STATUS_SYNC", "true", &cfg.ExternalSync)
 	parseBool("EXTERNAL_STATUS_ALLOW_PRIVATE_NETWORKS", "false", &cfg.ExternalAllowPrivate)
+	parseBool("SESSION_COOKIE_SECURE", "true", &cfg.SessionCookieSecure)
+
+	ttl, err := time.ParseDuration(get("SESSION_TTL", "12h"))
+	if err != nil || ttl < 15*time.Minute || ttl > 30*24*time.Hour {
+		errs = append(errs, errors.New("SESSION_TTL must be a duration between 15m and 720h"))
+	}
+	cfg.SessionTTL = ttl
+	idle, err := time.ParseDuration(get("SESSION_IDLE_TIMEOUT", "2h"))
+	if err != nil || idle < 5*time.Minute || (ttl > 0 && idle > ttl) {
+		errs = append(errs, errors.New("SESSION_IDLE_TIMEOUT must be a duration between 5m and SESSION_TTL"))
+	}
+	cfg.SessionIdleTimeout = idle
 
 	interval, err := time.ParseDuration(get("EXTERNAL_STATUS_INTERVAL", "2m"))
 	if err != nil || interval < 30*time.Second || interval > time.Hour {

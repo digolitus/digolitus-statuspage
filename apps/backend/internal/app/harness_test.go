@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -17,6 +18,7 @@ import (
 	legacyrouter "github.com/getkin/kin-openapi/routers/legacy"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/auth"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/external"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/clock"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/testsupport"
@@ -50,6 +52,8 @@ type harness struct {
 	clock   *fakeClock
 	fetcher *fakeFetcher
 	app     *App
+	// session is the cookie value sent with every call ("" = anonymous).
+	session string
 }
 
 // fakeFetcher serves third-party snapshots from memory, keyed by base URL.
@@ -87,13 +91,14 @@ func (f *fakeFetcher) set(base string, snap external.Snapshot, err error) {
 
 var epoch = time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
 
-func newHarness(t *testing.T) *harness {
+// newBareHarness starts with an empty database and no user (setup pending).
+func newBareHarness(t *testing.T) *harness {
 	t.Helper()
 	pool := testsupport.NewPool(t)
 	fc := &fakeClock{now: epoch}
 	ff := &fakeFetcher{snaps: map[string]external.Snapshot{}, errs: map[string]error{}}
 	application := New(pool, Options{AdminAPIEnabled: true, Clock: func() time.Time { return clock.Normalize(fc.Now()) },
-		ExternalFetcher: ff, ExternalInterval: 2 * time.Minute})
+		ExternalFetcher: ff, ExternalInterval: 2 * time.Minute, Auth: auth.Config{CookieSecure: true, SessionTTL: 72 * time.Hour, IdleTimeout: 24 * time.Hour}})
 	srv := httptest.NewServer(application.Handler)
 	t.Cleanup(srv.Close)
 	doc := loadSpec(t)
@@ -103,6 +108,80 @@ func newHarness(t *testing.T) *harness {
 		t.Fatalf("build OpenAPI router: %v", err)
 	}
 	return &harness{t: t, pool: pool, server: srv, router: router, clock: fc, fetcher: ff, app: application}
+}
+
+// newHarness starts signed in as the first administrator, created through
+// the real setup flow.
+func newHarness(t *testing.T) *harness {
+	t.Helper()
+	h := newBareHarness(t)
+	token, err := h.app.Auth.EnsureSetupToken(context.Background())
+	if err != nil || token == "" {
+		t.Fatalf("setup token: %q %v", token, err)
+	}
+	r := mustStatus(t, h.call(http.MethodPost, "/api/v1/auth/setup", map[string]any{
+		"setup_token": token, "name": "Admin", "email": adminEmail, "password": adminPassword,
+	}), http.StatusCreated)
+	h.session = sessionCookie(t, r)
+	return h
+}
+
+const (
+	adminEmail    = "admin@example.com"
+	adminPassword = "correct horse battery staple"
+)
+
+// sessionCookie extracts the session token set by a response.
+func sessionCookie(t *testing.T, r response) string {
+	t.Helper()
+	for _, c := range (&http.Response{Header: r.header}).Cookies() {
+		if c.Name == auth.CookieName {
+			if !c.HttpOnly || c.SameSite != http.SameSiteStrictMode || !c.Secure {
+				t.Fatalf("session cookie must be HttpOnly, SameSite=Strict and Secure: %+v", c)
+			}
+			return c.Value
+		}
+	}
+	t.Fatalf("no session cookie in response: %v", r.header)
+	return ""
+}
+
+// anonymous returns a copy of the harness without a session.
+func (h *harness) anonymous() *harness {
+	c := *h
+	c.session = ""
+	return &c
+}
+
+// login returns a copy of the harness signed in as email.
+func (h *harness) login(email, password string) *harness {
+	h.t.Helper()
+	r := mustStatus(h.t, h.anonymous().call(http.MethodPost, "/api/v1/auth/login", map[string]any{"email": email, "password": password}), http.StatusOK)
+	c := *h
+	c.session = sessionCookie(h.t, r)
+	return &c
+}
+
+// userWith creates a user holding a new role with perms and signs in as it.
+func (h *harness) userWith(name string, perms ...string) *harness {
+	h.t.Helper()
+	if perms == nil {
+		perms = []string{}
+	}
+	role := mustStatus(h.t, h.call(http.MethodPost, "/api/v1/admin/roles", map[string]any{"name": "Papel " + name, "permissions": perms}), http.StatusCreated).json(h.t)
+	email := strings.ToLower(strings.ReplaceAll(name, " ", ".")) + "@example.com"
+	mustStatus(h.t, h.call(http.MethodPost, "/api/v1/admin/users", map[string]any{
+		"email": email, "name": name, "password": "a long enough password", "role_ids": []string{str(role, "id")},
+	}), http.StatusCreated)
+	u := h.login(email, "a long enough password")
+	u.choosePassword("a long enough password", "my own long password")
+	return u
+}
+
+// choosePassword replaces a password set by an administrator.
+func (h *harness) choosePassword(current, next string) {
+	h.t.Helper()
+	mustStatus(h.t, h.call(http.MethodPost, "/api/v1/auth/password", map[string]any{"current_password": current, "new_password": next}), http.StatusNoContent)
 }
 
 // with returns a copy of the harness bound to t (for subtests).
@@ -189,6 +268,9 @@ func (h *harness) call(method, path string, body any, opts ...callOpt) response 
 		if payload != nil {
 			req.Header.Set("Content-Type", cfg.contentType)
 		}
+		if h.session != "" {
+			req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: h.session})
+		}
 		for k, v := range cfg.headers {
 			req.Header.Set(k, v)
 		}
@@ -202,7 +284,7 @@ func (h *harness) call(method, path string, body any, opts ...callOpt) response 
 		h.t.Fatalf("%s %s is not in the OpenAPI spec: %v", method, path, err)
 	}
 	input := &openapi3filter.RequestValidationInput{Request: vreq, PathParams: params, Route: route,
-		Options: &openapi3filter.Options{IncludeResponseStatus: true, MultiError: true}}
+		Options: &openapi3filter.Options{IncludeResponseStatus: true, MultiError: true, AuthenticationFunc: openapi3filter.NoopAuthenticationFunc}}
 	if !cfg.skipRequestValidation {
 		if err := openapi3filter.ValidateRequest(ctx, input); err != nil {
 			h.t.Fatalf("request %s %s violates the contract: %v", method, path, err)

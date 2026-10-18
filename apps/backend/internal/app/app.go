@@ -13,6 +13,7 @@ import (
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/announcement"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/apperror"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/audit"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/auth"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/component"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/docs"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/external"
@@ -33,6 +34,8 @@ type Options struct {
 	// fetcher (public addresses only).
 	ExternalFetcher  external.Fetcher
 	ExternalInterval time.Duration
+	// Auth configures admin sessions.
+	Auth auth.Config
 }
 
 // App exposes the handler, its route registry and the third-party service
@@ -41,6 +44,7 @@ type App struct {
 	Router   *httpx.Router
 	Handler  http.Handler
 	External *external.Service
+	Auth     *auth.Service
 }
 
 // New builds the application.
@@ -78,14 +82,18 @@ func New(pool *pgxpool.Pool, opts Options) *App {
 	announcementHandler := announcement.NewHandler(announcement.NewService(pool, now))
 	announcementHandler.RegisterPublic(rt)
 
-	// Admin routes live under /api/v1/admin/ and carry an explicit audit
-	// source. There is no authentication in this version: exposure is
-	// controlled by deployment (see docs). This wrapper is the single place
-	// where authentication and authorization will be enforced later.
+	// Admin routes live under /api/v1/admin/. This wrapper is the single
+	// place where authentication and authorization are enforced: a valid
+	// session is required and the route's permissions come from
+	// adminPolicy (routes missing there are denied).
+	authSvc := auth.NewService(pool, now, opts.Auth)
 	if opts.AdminAPIEnabled {
+		authHandler := auth.NewHandler(authSvc)
+		authHandler.RegisterAuth(rt)
 		admin := func(h http.HandlerFunc) http.HandlerFunc {
-			return httpx.WithSource(httpx.SourceAdminAPI, h).ServeHTTP
+			return authSvc.Guard(adminPolicy, httpx.WithSource(httpx.SourceAdminAPI, h).ServeHTTP)
 		}
+		authHandler.RegisterAdmin(rt, admin)
 		componentHandler := component.NewHandler(component.NewService(pool, now), pool)
 		componentHandler.Register(rt, admin)
 		componentHandler.RegisterGroups(rt, admin)
@@ -97,7 +105,7 @@ func New(pool *pgxpool.Pool, opts Options) *App {
 		announcementHandler.RegisterAdmin(rt, admin)
 	}
 
-	return &App{Router: rt, Handler: httpx.Chain(rt, opts.RequestTimeout), External: externalSvc}
+	return &App{Router: rt, Handler: httpx.Chain(rt, opts.RequestTimeout), External: externalSvc, Auth: authSvc}
 }
 
 type healthBody struct {

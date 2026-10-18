@@ -28,11 +28,13 @@ const (
 	ResourceAnnouncement         = "announcement"
 	ResourceAnnouncementCategory = "announcement_category"
 	ResourceTeam                 = "team"
+	ResourceUser                 = "user"
+	ResourceRole                 = "role"
 )
 
 // ResourceTypes lists every resource type, for filter validation.
 var ResourceTypes = []string{ResourceComponent, ResourceComponentGroup, ResourceIncident, ResourceMaintenance, ResourceIncidentTemplate, ResourceMaintenanceTemplate, ResourceExternalSource,
-	ResourceAnnouncement, ResourceAnnouncementCategory, ResourceTeam}
+	ResourceAnnouncement, ResourceAnnouncementCategory, ResourceTeam, ResourceUser, ResourceRole}
 
 // Changes holds the relevant before/after values of an operation.
 type Changes struct {
@@ -80,13 +82,16 @@ func Record(ctx context.Context, q database.Querier, resourceType, resourceID, a
 	if err != nil {
 		return fmt.Errorf("encode audit changes: %w", err)
 	}
-	var requestID *string
+	var requestID, actorID, actorName *string
 	if id := httpx.RequestID(ctx); id != "" {
 		requestID = &id
 	}
-	_, err = q.Exec(ctx, `INSERT INTO audit_events (occurred_at, resource_type, resource_id, action, source, request_id, changes)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		at, resourceType, resourceID, action, httpx.Source(ctx), requestID, payload)
+	if a, ok := httpx.ActorFrom(ctx); ok {
+		actorID, actorName = &a.ID, &a.Name
+	}
+	_, err = q.Exec(ctx, `INSERT INTO audit_events (occurred_at, resource_type, resource_id, action, source, request_id, changes, actor_id, actor_name)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+		at, resourceType, resourceID, action, httpx.Source(ctx), requestID, payload, actorID, actorName)
 	if err != nil {
 		return fmt.Errorf("insert audit event: %w", err)
 	}
@@ -102,7 +107,15 @@ type Event struct {
 	Action       string          `json:"action"`
 	Source       string          `json:"source"`
 	RequestID    *string         `json:"request_id"`
+	Actor        *ActorRef       `json:"actor"`
 	Changes      json.RawMessage `json:"changes"`
+}
+
+// ActorRef identifies who made a change (null for changes made before
+// authentication existed or by the system).
+type ActorRef struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 // Filter narrows an audit listing.
@@ -131,7 +144,7 @@ func (s *Store) List(ctx context.Context, f Filter, page httpx.Page) ([]Event, i
 		order = "occurred_at ASC, id ASC"
 	}
 	// #nosec G202 -- order is one of two constant strings; filters are bound parameters.
-	rows, err := s.pool.Query(ctx, `SELECT id, occurred_at, resource_type, resource_id, action, source, request_id, changes
+	rows, err := s.pool.Query(ctx, `SELECT id, occurred_at, resource_type, resource_id, action, source, request_id, changes, actor_id, actor_name
 		FROM audit_events `+where+` ORDER BY `+order+` LIMIT $4 OFFSET $5`,
 		f.ResourceType, f.ResourceID, f.Action, page.Limit, page.Offset)
 	if err != nil {
@@ -142,8 +155,15 @@ func (s *Store) List(ctx context.Context, f Filter, page httpx.Page) ([]Event, i
 	for rows.Next() {
 		var e Event
 		var changes []byte
-		if err := rows.Scan(&e.ID, &e.OccurredAt, &e.ResourceType, &e.ResourceID, &e.Action, &e.Source, &e.RequestID, &changes); err != nil {
+		var actorID, actorName *string
+		if err := rows.Scan(&e.ID, &e.OccurredAt, &e.ResourceType, &e.ResourceID, &e.Action, &e.Source, &e.RequestID, &changes, &actorID, &actorName); err != nil {
 			return nil, 0, err
+		}
+		if actorID != nil {
+			e.Actor = &ActorRef{ID: *actorID}
+			if actorName != nil {
+				e.Actor.Name = *actorName
+			}
 		}
 		e.OccurredAt = e.OccurredAt.UTC()
 		e.Changes = changes

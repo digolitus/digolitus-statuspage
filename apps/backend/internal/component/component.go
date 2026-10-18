@@ -83,6 +83,12 @@ type UpdateInput struct {
 	URL optional.Nullable[string] `json:"url"`
 }
 
+// statusOnly reports whether the patch changes nothing but the status.
+func (in UpdateInput) statusOnly() bool {
+	return in.Status != nil && in.Name == nil && in.Slug == nil && in.Description == nil && in.IsPublic == nil &&
+		in.IsActive == nil && in.DisplayOrder == nil && !in.GroupID.Set && !in.URL.Set
+}
+
 var slugPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
 // Slugify derives a URL-safe slug from a name, dropping accents.
