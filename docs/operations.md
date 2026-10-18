@@ -66,3 +66,15 @@ O que **não** é controle de acesso: a Swagger UI, CORS, a URL `/admin` "não d
 ```bash
 scripts/update-swagger-ui.sh v5.33.3   # informe a tag desejada; revise o diff e rode os testes
 ```
+
+## Deploy
+
+Ainda não existe deploy automatizado. Antes de criar um, é preciso decidir:
+
+1. **Destino:** VPS com Docker Compose, Kubernetes, serviço gerenciado de containers etc.
+2. **Proteção da administração:** autenticação ([ADR 0004](adr/0004-admin-without-authentication.md)) ou instância pública com `ADMIN_API_ENABLED=false` e a administração só em rede privada/VPN.
+3. **Credenciais:** de preferência identidade federada (OIDC do GitHub Actions) em vez de segredos de longa duração; banco gerenciado ou com backup.
+4. **Promoção:** usar sempre a tag imutável `sha-<commit>` publicada pelo `publish.yml`, com GitHub Environments e aprovação manual para produção.
+5. **Rollback:** reimplantar a tag `sha-` anterior. As migrações só avançam, então mudanças de esquema devem ser compatíveis com a versão anterior.
+
+Para executar manualmente as imagens publicadas, veja `deploy/docker-compose.ghcr.yml`.

@@ -20,6 +20,9 @@ A política está implementada em um único lugar (`internal/statuspolicy`), com
 4. Se o mais grave for `maintenance`, o status geral é `maintenance`, comunicado como "manutenção em N componentes" e nunca como indisponibilidade.
 5. Sem componentes públicos e sem incidentes ativos, o status geral é `unknown`. A plataforma não afirma estar operacional sem ter o que declarar.
 6. A resposta inclui `overall.basis = "declared"`, e a interface informa que não há monitoramento automático.
+7. **Grupos de componentes** não têm status próprio: o status exibido para um grupo é o mais grave entre os
+   status efetivos dos seus componentes públicos (mesma ordem de gravidade). É apenas apresentação e não
+   acrescenta nada ao status geral.
 
 Manutenções programadas (ainda não iniciadas) não alteram o status.
 

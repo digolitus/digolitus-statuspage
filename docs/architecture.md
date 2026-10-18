@@ -21,6 +21,7 @@ internal/
   maintenance/     manutenções e transições
   templates/       templates de incidente e manutenção
   audit/           histórico operacional (gravação e consulta)
+  tsgen/           gerador de tipos TypeScript a partir do OpenAPI (cmd/openapi-ts)
   docs/            Swagger UI embutida (assets oficiais vendorizados)
   apperror/        vocabulário de erros esperados (validação, 404, 409)
   platform/        infraestrutura compartilhada:
@@ -47,7 +48,8 @@ As rotas administrativas passam por um único wrapper (`app.New`), que marca a o
 
 | Tabela | Papel |
 |---|---|
-| `components` | Estado atual declarado de cada componente; nunca é excluído (`is_active`) |
+| `components` | Estado atual declarado de cada componente; nunca é excluído (`is_active`); `group_id` opcional |
+| `component_groups` | Grupos de apresentação; status derivado dos componentes; excluível só quando vazio |
 | `incidents` | Estado atual do incidente (`status`, `resolved_at` coerentes por `CHECK`) |
 | `incident_components` | Componentes afetados atualmente |
 | `incident_updates` | Linha do tempo publicada, imutável, com snapshot dos componentes quando alterados |
@@ -74,7 +76,7 @@ Os arquivos ficam em `internal/platform/database/migrations` (`NNNN_nome.sql`) e
 ## Frontend (`apps/frontend`)
 
 ```text
-src/api/         tipos espelhando o OpenAPI, cliente HTTP (timeout, cancelamento, ApiError) e endpoints
+src/api/         tipos gerados do OpenAPI (schema.gen.ts) + apelidos, cliente HTTP (timeout, cancelamento, ApiError) e endpoints
 src/lib/         formatação (rótulos pt-BR, datas com timezone), roteador mínimo, hooks de carga e polling
 src/components/  UI compartilhada (selos com ícone + texto, estados vazio/erro/carregando, confirmação, timeline)
 src/public/      página pública e páginas de detalhe
