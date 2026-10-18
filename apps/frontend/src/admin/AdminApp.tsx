@@ -6,11 +6,13 @@ import { IncidentDetailPage, IncidentNewPage, IncidentsPage } from "./incidents"
 import { MaintenanceDetailPage, MaintenanceNewPage, MaintenancesPage } from "./maintenances";
 import { OverviewPage } from "./OverviewPage";
 import { TemplatesPage } from "./TemplatesPage";
+import { ThirdPartyPage } from "./ThirdPartyPage";
 
 const NAV = [
   { to: "/admin", label: "Visão geral" },
   { to: "/admin/components", label: "Componentes" },
   { to: "/admin/component-groups", label: "Grupos de componentes" },
+  { to: "/admin/third-party", label: "Serviços de terceiros" },
   { to: "/admin/incidents", label: "Incidentes" },
   { to: "/admin/incident-templates", label: "Templates de incidente" },
   { to: "/admin/maintenances", label: "Manutenções" },
@@ -23,6 +25,7 @@ function route(pathname: string) {
   if (match("/admin", pathname)) return <OverviewPage />;
   if (match("/admin/components", pathname)) return <ComponentsPage />;
   if (match("/admin/component-groups", pathname)) return <GroupsPage />;
+  if (match("/admin/third-party", pathname)) return <ThirdPartyPage />;
   if (match("/admin/incidents", pathname)) return <IncidentsPage />;
   if (match("/admin/incidents/new", pathname)) return <IncidentNewPage />;
   if ((p = match("/admin/incidents/:id", pathname))) return <IncidentDetailPage key={p.id} id={p.id} />;

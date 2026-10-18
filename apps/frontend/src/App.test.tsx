@@ -110,6 +110,81 @@ describe("public status page", () => {
   });
 });
 
+describe("third-party services", () => {
+  const source = {
+    id: "s1",
+    name: "GitHub",
+    page_url: "https://www.githubstatus.com",
+    status: "partial_outage" as const,
+    stale: false,
+    last_success_at: "2026-03-01T11:59:00Z",
+    components: [
+      { id: "e1", name: "API Requests", group_name: "Core", status: "partial_outage" as const },
+      { id: "e2", name: "Git Operations", group_name: "Core", status: "operational" as const },
+    ],
+    events: [{ kind: "incident" as const, name: "API degraded", status: "investigating", impact: "minor", url: "https://stspg.io/a" }],
+  };
+
+  it("shows providers collapsed, separate from the platform status", async () => {
+    mockApi({ "GET /api/v1/status": { body: { ...emptySummary, third_party: [source] } }, ...history });
+    render(<App />);
+    const toggle = await screen.findByRole("button", { name: /GitHub/ });
+    expect(screen.getByRole("heading", { name: "Serviços de terceiros" })).toBeInTheDocument();
+    expect(screen.getByText(/não altera o status da plataforma/)).toBeInTheDocument();
+    // Overall stays as declared by the platform itself.
+    expect(screen.getByText("Status não informado")).toBeInTheDocument();
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByText("API Requests")).not.toBeVisible();
+
+    await userEvent.click(toggle);
+    expect(screen.getByText("API Requests")).toBeVisible();
+    const event = screen.getByRole("link", { name: "API degraded" });
+    expect(event).toHaveAttribute("href", "https://stspg.io/a");
+    expect(event).toHaveAttribute("rel", "noopener noreferrer");
+    expect(screen.getByRole("link", { name: /Ver status em www.githubstatus.com/ })).toBeInTheDocument();
+  });
+
+  it("flags stale providers instead of showing old statuses", async () => {
+    const stale = {
+      ...source,
+      stale: true,
+      status: "unknown" as const,
+      events: [],
+      components: source.components.map((c) => ({ ...c, status: "unknown" as const })),
+    };
+    mockApi({ "GET /api/v1/status": { body: { ...emptySummary, third_party: [stale] } }, ...history });
+    render(<App />);
+    expect(await screen.findByText(/dados desatualizados/)).toBeInTheDocument();
+    expect(screen.getAllByText("Desconhecido").length).toBeGreaterThan(0);
+  });
+
+  it("lets operators choose which provider components to publish", async () => {
+    window.history.pushState(null, "", "/admin/third-party");
+    const adminSource = {
+      id: "s1", name: "GitHub", provider: "statuspage" as const, base_url: "https://www.githubstatus.com", page_name: "GitHub",
+      is_active: true, display_order: 0, indicator: "none" as const, indicator_description: "All Systems Operational",
+      last_checked_at: "2026-03-01T12:00:00Z", last_success_at: "2026-03-01T12:00:00Z", last_error: null, stale: false,
+      component_count: 2, selected_count: 0, created_at: "2026-03-01T12:00:00Z", updated_at: "2026-03-01T12:00:00Z",
+    };
+    const comps = [
+      { id: "e1", external_id: "c1", name: "API Requests", description: "", group_name: "Core", status: "operational" as const, is_selected: false, is_present: true },
+      { id: "e2", external_id: "c2", name: "Pages", description: "", group_name: null, status: "operational" as const, is_selected: false, is_present: true },
+    ];
+    const calls = mockApi({
+      "GET /api/v1/admin/external-sources": { body: { data: [adminSource] } },
+      "GET /api/v1/admin/external-sources/s1/components": { body: { data: comps } },
+      "PUT /api/v1/admin/external-sources/s1/selection": { body: { data: comps.map((c) => ({ ...c, is_selected: c.id === "e1" })) } },
+    });
+    render(<App />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Escolher componentes" }));
+    await user.click(await screen.findByRole("checkbox", { name: /API Requests/ }));
+    await user.click(screen.getByRole("button", { name: "Salvar seleção (1)" }));
+    expect(await screen.findByText("Seleção salva.")).toBeInTheDocument();
+    expect(calls.find((c) => c.method === "PUT")?.body).toEqual({ component_ids: ["e1"] });
+  });
+});
+
 describe("admin area", () => {
   it("warns that there is no authentication", async () => {
     window.history.pushState(null, "", "/admin/components");

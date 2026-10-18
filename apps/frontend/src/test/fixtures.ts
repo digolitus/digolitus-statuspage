@@ -6,6 +6,7 @@ export const emptySummary: StatusSummary = {
   groups: [],
   active_incidents: [],
   maintenances: { in_progress: [], upcoming: [] },
+  third_party: [],
   generated_at: "2026-03-01T12:00:00Z",
 };
 

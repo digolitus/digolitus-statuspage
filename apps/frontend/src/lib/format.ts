@@ -16,6 +16,12 @@ export const componentStatusLabel: Record<ComponentStatus, string> = {
   maintenance: "Em manutenção",
 };
 
+/** Third-party statuses add "unknown" (unrecognized or stale data). */
+export const externalStatusLabel: Record<OverallStatus, string> = {
+  ...componentStatusLabel,
+  unknown: "Desconhecido",
+};
+
 export const overallLabel: Record<OverallStatus, string> = {
   operational: "Todos os componentes declarados como operacionais",
   degraded_performance: "Desempenho degradado",

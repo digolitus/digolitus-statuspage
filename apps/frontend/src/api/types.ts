@@ -35,6 +35,10 @@ export type IncidentTemplate = S.IncidentTemplate;
 export type MaintenanceTemplate = S.MaintenanceTemplate;
 export type AuditEvent = S.AuditEvent;
 export type StatusSummary = S.StatusSummary;
+export type PublicThirdPartySource = S.PublicThirdPartySource;
+export type ExternalSource = S.ExternalSource;
+export type ExternalComponent = S.ExternalComponent;
+export type ExternalComponentStatus = S.ExternalComponentStatus;
 
 export type ErrorBody = S.Error;
 export type FieldError = NonNullable<S.Error["error"]["details"]>[number];
@@ -53,3 +57,5 @@ export type IncidentTemplateCreate = S.IncidentTemplateCreate;
 export type IncidentTemplatePatch = S.IncidentTemplatePatch;
 export type MaintenanceTemplateCreate = S.MaintenanceTemplateCreate;
 export type MaintenanceTemplatePatch = S.MaintenanceTemplatePatch;
+export type ExternalSourceCreate = S.ExternalSourceCreate;
+export type ExternalSourcePatch = S.ExternalSourcePatch;

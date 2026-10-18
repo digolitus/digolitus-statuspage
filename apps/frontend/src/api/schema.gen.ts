@@ -9,7 +9,7 @@ export type AuditEvent = {
   occurred_at: Timestamp;
   request_id: string | null;
   resource_id: string;
-  resource_type: "component" | "component_group" | "incident" | "maintenance" | "incident_template" | "maintenance_template";
+  resource_type: "component" | "component_group" | "incident" | "maintenance" | "incident_template" | "maintenance_template" | "external_source";
   /** Canal de origem (ex.: admin_api). Não identifica uma pessoa. */
   source: string;
 };
@@ -115,6 +115,74 @@ export type Error = {
 };
 
 export type ExpectedImpact = "none" | "degraded_performance" | "partial_outage" | "major_outage";
+
+export type ExternalComponent = {
+  description: string;
+  /** Identificador no provedor. */
+  external_id: string;
+  group_name: string | null;
+  id: string;
+  /** Falso quando o provedor deixou de listar o componente. */
+  is_present: boolean;
+  is_selected: boolean;
+  name: string;
+  status: ExternalComponentStatus;
+};
+
+export type ExternalComponentList = {
+  data: ExternalComponent[];
+};
+
+/** Status informado pelo provedor (`under_maintenance` vira `maintenance`); `unknown` quando não reconhecido ou desatualizado. */
+export type ExternalComponentStatus = "operational" | "degraded_performance" | "partial_outage" | "major_outage" | "maintenance" | "unknown";
+
+export type ExternalSelection = {
+  component_ids: string[];
+};
+
+export type ExternalSource = {
+  /** Normalizada para https://host. */
+  base_url: string;
+  component_count: number;
+  created_at: Timestamp;
+  display_order: number;
+  id: string;
+  /** Indicador geral do provedor. */
+  indicator: "none" | "minor" | "major" | "critical" | "maintenance" | null;
+  indicator_description: string;
+  /** Inativos não são sincronizados nem publicados. */
+  is_active: boolean;
+  last_checked_at: NullableTimestamp;
+  /** Erro da última tentativa, se falhou. */
+  last_error: string | null;
+  last_success_at: NullableTimestamp;
+  name: string;
+  /** Nome da página informado pelo provedor. */
+  page_name: string;
+  provider: "statuspage";
+  selected_count: number;
+  /** Última leitura bem-sucedida mais antiga que max(3 × intervalo, 10 min). */
+  stale: boolean;
+  updated_at: Timestamp;
+};
+
+export type ExternalSourceCreate = {
+  /** URL pública da página (https). Ex.: https://www.githubstatus.com */
+  url: string;
+  display_order?: number;
+  /** Padrão: nome informado pelo provedor. */
+  name?: string;
+};
+
+export type ExternalSourceList = {
+  data: ExternalSource[];
+};
+
+export type ExternalSourcePatch = {
+  display_order?: number;
+  is_active?: boolean;
+  name?: string;
+};
 
 export type Health = {
   status: "ok" | "ready";
@@ -444,6 +512,31 @@ export type PublicMaintenanceList = {
   pagination: Pagination;
 };
 
+export type PublicThirdPartySource = {
+  components: ({
+    group_name: string | null;
+    id: string;
+    name: string;
+    status: ExternalComponentStatus;
+  })[];
+  /** Incidentes não resolvidos e manutenções em andamento do provedor que afetam os componentes selecionados. */
+  events: ({
+    impact: string;
+    kind: "incident" | "maintenance";
+    name: string;
+    status: string;
+    url: string | null;
+  })[];
+  id: string;
+  last_success_at: NullableTimestamp;
+  name: string;
+  /** Página de status original do provedor. */
+  page_url: string;
+  /** Dados desatualizados; status reportados como `unknown`. */
+  stale: boolean;
+  status: OverallStatus;
+};
+
 export type StatusSummary = {
   active_incidents: PublicIncident[];
   /** Todos os componentes públicos (agrupados ou não), na ordem de exibição. */
@@ -463,6 +556,11 @@ export type StatusSummary = {
     components_under_maintenance: number;
     status: OverallStatus;
   };
+  /**
+   * Serviços de terceiros com componentes selecionados. Status informado pelos provedores; **não afeta**
+   * `overall`. Dados desatualizados vêm com `stale: true` e status `unknown`.
+   */
+  third_party: PublicThirdPartySource[];
 };
 
 /** RFC 3339 em UTC. */

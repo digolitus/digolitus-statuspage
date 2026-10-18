@@ -459,6 +459,51 @@ main#main {
   font-weight: 650;
 }
 
+.section-note {
+  margin: -8px 0 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.third-party-panel {
+  padding-bottom: 6px;
+}
+
+.third-party-events {
+  display: grid;
+  gap: 6px;
+  margin: 0 18px 10px 44px;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+}
+
+.third-party-link {
+  margin: 0 18px 12px 44px;
+  font-size: 14px;
+}
+
+.selection-editor {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.selection-group legend .checkbox {
+  font-weight: 700;
+}
+
+.selection-group .picker-options .badge {
+  font-size: 11px;
+}
+
+.small {
+  margin: 6px 0 0;
+  font-size: 13px;
+}
+
 .section-toggle {
   display: inline-flex;
   align-items: center;

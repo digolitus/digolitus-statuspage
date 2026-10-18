@@ -6,6 +6,7 @@ import { formatDateTime, overallLabel, plural, toneForStatus } from "../lib/form
 import { useApi } from "../lib/useApi";
 import { usePolling } from "../lib/usePolling";
 import { ComponentList } from "./ComponentList";
+import { ThirdPartyList } from "./ThirdPartyList";
 import { IncidentCard, MaintenanceCard, MaintenanceRow } from "./views";
 
 /** Public refresh policy: every 60 s, backing off up to 5 min on failures. */
@@ -37,8 +38,9 @@ function overallDescription(s: StatusSummary): string {
  * 2. what is happening now — active incidents and in-progress maintenance —
  *    only when there is something, so a healthy page starts with components;
  * 3. components, with groups collapsed;
- * 4. scheduled maintenance as compact rows, only when there are any;
- * 5. history, collapsed and loaded on demand.
+ * 4. third-party services (reported by providers), only when configured;
+ * 5. scheduled maintenance as compact rows, only when there are any;
+ * 6. history, collapsed and loaded on demand.
  */
 export function StatusPage() {
   const poll = usePolling((signal) => publicApi.status({ signal }), {
@@ -116,6 +118,18 @@ export function StatusPage() {
           <ComponentList components={s.components} groups={s.groups} />
         )}
       </section>
+
+      {s.third_party.length > 0 && (
+        <section className="container page-section" id="third-party" aria-labelledby="third-party-title">
+          <h2 id="third-party-title" className="section-title">
+            Serviços de terceiros
+          </h2>
+          <p className="section-note">
+            Status informado por cada provedor em sua própria página; não altera o status da plataforma acima.
+          </p>
+          <ThirdPartyList sources={s.third_party} />
+        </section>
+      )}
 
       {s.maintenances.upcoming.length > 0 && (
         <section className="container page-section" id="maintenances" aria-labelledby="maintenances-title">

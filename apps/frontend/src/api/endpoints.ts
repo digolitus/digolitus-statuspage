@@ -7,6 +7,10 @@ import type {
   ComponentGroupCreate,
   ComponentGroupPatch,
   ComponentPatch,
+  ExternalComponent,
+  ExternalSource,
+  ExternalSourceCreate,
+  ExternalSourcePatch,
   Incident,
   IncidentCreate,
   IncidentPatch,
@@ -99,6 +103,17 @@ export const adminApi = {
     create: (body: MaintenanceTemplateCreate) => request<MaintenanceTemplate>("POST", `${A}/maintenance-templates`, { body }),
     update: (tid: string, body: MaintenanceTemplatePatch) =>
       request<MaintenanceTemplate>("PATCH", `${A}/maintenance-templates/${id(tid)}`, { body }),
+  },
+  external: {
+    list: (o: Signal = {}) => request<{ data: ExternalSource[] }>("GET", `${A}/external-sources`, o),
+    create: (body: ExternalSourceCreate) => request<ExternalSource>("POST", `${A}/external-sources`, { body, timeoutMs: 25_000 }),
+    update: (sid: string, body: ExternalSourcePatch) => request<ExternalSource>("PATCH", `${A}/external-sources/${id(sid)}`, { body }),
+    remove: (sid: string) => request<void>("DELETE", `${A}/external-sources/${id(sid)}`),
+    sync: (sid: string) => request<ExternalSource>("POST", `${A}/external-sources/${id(sid)}/sync`, { timeoutMs: 25_000 }),
+    components: (sid: string, o: Signal = {}) =>
+      request<{ data: ExternalComponent[] }>("GET", `${A}/external-sources/${id(sid)}/components`, o),
+    setSelection: (sid: string, componentIds: string[]) =>
+      request<{ data: ExternalComponent[] }>("PUT", `${A}/external-sources/${id(sid)}/selection`, { body: { component_ids: componentIds } }),
   },
   audit: {
     list: (

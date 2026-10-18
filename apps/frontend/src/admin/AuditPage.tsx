@@ -10,6 +10,7 @@ import { PageHeader } from "./shared";
 const RESOURCE_LABEL: Record<AuditEvent["resource_type"], string> = {
   component: "Componente",
   component_group: "Grupo de componentes",
+  external_source: "Provedor de terceiros",
   incident: "Incidente",
   maintenance: "Manutenção",
   incident_template: "Template de incidente",
