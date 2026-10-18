@@ -415,8 +415,8 @@ describe("admin area", () => {
       resolved_at: new Date("2026-03-02T10:00").toISOString(),
     });
     // The page shows the real period and its duration.
-    expect(screen.getByText("Fim do impacto")).toBeInTheDocument();
-    expect(screen.getByText("Duração")).toBeInTheDocument();
+    expect(screen.getByText("Fim do impacto", { selector: "dt" })).toBeInTheDocument();
+    expect(screen.getByText("Duração", { selector: "dt" })).toBeInTheDocument();
   });
 
   it("groups the admin menu, collapsed except for the current page's group", async () => {
