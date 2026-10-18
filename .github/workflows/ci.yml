@@ -214,8 +214,15 @@ jobs:
           [ "$failed" = 0 ] || exit 1
           set -e
           # Backend and database must not be published on the host.
-          if timeout 2 bash -c '</dev/tcp/127.0.0.1/5432' 2>/dev/null; then echo "PostgreSQL is exposed"; exit 1; fi
-          docker compose -f deploy/docker-compose.yml port backend 8080 && { echo "backend is published"; exit 1; } || true
+          if timeout 2 bash -c '</dev/tcp/127.0.0.1/5432' 2>/dev/null; then
+            echo "::error title=smoke exposure::PostgreSQL answers on 127.0.0.1:5432"; exit 1
+          fi
+          # `compose port` prints ":0" (exit 0) for unpublished ports; only a
+          # real host port means the backend is exposed.
+          published=$(docker compose -f deploy/docker-compose.yml port backend 8080 2>/dev/null || true)
+          case "$published" in
+            *:[1-9]*) echo "::error title=smoke exposure::backend is published on $published"; exit 1 ;;
+          esac
       - name: Compose logs
         if: failure()
         run: |
