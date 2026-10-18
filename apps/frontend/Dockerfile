@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM --platform=$BUILDPLATFORM node:24.22.0-alpine AS builder
+FROM --platform=$BUILDPLATFORM node:26.12.0-alpine AS builder
 
 WORKDIR /app
 
@@ -11,7 +11,7 @@ RUN --mount=type=cache,target=/root/.npm \
 COPY . .
 RUN npm run build
 
-FROM nginxinc/nginx-unprivileged:1.30.6-alpine
+FROM nginxinc/nginx-unprivileged:1.31.7-alpine
 
 LABEL org.opencontainers.image.title="Digolitus Status Page Frontend" \
       org.opencontainers.image.description="Frontend for Digolitus Status Page" \
