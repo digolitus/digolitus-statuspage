@@ -294,13 +294,11 @@ jobs:
 
   dependency-review:
     name: Dependency review
-    # Needs the dependency graph (public repositories, or private ones with
-    # GitHub Advanced Security). Elsewhere it is skipped; govulncheck, npm
-    # audit and Trivy still cover known vulnerabilities. Set the repository
-    # variable ENABLE_DEPENDENCY_REVIEW=true once the feature is available.
-    if: >-
-      github.event_name == 'pull_request' &&
-      (!github.event.repository.private || vars.ENABLE_DEPENDENCY_REVIEW == 'true')
+    # Needs the repository's dependency graph (Settings → Advanced Security →
+    # Dependency graph). Until it is on, the job is skipped; govulncheck, npm
+    # audit and Trivy still cover known vulnerabilities. Enable the graph, then
+    # set the repository variable ENABLE_DEPENDENCY_REVIEW=true.
+    if: github.event_name == 'pull_request' && vars.ENABLE_DEPENDENCY_REVIEW == 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: read

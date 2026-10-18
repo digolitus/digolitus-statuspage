@@ -174,7 +174,7 @@ function wrap(marker: string, inner: string, closing = marker): string {
 }
 
 function inlineMd(node: Node): string {
-  if (node.nodeType === Node.TEXT_NODE) return escapeText((node.textContent ?? "").replace(/ /g, " "));
+  if (node.nodeType === Node.TEXT_NODE) return escapeText((node.textContent ?? "").replace(/\u00a0/g, " "));
   if (node.nodeType !== Node.ELEMENT_NODE) return "";
   const el = node as HTMLElement;
   const inner = () => Array.from(el.childNodes).map(inlineMd).join("");
