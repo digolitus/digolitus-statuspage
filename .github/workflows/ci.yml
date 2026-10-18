@@ -27,6 +27,11 @@ env:
 jobs:
   changes:
     name: Detect changed modules
+    # Only pull requests are filtered by path (via the API). Pushes to main,
+    # tags and manual runs validate everything: on a push, paths-filter would
+    # `git fetch` the previous commit, which fails without credentials in a
+    # private repository (checkout keeps none).
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -59,10 +64,10 @@ jobs:
     name: Backend (Go)
     needs: changes
     # Shared files (workflows, Compose) widen validation to every module.
-    # Tags and manual runs validate everything.
+    # Anything but a pull request (main, tags, manual runs) validates everything.
     if: >-
-      needs.changes.outputs.backend == 'true' || needs.changes.outputs.shared == 'true' ||
-      github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
+      !cancelled() && (github.event_name != 'pull_request' ||
+      needs.changes.outputs.backend == 'true' || needs.changes.outputs.shared == 'true')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     defaults:
@@ -120,8 +125,8 @@ jobs:
     name: Frontend (React)
     needs: changes
     if: >-
-      needs.changes.outputs.frontend == 'true' || needs.changes.outputs.shared == 'true' ||
-      github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
+      !cancelled() && (github.event_name != 'pull_request' ||
+      needs.changes.outputs.frontend == 'true' || needs.changes.outputs.shared == 'true')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     defaults:
@@ -152,8 +157,8 @@ jobs:
     # Runs after module checks pass or are skipped, when anything relevant changed.
     if: >-
       !cancelled() && !contains(needs.*.result, 'failure') &&
-      (needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true' || needs.changes.outputs.shared == 'true' ||
-       github.ref_type == 'tag' || github.event_name == 'workflow_dispatch')
+      (github.event_name != 'pull_request' ||
+       needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true' || needs.changes.outputs.shared == 'true')
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
