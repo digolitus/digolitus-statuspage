@@ -187,7 +187,10 @@ jobs:
         # Each failed check is published as an annotation (URL, HTTP status
         # and the start of the body), readable without downloading logs.
         run: |
-          set -u
+          set -uE
+          # Any other failing command is reported with its line, so the cause
+          # is visible without downloading the job logs.
+          trap 'echo "::error title=smoke step::line $LINENO exited $?: $BASH_COMMAND"' ERR
           failed=0
           check() { # check <name> <path> <expected text>
             code=$(curl -sS -o /tmp/body -w '%{http_code}' "http://127.0.0.1:8080$2" || echo 000)
