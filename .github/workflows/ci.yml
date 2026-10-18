@@ -235,6 +235,7 @@ jobs:
         if: always()
         run: docker compose -f deploy/docker-compose.yml down --volumes
       - name: Scan backend image (Trivy)
+        id: trivy-backend
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           version: ${{ env.TRIVY_VERSION }}
@@ -243,7 +244,15 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
+          format: json
+          output: trivy-backend.json
+      - name: Report backend image findings
+        if: failure() && steps.trivy-backend.outcome == 'failure'
+        run: |
+          jq -r '.Results[]? | .Target as $t | .Vulnerabilities[]? |
+            "::error title=trivy backend \(.Severity)::\(.VulnerabilityID) in \(.PkgName) \(.InstalledVersion) (fixed in \(.FixedVersion // "?")) — \($t)"' trivy-backend.json | head -40
       - name: Scan frontend image (Trivy)
+        id: trivy-frontend
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           version: ${{ env.TRIVY_VERSION }}
@@ -252,6 +261,13 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
+          format: json
+          output: trivy-frontend.json
+      - name: Report frontend image findings
+        if: failure() && steps.trivy-frontend.outcome == 'failure'
+        run: |
+          jq -r '.Results[]? | .Target as $t | .Vulnerabilities[]? |
+            "::error title=trivy frontend \(.Severity)::\(.VulnerabilityID) in \(.PkgName) \(.InstalledVersion) (fixed in \(.FixedVersion // "?")) — \($t)"' trivy-frontend.json | head -40
 
   repository-scan:
     name: Repository scan (Trivy fs, secrets, misconfiguration)
