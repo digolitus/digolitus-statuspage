@@ -1,5 +1,23 @@
 import type { ReactNode } from "react";
-import { Link } from "../lib/router";
+import { useUnseenAnnouncements } from "../lib/announcementsSeen";
+import { Link, useLocation } from "../lib/router";
+
+function AnnouncementsLink() {
+  const unseen = useUnseenAnnouncements();
+  const { pathname } = useLocation();
+  const current = pathname === "/announcements" || pathname.startsWith("/announcements/");
+  return (
+    <Link to="/announcements" className="nav-announcements" aria-current={current ? "page" : undefined}>
+      Comunicados
+      {unseen > 0 && (
+        <span className="nav-badge">
+          <span aria-hidden="true">{unseen > 9 ? "9+" : unseen}</span>
+          <span className="visually-hidden">{unseen === 1 ? "(1 novo)" : `(${unseen} novos)`}</span>
+        </span>
+      )}
+    </Link>
+  );
+}
 
 export function PublicLayout({ children }: { children: ReactNode }) {
   return (
@@ -18,6 +36,7 @@ export function PublicLayout({ children }: { children: ReactNode }) {
           <nav className="main-navigation" aria-label="Navegação principal">
             <a href="/#components">Componentes</a>
             <a href="/#history">Histórico</a>
+            <AnnouncementsLink />
           </nav>
         </div>
       </header>

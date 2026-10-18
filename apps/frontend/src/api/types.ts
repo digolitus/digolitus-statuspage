@@ -40,6 +40,15 @@ export type ExternalSource = S.ExternalSource;
 export type ExternalComponent = S.ExternalComponent;
 export type ExternalComponentStatus = S.ExternalComponentStatus;
 
+export type AnnouncementState = S.AnnouncementState;
+export type AnnouncementImportance = S.AnnouncementImportance;
+export type CategoryColor = S.CategoryColor;
+export type Announcement = S.Announcement;
+export type PublicAnnouncement = S.PublicAnnouncement;
+export type AnnouncementCategory = S.AnnouncementCategory;
+export type PublicAnnouncementCategory = S.PublicAnnouncementCategory;
+export type Team = S.Team;
+
 export type ErrorBody = S.Error;
 export type FieldError = NonNullable<S.Error["error"]["details"]>[number];
 
@@ -59,3 +68,9 @@ export type MaintenanceTemplateCreate = S.MaintenanceTemplateCreate;
 export type MaintenanceTemplatePatch = S.MaintenanceTemplatePatch;
 export type ExternalSourceCreate = S.ExternalSourceCreate;
 export type ExternalSourcePatch = S.ExternalSourcePatch;
+export type AnnouncementCreate = S.AnnouncementCreate;
+export type AnnouncementPatch = S.AnnouncementPatch;
+export type AnnouncementCategoryCreate = S.AnnouncementCategoryCreate;
+export type AnnouncementCategoryPatch = S.AnnouncementCategoryPatch;
+export type TeamCreate = S.TeamCreate;
+export type TeamPatch = S.TeamPatch;

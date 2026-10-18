@@ -7,4 +7,9 @@ window.scrollTo = () => undefined;
 afterEach(() => {
   vi.restoreAllMocks();
   window.history.pushState(null, "", "/");
+  try {
+    window.localStorage.clear();
+  } catch {
+    // Storage unavailable: nothing to reset.
+  }
 });

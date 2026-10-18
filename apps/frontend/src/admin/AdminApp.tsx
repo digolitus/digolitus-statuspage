@@ -1,4 +1,6 @@
 import { Link, match, useLocation } from "../lib/router";
+import { AnnouncementDetailPage, AnnouncementNewPage, AnnouncementsPage } from "./announcements";
+import { AnnouncementSettingsPage } from "./AnnouncementSettingsPage";
 import { AuditPage } from "./AuditPage";
 import { ComponentsPage } from "./ComponentsPage";
 import { GroupsPage } from "./GroupsPage";
@@ -17,6 +19,8 @@ const NAV = [
   { to: "/admin/incident-templates", label: "Templates de incidente" },
   { to: "/admin/maintenances", label: "Manutenções" },
   { to: "/admin/maintenance-templates", label: "Templates de manutenção" },
+  { to: "/admin/announcements", label: "Comunicados" },
+  { to: "/admin/announcement-settings", label: "Categorias e times" },
   { to: "/admin/audit", label: "Histórico operacional" },
 ];
 
@@ -34,6 +38,10 @@ function route(pathname: string) {
   if ((p = match("/admin/maintenances/:id", pathname))) return <MaintenanceDetailPage key={p.id} id={p.id} />;
   if (match("/admin/incident-templates", pathname)) return <TemplatesPage kind="incident" />;
   if (match("/admin/maintenance-templates", pathname)) return <TemplatesPage kind="maintenance" />;
+  if (match("/admin/announcements", pathname)) return <AnnouncementsPage />;
+  if (match("/admin/announcements/new", pathname)) return <AnnouncementNewPage />;
+  if ((p = match("/admin/announcements/:id", pathname))) return <AnnouncementDetailPage key={p.id} id={p.id} />;
+  if (match("/admin/announcement-settings", pathname)) return <AnnouncementSettingsPage />;
   if (match("/admin/audit", pathname)) return <AuditPage />;
   return (
     <div className="admin-content">

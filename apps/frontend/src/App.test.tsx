@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import App from "./App";
 import type { StatusSummary } from "./api/types";
+import { dayLabel } from "./lib/format";
 import { emptySummary, incident, maintenance } from "./test/fixtures";
 import { mockApi, page } from "./test/mockApi";
 
@@ -35,9 +36,9 @@ describe("public status page", () => {
       ...emptySummary,
       overall: { status: "degraded_performance", basis: "declared", affected_components: 1, components_under_maintenance: 0 },
       components: [
-        { id: "c1", name: "API de Pagamentos", slug: "api-pag", description: "", status: "degraded_performance", group_id: "g1", display_order: 0, updated_at: "2026-03-01T11:00:00Z" },
-        { id: "c2", name: "Checkout", slug: "checkout", description: "", status: "operational", group_id: "g1", display_order: 1, updated_at: "2026-03-01T11:00:00Z" },
-        { id: "c3", name: "Portal", slug: "portal", description: "", status: "operational", group_id: null, display_order: 5, updated_at: "2026-03-01T11:00:00Z" },
+        { id: "c1", name: "API de Pagamentos", slug: "api-pag", description: "", status: "degraded_performance", group_id: "g1", url: null, display_order: 0, updated_at: "2026-03-01T11:00:00Z" },
+        { id: "c2", name: "Checkout", slug: "checkout", description: "", status: "operational", group_id: "g1", url: null, display_order: 1, updated_at: "2026-03-01T11:00:00Z" },
+        { id: "c3", name: "Portal", slug: "portal", description: "", status: "operational", group_id: null, url: null, display_order: 5, updated_at: "2026-03-01T11:00:00Z" },
       ],
       groups: [
         { id: "g1", name: "Pagamentos", description: "Cobrança", display_order: 1, status: "degraded_performance", component_count: 2, affected_components: 1, components_under_maintenance: 0 },
@@ -61,7 +62,7 @@ describe("public status page", () => {
     const summary: StatusSummary = {
       ...emptySummary,
       overall: { status: "partial_outage", basis: "declared", affected_components: 1, components_under_maintenance: 0 },
-      components: [{ id: "c1", name: "API", slug: "api", description: "REST", status: "partial_outage", group_id: null, display_order: 0, updated_at: "2026-03-01T11:00:00Z" }],
+      components: [{ id: "c1", name: "API", slug: "api", description: "REST", status: "partial_outage", group_id: null, url: "https://docs.example.com/api", display_order: 0, updated_at: "2026-03-01T11:00:00Z" }],
       active_incidents: [incident],
       maintenances: { in_progress: [], upcoming: [maintenance] },
     };
@@ -79,7 +80,11 @@ describe("public status page", () => {
     // Planned window shown in the maintenance's own zone.
     expect(screen.getByText(/10\/01\/2030.*02:00/)).toBeInTheDocument();
     const componentsRegion = screen.getByRole("region", { name: "Componentes" });
-    expect(within(componentsRegion).getByText("Indisponibilidade parcial")).toBeInTheDocument();
+    expect(within(componentsRegion).getByText("Interrupção parcial")).toBeInTheDocument();
+    // Discreet link to the component's own page, opened safely in a new tab.
+    const link = within(componentsRegion).getByRole("link", { name: "Abrir a página de API (nova aba)" });
+    expect(link).toHaveAttribute("href", "https://docs.example.com/api");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
   });
 
   it("shows an error with retry when the first load fails", async () => {
@@ -198,7 +203,7 @@ describe("admin area", () => {
     window.history.pushState(null, "", "/admin/incidents/new");
     const calls = mockApi({
       "GET /api/v1/admin/incident-templates": page([
-        { id: "t1", name: "Indisponibilidade parcial", description: "", title: "Falha em [componente]", message: "Investigando.", impact: "major", status: "investigating", guidance: "Substitua o componente.", is_active: true, created_at: "", updated_at: "" },
+        { id: "t1", name: "Interrupção parcial", description: "", title: "Falha em [componente]", message: "Investigando.", impact: "partial_outage", status: "investigating", guidance: "Substitua o componente.", is_active: true, created_at: "", updated_at: "" },
       ]),
       "GET /api/v1/admin/components": page([{ id: "c1", name: "API", slug: "api", description: "", status: "operational", is_public: true, is_active: true, display_order: 0, created_at: "", updated_at: "" }]),
       "POST /api/v1/admin/incidents": { status: 201, body: incident },
@@ -213,7 +218,7 @@ describe("admin area", () => {
 
     await user.selectOptions(await screen.findByLabelText("Usar template"), "t1");
     expect(screen.getByLabelText("Título")).toHaveValue("Falha em [componente]");
-    expect(screen.getByLabelText("Impacto")).toHaveValue("major");
+    expect(screen.getByRole("combobox", { name: "Impacto" })).toHaveTextContent("Interrupção parcial");
     expect(screen.getByText(/Substitua o componente/)).toBeInTheDocument();
 
     await user.clear(screen.getByLabelText("Título"));
@@ -223,7 +228,7 @@ describe("admin area", () => {
 
     expect(await screen.findByRole("heading", { name: "Lentidão na API" })).toBeInTheDocument();
     const post = calls.find((c) => c.method === "POST");
-    expect(post?.body).toEqual({ title: "Falha na API", message: "Investigando.", impact: "major", status: "investigating", component_ids: ["c1"], template_id: "t1" });
+    expect(post?.body).toEqual({ title: "Falha na API", message: "Investigando.", impact: "partial_outage", status: "investigating", component_ids: ["c1"], template_id: "t1" });
   });
 
   it("shows field errors returned by the API", async () => {
@@ -299,5 +304,148 @@ describe("admin area", () => {
     await user.click(screen.getByRole("button", { name: "Confirmar" }));
     expect(await screen.findByRole("button", { name: "Concluir manutenção" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Cancelar manutenção" })).not.toBeInTheDocument();
+  });
+});
+
+describe("impact selector", () => {
+  it("lists the four impact levels with icons and supports the keyboard", async () => {
+    window.history.pushState(null, "", "/admin/incidents/new");
+    const calls = mockApi({
+      "GET /api/v1/admin/incident-templates": page([]),
+      "GET /api/v1/admin/components": page([]),
+      "POST /api/v1/admin/incidents": { status: 201, body: incident },
+      [`GET /api/v1/admin/incidents/${incident.id}`]: { body: incident },
+    });
+    render(<App />);
+    const user = userEvent.setup();
+    const combo = await screen.findByRole("combobox", { name: "Impacto" });
+    await user.click(combo);
+    const options = screen.getAllByRole("option").map((o: HTMLElement) => o.textContent);
+    expect(options).toEqual(["Operacional", "Performance degradada", "Interrupção parcial", "Interrupção grave"]);
+    await user.click(screen.getByRole("option", { name: "Interrupção grave" }));
+    expect(combo).toHaveTextContent("Interrupção grave");
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+
+    // Keyboard: open with ArrowUp from the current value, confirm with Enter.
+    combo.focus();
+    await user.keyboard("{ArrowDown}{ArrowUp}{Enter}");
+    expect(combo).toHaveTextContent("Interrupção parcial");
+
+    await user.type(screen.getByLabelText("Título"), "Falha");
+    await user.type(screen.getByLabelText("Mensagem pública inicial"), "Investigando.");
+    await user.click(screen.getByRole("button", { name: "Publicar incidente" }));
+    await screen.findByRole("heading", { name: "Lentidão na API" });
+    expect((calls.find((c) => c.method === "POST")?.body as Record<string, unknown>).impact).toBe("partial_outage");
+  });
+});
+
+describe("announcements", () => {
+  const hoursAgo = (h: number) => new Date(Date.now() - h * 3_600_000).toISOString();
+  const base = {
+    body: "Texto com **destaque**.\n\n- item um\n- item dois",
+    importance: "info" as const,
+    is_pinned: false,
+    category: { id: "cat1", name: "Novidades", color: "blue" as const },
+    team: { id: "t1", name: "Plataforma" },
+    components: [],
+  };
+  const items = [
+    { ...base, id: "a1", title: "Nova região disponível", published_at: hoursAgo(1), updated_at: hoursAgo(1) },
+    { ...base, id: "a2", title: "Mudança no faturamento", importance: "important" as const, category: null, team: null, published_at: hoursAgo(80), updated_at: hoursAgo(80) },
+  ];
+  const routes = {
+    "GET /api/v1/status": { body: emptySummary },
+    "GET /api/v1/announcement-categories": { body: { data: [{ id: "cat1", name: "Novidades", description: "", color: "blue" }] } },
+    "GET /api/v1/announcements": (call: { query: URLSearchParams }) =>
+      call.query.get("pinned") === "true" ? page([]) : page(call.query.get("category_id") ? [items[0]] : items),
+  };
+
+  it("signals new announcements in the menu and clears it after the visit", async () => {
+    mockApi(routes);
+    render(<App />);
+    const user = userEvent.setup();
+    const nav = screen.getByRole("navigation", { name: "Navegação principal" });
+    expect(within(nav).getByRole("link", { name: "Componentes" })).toBeInTheDocument();
+    expect(within(nav).getByRole("link", { name: "Histórico" })).toBeInTheDocument();
+    const link = await within(nav).findByRole("link", { name: /Comunicados.*2 novos/ });
+
+    await user.click(link);
+    expect(await screen.findByRole("heading", { level: 1, name: "Comunicados" })).toBeInTheDocument();
+    // Grouped by day, newest first; formatting rendered safely.
+    expect(await screen.findByRole("heading", { name: dayLabel(items[0].published_at) })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Nova região disponível" })).toHaveAttribute("href", "/announcements/a1");
+    expect(screen.getAllByText("destaque")[0].tagName).toBe("STRONG");
+    expect(screen.getByText("Importante")).toBeInTheDocument();
+    expect(screen.getByText("Por Plataforma")).toBeInTheDocument();
+    // Visiting the page marks them as seen.
+    expect(await within(nav).findByRole("link", { name: "Comunicados" })).toHaveAttribute("aria-current", "page");
+    expect(within(nav).queryByText(/novos?\)/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Novidades" }));
+    expect(screen.getByRole("button", { name: "Novidades" })).toHaveAttribute("aria-pressed", "true");
+    expect(await screen.findByText("Nova região disponível")).toBeInTheDocument();
+    expect(screen.queryByText("Mudança no faturamento")).not.toBeInTheDocument();
+  });
+
+  it("does not flag announcements already seen", async () => {
+    window.localStorage.setItem("digolitus.announcements.lastSeen", items[0].published_at);
+    mockApi(routes);
+    render(<App />);
+    const nav = screen.getByRole("navigation", { name: "Navegação principal" });
+    await screen.findByText("Status não informado");
+    expect(within(nav).getByRole("link", { name: "Comunicados" })).toBeInTheDocument();
+  });
+
+  it("lets operators write, preview and publish an announcement", async () => {
+    window.history.pushState(null, "", "/admin/announcements/new");
+    const draft = {
+      ...base,
+      id: "a9",
+      title: "Nova API",
+      body: "Disponível **hoje**.",
+      category: null,
+      team: null,
+      state: "draft" as const,
+      published_at: null,
+      archived_at: null,
+      created_at: "2026-03-01T12:00:00Z",
+      updated_at: "2026-03-01T12:00:00Z",
+    };
+    const published = { ...draft, state: "published" as const, published_at: "2026-03-01T12:05:00Z" };
+    const calls = mockApi({
+      "GET /api/v1/admin/announcement-categories": { body: { data: [{ id: "cat1", name: "Novidades", description: "Lançamentos e melhorias.", color: "blue", display_order: 0, is_active: true, announcement_count: 0, created_at: "", updated_at: "" }] } },
+      "GET /api/v1/admin/teams": { body: { data: [] } },
+      "GET /api/v1/admin/announcements": page([]),
+      "GET /api/v1/admin/components": page([]),
+      "POST /api/v1/admin/announcements": { status: 201, body: draft },
+      "GET /api/v1/admin/announcements/a9": { body: draft },
+      "POST /api/v1/admin/announcements/a9/publish": { body: published },
+    });
+    render(<App />);
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText("Título"), "Nova API");
+    await user.selectOptions(screen.getByLabelText("Categoria"), "cat1");
+    expect(screen.getByText("Lançamentos e melhorias.")).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Texto"), "Disponível ");
+    await user.click(screen.getByRole("button", { name: /Negrito/ }));
+    await user.click(screen.getByRole("button", { name: "Pré-visualizar" }));
+    expect(screen.getByText("texto em negrito").tagName).toBe("STRONG");
+    await user.click(screen.getByRole("button", { name: "Salvar rascunho" }));
+
+    expect(await screen.findByText("Visível apenas na administração.")).toBeInTheDocument();
+    expect(calls.find((c) => c.method === "POST")?.body).toEqual({
+      title: "Nova API",
+      body: "Disponível **texto em negrito**",
+      importance: "info",
+      is_pinned: false,
+      category_id: "cat1",
+      team_id: null,
+      component_ids: [],
+    });
+    await user.click(screen.getByRole("button", { name: "Publicar agora" }));
+    expect(calls.some((c) => c.path.endsWith("/publish"))).toBe(false);
+    await user.click(screen.getByRole("button", { name: "Confirmar publicação" }));
+    expect(await screen.findByText("Comunicado publicado.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Ver na página pública" })).toHaveAttribute("href", "/announcements/a9");
   });
 });

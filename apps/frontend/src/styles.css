@@ -383,6 +383,125 @@ main#main {
   font-size: 13px;
 }
 
+.component-name-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* Discreet external link next to a component name. */
+.component-link {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.component-link:hover,
+.component-link:focus-visible {
+  color: var(--brand-strong);
+  background: var(--brand-soft);
+}
+
+/* Status select (combobox with icons). */
+.status-select {
+  position: relative;
+}
+
+.status-select-trigger {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 38px;
+  padding: 7px 10px;
+  border: 1px solid #c9d3d0;
+  border-radius: 8px;
+  color: var(--text);
+  background: var(--surface);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.status-select-trigger:focus-visible,
+.status-select-open .status-select-trigger {
+  border-color: var(--info);
+  outline: 2px solid rgba(31, 95, 168, 0.25);
+  outline-offset: 0;
+}
+
+.field-invalid .status-select-trigger {
+  border-color: var(--critical);
+}
+
+.status-select-value {
+  flex: 1;
+}
+
+.status-select-chevron {
+  color: var(--muted);
+}
+
+.status-select-list {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgba(23, 36, 44, 0.14);
+}
+
+.status-select-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-left: 3px solid transparent;
+  cursor: pointer;
+}
+
+.status-select-option.is-active {
+  background: var(--page);
+}
+
+.status-select-option[aria-selected="true"] {
+  border-left-color: var(--info);
+  color: var(--info);
+  background: var(--info-bg);
+  font-weight: 600;
+}
+
+.status-icon {
+  flex: none;
+}
+
+.status-icon path {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.status-icon-operational circle { fill: #3fae6a; }
+.status-icon-degraded_performance circle { fill: #e8b021; }
+.status-icon-partial_outage circle { fill: #e67e22; }
+.status-icon-major_outage circle { fill: #c9372c; }
+.status-icon-maintenance circle { fill: #3c86c8; }
+.status-icon-maintenance path { fill: #fff; stroke-width: 0.6; }
+
 .group-toggle {
   display: flex;
   flex-wrap: wrap;
@@ -1151,6 +1270,205 @@ main#main {
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
+}
+
+/* ---------- announcements ---------- */
+
+.page-title {
+  margin-bottom: 6px;
+  font-size: 28px;
+}
+
+.main-navigation a[aria-current="page"] {
+  color: var(--brand-strong);
+  font-weight: 650;
+}
+
+.nav-announcements {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Unread announcements: a count pill that pulses once to draw attention. */
+.nav-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  color: #fff;
+  background: var(--critical);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  animation: nav-badge-pulse 1.6s ease-out 2;
+}
+
+@keyframes nav-badge-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(179, 38, 30, 0.45); }
+  100% { box-shadow: 0 0 0 10px rgba(179, 38, 30, 0); }
+}
+
+.category-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.category-dot {
+  width: 9px;
+  height: 9px;
+  margin-right: 6px;
+  border-radius: 50%;
+}
+
+.category-gray { color: #3f4a50; background: #eef1f2; }
+.category-blue { color: #1f5fa8; background: #e7f0fb; }
+.category-green { color: #17784f; background: #e5f6ed; }
+.category-yellow { color: #7a5600; background: #fff4d1; }
+.category-orange { color: #a8461a; background: #fdece3; }
+.category-red { color: #b3261e; background: #fde8e7; }
+.category-purple { color: #6b3fa8; background: #f1eafb; }
+.category-dot.category-gray { background: #8a979d; }
+.category-dot.category-blue { background: #1f5fa8; }
+.category-dot.category-green { background: #17784f; }
+.category-dot.category-yellow { background: #d9a400; }
+.category-dot.category-orange { background: #e67e22; }
+.category-dot.category-red { background: #b3261e; }
+.category-dot.category-purple { background: #6b3fa8; }
+
+.announcement-day {
+  margin-top: 26px;
+}
+
+.announcement-day-title {
+  margin-bottom: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.announcement-list {
+  display: grid;
+  gap: 12px;
+}
+
+.announcement-card {
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.announcement-important {
+  border-left-color: var(--warn);
+}
+
+.announcement-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-bottom: 8px;
+}
+
+.announcement-flag {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.announcement-flag-important {
+  color: var(--warn);
+}
+
+.announcement-title {
+  margin-bottom: 8px;
+  font-size: 18px;
+}
+
+h1.announcement-title {
+  font-size: 26px;
+}
+
+.announcement-title a {
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.announcement-title a:hover {
+  text-decoration: underline;
+}
+
+.announcement-time {
+  margin: 10px 0 0;
+}
+
+.rich-text p,
+.rich-text ul {
+  margin: 0 0 10px;
+}
+
+.rich-text ul {
+  padding-left: 22px;
+}
+
+.rich-text > :last-child {
+  margin-bottom: 0;
+}
+
+.rich-text a,
+.announcement-excerpt a {
+  color: var(--brand-strong);
+}
+
+.editor-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.editor-tabs,
+.format-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.format-toolbar {
+  margin: 4px 0 6px;
+}
+
+.format-toolbar .secondary-button {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+.editor-preview {
+  min-height: 200px;
+  padding: 12px 14px;
+  border: 1px dashed #c9d3d0;
+  border-radius: 8px;
+  background: var(--page);
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  margin-bottom: 16px;
 }
 
 /* ---------- responsive & motion ---------- */

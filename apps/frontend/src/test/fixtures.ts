@@ -13,7 +13,7 @@ export const emptySummary: StatusSummary = {
 export const incident: Incident = {
   id: "11111111-1111-4111-8111-111111111111",
   title: "Lentidão na API",
-  impact: "major",
+  impact: "partial_outage",
   status: "investigating",
   internal_notes: "",
   started_at: "2026-03-01T11:00:00Z",

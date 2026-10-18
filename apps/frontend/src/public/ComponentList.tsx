@@ -31,7 +31,21 @@ function ComponentRow({ component: c }: { component: PublicComponent }) {
   return (
     <li className="component-row">
       <div>
-        <span className="component-name">{c.name}</span>
+        <span className="component-name-line">
+          <span className="component-name">{c.name}</span>
+          {c.url && /^https?:\/\//i.test(c.url) && (
+          <a
+            className="component-link"
+            href={c.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={`Abrir a página de ${c.name} (nova aba)`}
+            title={c.url}
+          >
+              <span aria-hidden="true">↗</span>
+            </a>
+          )}
+        </span>
         {c.description && <span className="component-description">{c.description}</span>}
       </div>
       <Badge tone={toneForStatus[c.status]}>{componentStatusLabel[c.status]}</Badge>

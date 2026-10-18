@@ -2,12 +2,12 @@ import { useState, type FormEvent } from "react";
 import { adminApi } from "../api/endpoints";
 import type { Incident, IncidentCreate, IncidentImpact, IncidentStatus, IncidentTemplate } from "../api/types";
 import { Badge, ConfirmButton, EmptyState, ErrorPanel, Field, Loading, Pager, Timeline } from "../components/ui";
-import { browserTimeZone, formatDateTime, impactLabel, incidentStatusLabel, toneForIncident } from "../lib/format";
+import { StatusSelect } from "../components/StatusSelect";
+import { browserTimeZone, formatDateTime, IMPACTS, impactLabel, incidentStatusLabel, toneForIncident } from "../lib/format";
 import { Link, navigate } from "../lib/router";
 import { useApi } from "../lib/useApi";
 import { ComponentPicker, FormStatus, PageHeader, requireText, TemplateSelect, useSubmit } from "./shared";
 
-const IMPACTS = Object.keys(impactLabel) as IncidentImpact[];
 const OPEN_STATUSES: Exclude<IncidentStatus, "resolved">[] = ["investigating", "identified", "monitoring"];
 const ALL_STATUSES = Object.keys(incidentStatusLabel) as IncidentStatus[];
 
@@ -96,7 +96,7 @@ export function IncidentNewPage() {
   const [v, setV] = useState({
     title: "",
     message: "",
-    impact: "minor" as IncidentImpact,
+    impact: "degraded_performance" as IncidentImpact,
     status: "investigating" as Exclude<IncidentStatus, "resolved">,
     component_ids: [] as string[],
     started_at: "",
@@ -155,13 +155,7 @@ export function IncidentNewPage() {
         <div className="form-grid">
           <Field label="Impacto" error={fe.impact}>
             {(p) => (
-              <select {...p} value={v.impact} onChange={(e) => setV({ ...v, impact: e.target.value as IncidentImpact })}>
-                {IMPACTS.map((i) => (
-                  <option key={i} value={i}>
-                    {impactLabel[i]}
-                  </option>
-                ))}
-              </select>
+              <StatusSelect {...p} value={v.impact} options={IMPACTS} labels={impactLabel} onChange={(x) => setV({ ...v, impact: x as IncidentImpact })} />
             )}
           </Field>
           <Field label="Status inicial" error={fe.status}>
@@ -219,13 +213,7 @@ function MetadataForm({ incident, onSaved }: { incident: Incident; onSaved: (i: 
         </Field>
         <Field label="Impacto" error={submit.fieldErrors.impact}>
           {(p) => (
-            <select {...p} value={v.impact} onChange={(e) => setV({ ...v, impact: e.target.value as IncidentImpact })}>
-              {IMPACTS.map((i) => (
-                <option key={i} value={i}>
-                  {impactLabel[i]}
-                </option>
-              ))}
-            </select>
+            <StatusSelect {...p} value={v.impact} options={IMPACTS} labels={impactLabel} onChange={(x) => setV({ ...v, impact: x as IncidentImpact })} />
           )}
         </Field>
       </div>
@@ -285,12 +273,12 @@ function PublishUpdateForm({ incident, onSaved }: { incident: Incident; onSaved:
       <Field label="Novo status" error={submit.fieldErrors.status} hint="Selecione Resolvido para encerrar o incidente.">
         {(p) => (
           <select {...p} value={status} onChange={(e) => setStatus(e.target.value as IncidentStatus)}>
-            {ALL_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {incidentStatusLabel[s]}
-              </option>
-            ))}
-          </select>
+                {ALL_STATUSES.map((s) => (
+                  <option key={s} value={s}>
+                    {incidentStatusLabel[s]}
+                  </option>
+                ))}
+              </select>
         )}
       </Field>
       <Field label="Mensagem pública" error={submit.fieldErrors.message}>

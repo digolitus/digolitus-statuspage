@@ -1,4 +1,5 @@
 import { AdminApp } from "./admin/AdminApp";
+import { AnnouncementDetailPage, AnnouncementsPage } from "./public/AnnouncementsPage";
 import { IncidentPage, MaintenancePage } from "./public/DetailPages";
 import { PublicLayout } from "./public/PublicLayout";
 import { StatusPage } from "./public/StatusPage";
@@ -19,6 +20,10 @@ export default function App() {
     content = <IncidentPage id={params.id} />;
   } else if ((params = match("/maintenances/:id", pathname))) {
     content = <MaintenancePage id={params.id} />;
+  } else if (match("/announcements", pathname)) {
+    content = <AnnouncementsPage />;
+  } else if ((params = match("/announcements/:id", pathname))) {
+    content = <AnnouncementDetailPage key={params.id} id={params.id} />;
   }
   return <PublicLayout>{content}</PublicLayout>;
 }

@@ -13,7 +13,8 @@ import type {
   Page,
 } from "../api/types";
 import { ConfirmButton, EmptyState, ErrorPanel, Field, Loading, Pager } from "../components/ui";
-import { expectedImpactLabel, impactLabel, incidentStatusLabel } from "../lib/format";
+import { StatusSelect } from "../components/StatusSelect";
+import { expectedImpactLabel, IMPACTS, impactLabel, incidentStatusLabel } from "../lib/format";
 import { useApi } from "../lib/useApi";
 import { FormStatus, PageHeader, requireText, useSubmit } from "./shared";
 
@@ -37,9 +38,9 @@ const blank: Values = {
   title: "",
   message: "",
   guidance: "",
-  impact: "minor",
+  impact: "degraded_performance",
   status: "investigating",
-  expected_impact: "none",
+  expected_impact: "operational",
 };
 
 function valuesOf(t: AnyTemplate): Values {
@@ -117,37 +118,25 @@ function TemplateForm({ kind, initial, onSubmit, submitLabel, onCancel }: {
           <>
             <Field label="Impacto padrão" error={fe.impact}>
               {(p) => (
-                <select {...p} value={v.impact} onChange={(e) => set("impact", e.target.value as IncidentImpact)}>
-                  {(Object.keys(impactLabel) as IncidentImpact[]).map((i) => (
-                    <option key={i} value={i}>
-                      {impactLabel[i]}
-                    </option>
-                  ))}
-                </select>
+                <StatusSelect {...p} value={v.impact} options={IMPACTS} labels={impactLabel} onChange={(x) => set("impact", x as IncidentImpact)} />
               )}
             </Field>
             <Field label="Status sugerido" error={fe.status}>
               {(p) => (
                 <select {...p} value={v.status} onChange={(e) => set("status", e.target.value as IncidentStatus)}>
-                  {(Object.keys(incidentStatusLabel) as IncidentStatus[]).map((s) => (
-                    <option key={s} value={s}>
-                      {incidentStatusLabel[s]}
-                    </option>
-                  ))}
-                </select>
+                {(Object.keys(incidentStatusLabel) as IncidentStatus[]).map((s) => (
+                  <option key={s} value={s}>
+                    {incidentStatusLabel[s]}
+                  </option>
+                ))}
+              </select>
               )}
             </Field>
           </>
         ) : (
           <Field label="Impacto esperado" error={fe.expected_impact}>
             {(p) => (
-              <select {...p} value={v.expected_impact} onChange={(e) => set("expected_impact", e.target.value as ExpectedImpact)}>
-                {(Object.keys(expectedImpactLabel) as ExpectedImpact[]).map((i) => (
-                  <option key={i} value={i}>
-                    {expectedImpactLabel[i]}
-                  </option>
-                ))}
-              </select>
+              <StatusSelect {...p} value={v.expected_impact} options={IMPACTS} labels={expectedImpactLabel} onChange={(x) => set("expected_impact", x as ExpectedImpact)} />
             )}
           </Field>
         )}

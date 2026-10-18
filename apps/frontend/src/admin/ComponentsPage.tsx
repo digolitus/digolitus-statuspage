@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { adminApi } from "../api/endpoints";
 import type { Component, ComponentCreate, ComponentGroup, ComponentStatus } from "../api/types";
 import { Badge, ConfirmButton, EmptyState, ErrorPanel, Field, Loading, Pager } from "../components/ui";
+import { StatusSelect } from "../components/StatusSelect";
 import { componentStatusLabel, toneForStatus } from "../lib/format";
 import { Link } from "../lib/router";
 import { useApi } from "../lib/useApi";
@@ -17,9 +18,10 @@ type FormValues = {
   is_public: boolean;
   display_order: string;
   group_id: string;
+  url: string;
 };
 
-const empty: FormValues = { name: "", slug: "", description: "", status: "operational", is_public: true, display_order: "0", group_id: "" };
+const empty: FormValues = { name: "", slug: "", description: "", status: "operational", is_public: true, display_order: "0", group_id: "", url: "" };
 
 function toValues(c: Component): FormValues {
   return {
@@ -30,6 +32,7 @@ function toValues(c: Component): FormValues {
     is_public: c.is_public,
     display_order: String(c.display_order),
     group_id: c.group_id ?? "",
+    url: c.url ?? "",
   };
 }
 
@@ -56,6 +59,7 @@ function ComponentForm({
     requireText(errors, "name", v.name, 120, "Nome");
     const order = Number(v.display_order);
     if (!Number.isInteger(order) || order < 0 || order > 100000) errors.display_order = "Informe um inteiro entre 0 e 100000.";
+    if (v.url.trim() && !/^https?:\/\/\S+$/i.test(v.url.trim())) errors.url = "Informe um endereço completo, começando com https:// ou http://.";
     if (Object.keys(errors).length) {
       submit.setFieldErrors(errors);
       return;
@@ -67,6 +71,7 @@ function ComponentForm({
       is_public: v.is_public,
       display_order: order,
       group_id: v.group_id || null,
+      url: v.url.trim() || null,
     };
     if (v.slug.trim()) input.slug = v.slug.trim();
     const ok = await submit.run(() => onSubmit(input), "Componente salvo.");
@@ -85,13 +90,7 @@ function ComponentForm({
         </Field>
         <Field label="Status declarado" error={fe.status}>
           {(p) => (
-            <select {...p} value={v.status} onChange={(e) => set("status", e.target.value as ComponentStatus)}>
-              {STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {componentStatusLabel[s]}
-                </option>
-              ))}
-            </select>
+            <StatusSelect {...p} value={v.status} options={STATUSES} labels={componentStatusLabel} onChange={(x) => set("status", x as ComponentStatus)} />
           )}
         </Field>
         <Field label="Grupo" error={fe.group_id} hint="Opcional. Grupos aparecem recolhidos na página pública.">
@@ -110,6 +109,15 @@ function ComponentForm({
           {(p) => <input {...p} type="number" min={0} max={100000} value={v.display_order} onChange={(e) => set("display_order", e.target.value)} />}
         </Field>
       </div>
+      <Field
+        label="Link do componente"
+        error={fe.url}
+        hint="Opcional. Página, documentação ou endpoint público; aparece como um link discreto na página pública."
+      >
+        {(p) => (
+          <input {...p} type="url" inputMode="url" placeholder="https://docs.exemplo.com/api" maxLength={500} value={v.url} onChange={(e) => set("url", e.target.value)} />
+        )}
+      </Field>
       <Field label="Descrição" error={fe.description}>
         {(p) => <textarea {...p} rows={2} maxLength={1000} value={v.description} onChange={(e) => set("description", e.target.value)} />}
       </Field>
@@ -229,6 +237,7 @@ export function ComponentsPage() {
                         {!c.is_public && <span className="tag">Oculto</span>}
                         {!c.is_active && <span className="tag">Desativado</span>}
                         <span className="tag">Ordem {c.display_order}</span>
+                        {c.url && <span className="tag">Com link</span>}
                       </div>
                     </div>
                     <Badge tone={toneForStatus[c.status]}>{componentStatusLabel[c.status]}</Badge>

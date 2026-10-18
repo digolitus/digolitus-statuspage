@@ -1,11 +1,13 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { adminApi } from "../api/endpoints";
 import type { ExpectedImpact, Maintenance, MaintenanceCreate, MaintenancePatch, MaintenanceStatus, MaintenanceTemplate } from "../api/types";
+import { StatusSelect } from "../components/StatusSelect";
 import { Badge, ConfirmButton, EmptyState, ErrorPanel, Field, Loading, Pager, Timeline } from "../components/ui";
 import {
   browserTimeZone,
   expectedImpactLabel,
   formatDateTime,
+  IMPACTS,
   maintenanceKindLabel,
   maintenanceStatusLabel,
   timeZones,
@@ -16,7 +18,6 @@ import { Link, navigate } from "../lib/router";
 import { useApi } from "../lib/useApi";
 import { ComponentPicker, FormStatus, PageHeader, requireText, TemplateSelect, useSubmit } from "./shared";
 
-const IMPACTS = Object.keys(expectedImpactLabel) as ExpectedImpact[];
 
 const STATES = [
   ["open", "Abertas"],
@@ -134,7 +135,7 @@ export function MaintenanceNewPage() {
     title: "",
     description: "",
     message: "",
-    expected_impact: "none",
+    expected_impact: "operational",
     timezone: browserTimeZone(),
     scheduled_start: "",
     scheduled_end: "",
@@ -199,13 +200,7 @@ export function MaintenanceNewPage() {
           </Field>
           <Field label="Impacto esperado" error={fe.expected_impact}>
             {(p) => (
-              <select {...p} value={v.expected_impact} onChange={(e) => set("expected_impact", e.target.value as ExpectedImpact)}>
-                {IMPACTS.map((i) => (
-                  <option key={i} value={i}>
-                    {expectedImpactLabel[i]}
-                  </option>
-                ))}
-              </select>
+              <StatusSelect {...p} value={v.expected_impact} options={IMPACTS} labels={expectedImpactLabel} onChange={(x) => set("expected_impact", x as ExpectedImpact)} />
             )}
           </Field>
         </div>
@@ -290,13 +285,7 @@ function EditForm({ m, onSaved }: { m: Maintenance; onSaved: (m: Maintenance) =>
         </Field>
         <Field label="Impacto esperado" error={fe.expected_impact}>
           {(p) => (
-            <select {...p} value={v.expected_impact} onChange={(e) => setV({ ...v, expected_impact: e.target.value as ExpectedImpact })}>
-              {IMPACTS.map((i) => (
-                <option key={i} value={i}>
-                  {expectedImpactLabel[i]}
-                </option>
-              ))}
-            </select>
+            <StatusSelect {...p} value={v.expected_impact} options={IMPACTS} labels={expectedImpactLabel} onChange={(x) => setV({ ...v, expected_impact: x as ExpectedImpact })} />
           )}
         </Field>
       </div>

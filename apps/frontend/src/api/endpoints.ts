@@ -1,5 +1,12 @@
 import { request } from "./client";
 import type {
+  Announcement,
+  AnnouncementCategory,
+  AnnouncementCategoryCreate,
+  AnnouncementCategoryPatch,
+  AnnouncementCreate,
+  AnnouncementPatch,
+  AnnouncementState,
   AuditEvent,
   Component,
   ComponentCreate,
@@ -28,10 +35,15 @@ import type {
   MaintenanceTemplatePatch,
   MaintenanceUpdate,
   Page,
+  PublicAnnouncement,
+  PublicAnnouncementCategory,
   PublicComponent,
   PublicIncident,
   PublicMaintenance,
   StatusSummary,
+  Team,
+  TeamCreate,
+  TeamPatch,
 } from "./types";
 
 type Signal = { signal?: AbortSignal };
@@ -47,6 +59,12 @@ export const publicApi = {
     request<Page<PublicMaintenance>>("GET", "/api/v1/maintenances", { ...o, query }),
   maintenance: (id: string, o: Signal = {}) =>
     request<PublicMaintenance>("GET", `/api/v1/maintenances/${encodeURIComponent(id)}`, o),
+  announcements: (query: ListQuery & { category_id?: string; component_id?: string; pinned?: boolean }, o: Signal = {}) =>
+    request<Page<PublicAnnouncement>>("GET", "/api/v1/announcements", { ...o, query }),
+  announcement: (id: string, o: Signal = {}) =>
+    request<PublicAnnouncement>("GET", `/api/v1/announcements/${encodeURIComponent(id)}`, o),
+  announcementCategories: (o: Signal = {}) =>
+    request<{ data: PublicAnnouncementCategory[] }>("GET", "/api/v1/announcement-categories", o),
 };
 
 const A = "/api/v1/admin";
@@ -114,6 +132,34 @@ export const adminApi = {
       request<{ data: ExternalComponent[] }>("GET", `${A}/external-sources/${id(sid)}/components`, o),
     setSelection: (sid: string, componentIds: string[]) =>
       request<{ data: ExternalComponent[] }>("PUT", `${A}/external-sources/${id(sid)}/selection`, { body: { component_ids: componentIds } }),
+  },
+  announcements: {
+    list: (
+      query: ListQuery & { state?: AnnouncementState; q?: string; category_id?: string; team_id?: string },
+      o: Signal = {},
+    ) => request<Page<Announcement>>("GET", `${A}/announcements`, { ...o, query }),
+    get: (aid: string, o: Signal = {}) => request<Announcement>("GET", `${A}/announcements/${id(aid)}`, o),
+    create: (body: AnnouncementCreate) => request<Announcement>("POST", `${A}/announcements`, { body }),
+    update: (aid: string, body: AnnouncementPatch) => request<Announcement>("PATCH", `${A}/announcements/${id(aid)}`, { body }),
+    remove: (aid: string) => request<void>("DELETE", `${A}/announcements/${id(aid)}`),
+    publish: (aid: string, publishAt?: string) =>
+      request<Announcement>("POST", `${A}/announcements/${id(aid)}/publish`, { body: publishAt ? { publish_at: publishAt } : {} }),
+    transition: (aid: string, action: "unpublish" | "archive" | "restore") =>
+      request<Announcement>("POST", `${A}/announcements/${id(aid)}/${action}`, { body: {} }),
+  },
+  announcementCategories: {
+    list: (query: { is_active?: boolean } = {}, o: Signal = {}) =>
+      request<{ data: AnnouncementCategory[] }>("GET", `${A}/announcement-categories`, { ...o, query }),
+    create: (body: AnnouncementCategoryCreate) => request<AnnouncementCategory>("POST", `${A}/announcement-categories`, { body }),
+    update: (cid: string, body: AnnouncementCategoryPatch) =>
+      request<AnnouncementCategory>("PATCH", `${A}/announcement-categories/${id(cid)}`, { body }),
+    remove: (cid: string) => request<void>("DELETE", `${A}/announcement-categories/${id(cid)}`),
+  },
+  teams: {
+    list: (query: { is_active?: boolean } = {}, o: Signal = {}) => request<{ data: Team[] }>("GET", `${A}/teams`, { ...o, query }),
+    create: (body: TeamCreate) => request<Team>("POST", `${A}/teams`, { body }),
+    update: (tid: string, body: TeamPatch) => request<Team>("PATCH", `${A}/teams/${id(tid)}`, { body }),
+    remove: (tid: string) => request<void>("DELETE", `${A}/teams/${id(tid)}`),
   },
   audit: {
     list: (

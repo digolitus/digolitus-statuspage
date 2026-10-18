@@ -1,6 +1,101 @@
 // Code generated from apps/backend/api/openapi.yaml. DO NOT EDIT.
 // Regenerate with: make generate-types (go run ./cmd/openapi-ts in apps/backend).
 
+export type Announcement = {
+  archived_at: NullableTimestamp;
+  /** Texto com formatação leve: parágrafos, listas com `- `, `**negrito**` e links `[texto](https://...)`. */
+  body: string;
+  category: AnnouncementCategoryRef;
+  components: ComponentRef[];
+  created_at: Timestamp;
+  id: string;
+  importance: AnnouncementImportance;
+  is_pinned: boolean;
+  published_at: NullableTimestamp;
+  state: AnnouncementState;
+  team: TeamRef;
+  title: string;
+  updated_at: Timestamp;
+};
+
+export type AnnouncementCategory = {
+  announcement_count: number;
+  color: CategoryColor;
+  created_at: Timestamp;
+  description: string;
+  display_order: number;
+  id: string;
+  is_active: boolean;
+  name: string;
+  updated_at: Timestamp;
+};
+
+export type AnnouncementCategoryCreate = {
+  name: string;
+  color?: CategoryColor;
+  description?: string;
+  display_order?: number;
+  is_active?: boolean;
+};
+
+export type AnnouncementCategoryList = {
+  data: AnnouncementCategory[];
+};
+
+export type AnnouncementCategoryPatch = {
+  color?: CategoryColor;
+  description?: string;
+  display_order?: number;
+  is_active?: boolean;
+  name?: string;
+};
+
+export type AnnouncementCategoryRef = {
+  color: CategoryColor;
+  id: string;
+  name: string;
+} | null;
+
+export type AnnouncementCreate = {
+  body: string;
+  title: string;
+  /** Categoria ativa. */
+  category_id?: string | null;
+  component_ids?: UUIDList;
+  importance?: AnnouncementImportance;
+  is_pinned?: boolean;
+  /** Time responsável ativo. */
+  team_id?: string | null;
+};
+
+/** `important` recebe destaque na página pública. */
+export type AnnouncementImportance = "info" | "important";
+
+export type AnnouncementList = {
+  data: Announcement[];
+  pagination: Pagination;
+};
+
+export type AnnouncementPatch = {
+  body?: string;
+  /** `null` remove a categoria. */
+  category_id?: string | null;
+  component_ids?: UUIDList;
+  importance?: AnnouncementImportance;
+  is_pinned?: boolean;
+  /** `null` remove o time. */
+  team_id?: string | null;
+  title?: string;
+};
+
+export type AnnouncementPublish = {
+  /** RFC 3339 com offset. Omitido ou vazio = publicar agora. */
+  publish_at?: string | null;
+};
+
+/** `scheduled` = publicado com horário de publicação futuro. */
+export type AnnouncementState = "draft" | "scheduled" | "published" | "archived";
+
 export type AuditEvent = {
   action: string;
   /** Valores relevantes anteriores (`before`) e posteriores (`after`). */
@@ -9,7 +104,7 @@ export type AuditEvent = {
   occurred_at: Timestamp;
   request_id: string | null;
   resource_id: string;
-  resource_type: "component" | "component_group" | "incident" | "maintenance" | "incident_template" | "maintenance_template" | "external_source";
+  resource_type: "component" | "component_group" | "incident" | "maintenance" | "incident_template" | "maintenance_template" | "external_source" | "announcement" | "announcement_category" | "team";
   /** Canal de origem (ex.: admin_api). Não identifica uma pessoa. */
   source: string;
 };
@@ -18,6 +113,8 @@ export type AuditEventList = {
   data: AuditEvent[];
   pagination: Pagination;
 };
+
+export type CategoryColor = "gray" | "blue" | "green" | "yellow" | "orange" | "red" | "purple";
 
 export type Component = {
   created_at: Timestamp;
@@ -32,6 +129,8 @@ export type Component = {
   slug: string;
   status: ComponentStatus;
   updated_at: Timestamp;
+  /** Link público da página do componente (documentação, produto, endpoint). */
+  url: string | null;
 };
 
 export type ComponentCreate = {
@@ -43,6 +142,8 @@ export type ComponentCreate = {
   /** Único. Derivado do nome quando omitido. */
   slug?: string;
   status?: ComponentStatus;
+  /** Endereço http(s) completo, sem credenciais. Vazio ou `null` = sem link. */
+  url?: string | null;
 };
 
 export type ComponentGroup = {
@@ -89,6 +190,8 @@ export type ComponentPatch = {
   name?: string;
   slug?: string;
   status?: ComponentStatus;
+  /** Endereço http(s) completo, sem credenciais. Vazio ou `null` = sem link. */
+  url?: string | null;
 };
 
 export type ComponentRef = {
@@ -114,7 +217,8 @@ export type Error = {
   };
 };
 
-export type ExpectedImpact = "none" | "degraded_performance" | "partial_outage" | "major_outage";
+/** Impacto esperado, com o mesmo vocabulário do impacto de incidentes. */
+export type ExpectedImpact = "operational" | "degraded_performance" | "partial_outage" | "major_outage";
 
 export type ExternalComponent = {
   description: string;
@@ -219,8 +323,8 @@ export type IncidentCreate = {
   template_id?: string;
 };
 
-/** Impacto: minor → degraded_performance, major → partial_outage, critical → major_outage. */
-export type IncidentImpact = "minor" | "major" | "critical";
+/** Impacto nos componentes afetados, com o mesmo vocabulário do status. `operational` é informativo. */
+export type IncidentImpact = "operational" | "degraded_performance" | "partial_outage" | "major_outage";
 
 export type IncidentList = {
   data: Incident[];
@@ -437,6 +541,36 @@ export type Pagination = {
   total: number;
 };
 
+export type PublicAnnouncement = {
+  body: string;
+  category: AnnouncementCategoryRef;
+  /** Somente componentes públicos. */
+  components: ComponentRef[];
+  id: string;
+  importance: AnnouncementImportance;
+  is_pinned: boolean;
+  published_at: Timestamp;
+  team: TeamRef;
+  title: string;
+  updated_at: Timestamp;
+};
+
+export type PublicAnnouncementCategory = {
+  color: CategoryColor;
+  description: string;
+  id: string;
+  name: string;
+};
+
+export type PublicAnnouncementCategoryList = {
+  data: PublicAnnouncementCategory[];
+};
+
+export type PublicAnnouncementList = {
+  data: PublicAnnouncement[];
+  pagination: Pagination;
+};
+
 export type PublicComponent = {
   description: string;
   display_order: number;
@@ -446,6 +580,8 @@ export type PublicComponent = {
   slug: string;
   status: ComponentStatus;
   updated_at: Timestamp;
+  /** Link da página do componente. */
+  url: string | null;
 };
 
 export type PublicComponentGroup = {
@@ -562,6 +698,37 @@ export type StatusSummary = {
    */
   third_party: PublicThirdPartySource[];
 };
+
+export type Team = {
+  announcement_count: number;
+  created_at: Timestamp;
+  description: string;
+  id: string;
+  is_active: boolean;
+  name: string;
+  updated_at: Timestamp;
+};
+
+export type TeamCreate = {
+  name: string;
+  description?: string;
+  is_active?: boolean;
+};
+
+export type TeamList = {
+  data: Team[];
+};
+
+export type TeamPatch = {
+  description?: string;
+  is_active?: boolean;
+  name?: string;
+};
+
+export type TeamRef = {
+  id: string;
+  name: string;
+} | null;
 
 /** RFC 3339 em UTC. */
 export type Timestamp = string;

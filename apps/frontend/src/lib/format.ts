@@ -10,9 +10,9 @@ import type {
 
 export const componentStatusLabel: Record<ComponentStatus, string> = {
   operational: "Operacional",
-  degraded_performance: "Desempenho degradado",
-  partial_outage: "Indisponibilidade parcial",
-  major_outage: "Indisponibilidade total",
+  degraded_performance: "Performance degradada",
+  partial_outage: "Interrupção parcial",
+  major_outage: "Interrupção grave",
   maintenance: "Em manutenção",
 };
 
@@ -24,9 +24,9 @@ export const externalStatusLabel: Record<OverallStatus, string> = {
 
 export const overallLabel: Record<OverallStatus, string> = {
   operational: "Todos os componentes declarados como operacionais",
-  degraded_performance: "Desempenho degradado",
-  partial_outage: "Indisponibilidade parcial",
-  major_outage: "Indisponibilidade grave",
+  degraded_performance: "Performance degradada",
+  partial_outage: "Interrupção parcial",
+  major_outage: "Interrupção grave",
   maintenance: "Manutenção em andamento",
   unknown: "Status não informado",
 };
@@ -38,11 +38,16 @@ export const incidentStatusLabel: Record<IncidentStatus, string> = {
   resolved: "Resolvido",
 };
 
+/** Incident impact and maintenance expected impact share the status scale. */
 export const impactLabel: Record<IncidentImpact, string> = {
-  minor: "Menor",
-  major: "Maior",
-  critical: "Crítico",
+  operational: "Operacional",
+  degraded_performance: "Performance degradada",
+  partial_outage: "Interrupção parcial",
+  major_outage: "Interrupção grave",
 };
+
+/** Impact options in severity order. */
+export const IMPACTS = ["operational", "degraded_performance", "partial_outage", "major_outage"] as const satisfies readonly IncidentImpact[];
 
 export const maintenanceStatusLabel: Record<MaintenanceStatus, string> = {
   scheduled: "Programada",
@@ -51,12 +56,7 @@ export const maintenanceStatusLabel: Record<MaintenanceStatus, string> = {
   cancelled: "Cancelada",
 };
 
-export const expectedImpactLabel: Record<ExpectedImpact, string> = {
-  none: "Sem impacto esperado",
-  degraded_performance: "Possível degradação",
-  partial_outage: "Indisponibilidade parcial",
-  major_outage: "Indisponibilidade total",
-};
+export const expectedImpactLabel: Record<ExpectedImpact, string> = impactLabel;
 
 export const maintenanceKindLabel: Record<MaintenanceUpdateKind, string> = {
   created: "Programada",
@@ -174,4 +174,19 @@ export function browserTimeZone(): string {
 
 export function plural(n: number, singular: string, pluralForm: string): string {
   return `${n} ${n === 1 ? singular : pluralForm}`;
+}
+
+/** Local calendar day (viewer's zone) used to group announcements. */
+export function dayKey(iso: string): string {
+  return new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(iso));
+}
+
+export function dayLabel(iso: string, now = new Date()): string {
+  const key = dayKey(iso);
+  if (key === dayKey(now.toISOString())) return "Hoje";
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (key === dayKey(yesterday.toISOString())) return "Ontem";
+  const label = new Intl.DateTimeFormat("pt-BR", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(new Date(iso));
+  return label.charAt(0).toUpperCase() + label.slice(1);
 }
