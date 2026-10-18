@@ -10,6 +10,11 @@ updates:
     schedule: { interval: weekly }
     groups:
       npm-minor-patch: { update-types: [minor, patch] }
+    ignore:
+      # typescript-eslint 8 supports TypeScript < 6.1; TypeScript 7 breaks
+      # `npm ci` (peer conflict). Remove once typescript-eslint supports it.
+      - dependency-name: typescript
+        versions: [">=6.1.0"]
   - package-ecosystem: docker
     directories: [/apps/backend, /apps/frontend]
     schedule: { interval: weekly }
