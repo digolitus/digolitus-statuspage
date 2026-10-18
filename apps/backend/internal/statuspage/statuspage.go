@@ -139,8 +139,13 @@ func (s *Service) Build(ctx context.Context) (Summary, error) {
 		byGroup := map[string][]string{}
 		for _, c := range comps {
 			if c.IsPublic {
+				// Descriptions are internal unless the operator chose to show them.
+				desc := ""
+				if c.ShowDescription {
+					desc = c.Description
+				}
 				sum.Components = append(sum.Components, PublicComponent{ID: c.ID, Name: c.Name, Slug: c.Slug,
-					Description: c.Description, Status: effective[c.ID], GroupID: c.GroupID, URL: c.URL, DisplayOrder: c.DisplayOrder, UpdatedAt: c.UpdatedAt})
+					Description: desc, Status: effective[c.ID], GroupID: c.GroupID, URL: c.URL, DisplayOrder: c.DisplayOrder, UpdatedAt: c.UpdatedAt})
 				if c.GroupID != nil {
 					byGroup[*c.GroupID] = append(byGroup[*c.GroupID], effective[c.ID])
 				}

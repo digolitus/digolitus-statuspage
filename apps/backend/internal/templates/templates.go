@@ -1,4 +1,5 @@
-// Package templates manages reusable incident and maintenance templates.
+// Package templates manages reusable incident, maintenance and announcement
+// templates.
 //
 // A template only pre-fills a form: creating an incident or maintenance
 // copies the text, and the created resource keeps just the template ID for
@@ -24,6 +25,7 @@ import (
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/clock"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/database"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/httpx"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/optional"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/statuspolicy"
 )
 
@@ -353,6 +355,10 @@ func (h *Handler) Register(rt *httpx.Router, admin func(http.HandlerFunc) http.H
 	rt.Handle(http.MethodPost, "/api/v1/admin/maintenance-templates", admin(h.createMaintenance))
 	rt.Handle(http.MethodGet, "/api/v1/admin/maintenance-templates/{id}", admin(h.getMaintenance))
 	rt.Handle(http.MethodPatch, "/api/v1/admin/maintenance-templates/{id}", admin(h.patchMaintenance))
+	rt.Handle(http.MethodGet, "/api/v1/admin/announcement-templates", admin(h.listAnnouncement))
+	rt.Handle(http.MethodPost, "/api/v1/admin/announcement-templates", admin(h.createAnnouncement))
+	rt.Handle(http.MethodGet, "/api/v1/admin/announcement-templates/{id}", admin(h.getAnnouncement))
+	rt.Handle(http.MethodPatch, "/api/v1/admin/announcement-templates/{id}", admin(h.patchAnnouncement))
 }
 
 type listParams struct {
@@ -505,6 +511,207 @@ func (h *Handler) patchMaintenance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t, err := h.svc.PatchMaintenance(r.Context(), id, in)
+	if err != nil {
+		httpx.Fail(w, r, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, t)
+}
+
+// ---- announcement templates ----
+
+// Announcement importances, duplicated to keep this package independent.
+var announcementImportances = []string{"info", "important"}
+
+// AnnouncementTemplate pre-fills the announcement editor.
+type AnnouncementTemplate struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	Title       string    `json:"title"`
+	Body        string    `json:"body"`
+	Importance  string    `json:"importance"`
+	CategoryID  *string   `json:"category_id"`
+	Guidance    string    `json:"guidance"`
+	IsActive    bool      `json:"is_active"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// AnnouncementInput is the create/patch payload for announcement templates.
+type AnnouncementInput struct {
+	Name        *string `json:"name"`
+	Description *string `json:"description"`
+	Title       *string `json:"title"`
+	Body        *string `json:"body"`
+	Importance  *string `json:"importance"`
+	// CategoryID: absent = unchanged, null = no category.
+	CategoryID optional.Nullable[string] `json:"category_id"`
+	Guidance   *string                   `json:"guidance"`
+	IsActive   *bool                     `json:"is_active"`
+}
+
+func (in AnnouncementInput) apply(v *apperror.Validator, t *AnnouncementTemplate, create bool) bool {
+	changed := false
+	changed = textField(v, "name", in.Name, &t.Name, 1, 120, create) || changed
+	changed = textField(v, "description", in.Description, &t.Description, 0, 1000, create) || changed
+	changed = textField(v, "title", in.Title, &t.Title, 1, 200, create) || changed
+	changed = textField(v, "body", in.Body, &t.Body, 1, 10000, create) || changed
+	changed = textField(v, "guidance", in.Guidance, &t.Guidance, 0, 2000, create) || changed
+	changed = enumField(v, "importance", in.Importance, &t.Importance, announcementImportances) || changed
+	if in.CategoryID.Set {
+		t.CategoryID = nil
+		if in.CategoryID.Value != nil {
+			id := strings.ToLower(strings.TrimSpace(*in.CategoryID.Value))
+			v.Check(httpx.IsUUID(id), "category_id", "Informe um UUID válido.")
+			t.CategoryID = &id
+		}
+		changed = true
+	}
+	if in.IsActive != nil {
+		t.IsActive = *in.IsActive
+		changed = true
+	}
+	return changed
+}
+
+func announcementConflict(err error) error {
+	if name, ok := database.ConstraintError(err, database.CodeUniqueViolation); ok && name == "announcement_templates_name_key" {
+		return &apperror.Error{Kind: apperror.KindConflict, Code: "template_name_conflict", Message: "Já existe um template com este nome.",
+			Fields: []apperror.FieldError{{Field: "name", Message: "Nome já utilizado."}}}
+	}
+	if name, ok := database.ConstraintError(err, database.CodeForeignKeyViolation); ok && name == "announcement_templates_category_id_fkey" {
+		var v apperror.Validator
+		v.Add("category_id", "Categoria não encontrada.")
+		return v.Err()
+	}
+	return err
+}
+
+const announcementColumns = "id, name, description, title, body, importance, category_id, guidance, is_active, created_at, updated_at"
+
+func scanAnnouncement(row pgx.Row) (AnnouncementTemplate, error) {
+	var t AnnouncementTemplate
+	err := row.Scan(&t.ID, &t.Name, &t.Description, &t.Title, &t.Body, &t.Importance, &t.CategoryID, &t.Guidance, &t.IsActive, &t.CreatedAt, &t.UpdatedAt)
+	t.CreatedAt, t.UpdatedAt = t.CreatedAt.UTC(), t.UpdatedAt.UTC()
+	return t, err
+}
+
+func getAnnouncement(ctx context.Context, q database.Querier, id string, lock bool) (AnnouncementTemplate, error) {
+	sql := "SELECT " + announcementColumns + " FROM announcement_templates WHERE id = $1"
+	if lock {
+		sql += " FOR UPDATE"
+	}
+	t, err := scanAnnouncement(q.QueryRow(ctx, sql, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return t, apperror.NotFound("announcement_template")
+	}
+	return t, err
+}
+
+// CreateAnnouncement validates and stores an announcement template.
+func (s *Service) CreateAnnouncement(ctx context.Context, in AnnouncementInput) (AnnouncementTemplate, error) {
+	var v apperror.Validator
+	t := AnnouncementTemplate{Importance: "info", IsActive: true}
+	in.apply(&v, &t, true)
+	if err := v.Err(); err != nil {
+		return t, err
+	}
+	now := s.now()
+	err := database.InTx(ctx, s.pool, func(tx pgx.Tx) error {
+		var err error
+		t, err = scanAnnouncement(tx.QueryRow(ctx, `INSERT INTO announcement_templates (name, description, title, body, importance, category_id, guidance, is_active, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9) RETURNING `+announcementColumns,
+			t.Name, t.Description, t.Title, t.Body, t.Importance, t.CategoryID, t.Guidance, t.IsActive, now))
+		if err != nil {
+			return announcementConflict(err)
+		}
+		return audit.Record(ctx, tx, audit.ResourceAnnouncementTemplate, t.ID, "created", audit.Changes{After: t}, now)
+	})
+	return t, err
+}
+
+// PatchAnnouncement updates an announcement template.
+func (s *Service) PatchAnnouncement(ctx context.Context, id string, in AnnouncementInput) (AnnouncementTemplate, error) {
+	var out AnnouncementTemplate
+	err := database.InTx(ctx, s.pool, func(tx pgx.Tx) error {
+		cur, err := getAnnouncement(ctx, tx, id, true)
+		if err != nil {
+			return err
+		}
+		var v apperror.Validator
+		next := cur
+		if !in.apply(&v, &next, false) {
+			return apperror.Invalid("empty_update", "Informe ao menos um campo para atualizar.")
+		}
+		if err := v.Err(); err != nil {
+			return err
+		}
+		now := s.now()
+		out, err = scanAnnouncement(tx.QueryRow(ctx, `UPDATE announcement_templates SET name = $2, description = $3, title = $4, body = $5,
+			importance = $6, category_id = $7, guidance = $8, is_active = $9, updated_at = $10 WHERE id = $1 RETURNING `+announcementColumns,
+			id, next.Name, next.Description, next.Title, next.Body, next.Importance, next.CategoryID, next.Guidance, next.IsActive, now))
+		if err != nil {
+			return announcementConflict(err)
+		}
+		return audit.Record(ctx, tx, audit.ResourceAnnouncementTemplate, id, activationAction(cur.IsActive, out.IsActive), audit.Diff(cur, out), now)
+	})
+	return out, err
+}
+
+func (h *Handler) listAnnouncement(w http.ResponseWriter, r *http.Request) {
+	p, err := parseList(r)
+	if err != nil {
+		httpx.Fail(w, r, err)
+		return
+	}
+	items, total, err := listRows(r, h.pool, "announcement_templates", announcementColumns, p, scanAnnouncement)
+	if err != nil {
+		httpx.Fail(w, r, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, httpx.NewList(items, p.page, total))
+}
+
+func (h *Handler) getAnnouncement(w http.ResponseWriter, r *http.Request) {
+	id, err := httpx.PathID(r, "announcement_template")
+	if err == nil {
+		var t AnnouncementTemplate
+		if t, err = getAnnouncement(r.Context(), h.pool, id, false); err == nil {
+			httpx.WriteJSON(w, http.StatusOK, t)
+			return
+		}
+	}
+	httpx.Fail(w, r, err)
+}
+
+func (h *Handler) createAnnouncement(w http.ResponseWriter, r *http.Request) {
+	var in AnnouncementInput
+	if err := httpx.DecodeJSON(r, &in); err != nil {
+		httpx.Fail(w, r, err)
+		return
+	}
+	t, err := h.svc.CreateAnnouncement(r.Context(), in)
+	if err != nil {
+		httpx.Fail(w, r, err)
+		return
+	}
+	w.Header().Set("Location", "/api/v1/admin/announcement-templates/"+t.ID)
+	httpx.WriteJSON(w, http.StatusCreated, t)
+}
+
+func (h *Handler) patchAnnouncement(w http.ResponseWriter, r *http.Request) {
+	id, err := httpx.PathID(r, "announcement_template")
+	if err != nil {
+		httpx.Fail(w, r, err)
+		return
+	}
+	var in AnnouncementInput
+	if err := httpx.DecodeJSON(r, &in); err != nil {
+		httpx.Fail(w, r, err)
+		return
+	}
+	t, err := h.svc.PatchAnnouncement(r.Context(), id, in)
 	if err != nil {
 		httpx.Fail(w, r, err)
 		return

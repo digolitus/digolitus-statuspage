@@ -132,6 +132,9 @@ type PatchInput struct {
 	Impact        *string `json:"impact"`
 	InternalNotes *string `json:"internal_notes"`
 	StartedAt     *string `json:"started_at"`
+	// ResolvedAt corrects when the incident actually ended; only for
+	// resolved incidents (the time it was closed here may be later).
+	ResolvedAt *string `json:"resolved_at"`
 }
 
 // UpdateInput publishes a timeline entry, optionally changing status and
@@ -140,11 +143,16 @@ type UpdateInput struct {
 	Status       string    `json:"status"`
 	Message      string    `json:"message"`
 	ComponentIDs *[]string `json:"component_ids"`
+	// ResolvedAt is when the impact actually ended; only with status
+	// resolved. Defaults to the publication time.
+	ResolvedAt *string `json:"resolved_at"`
 }
 
-// ResolveInput resolves an incident with a closing message.
+// ResolveInput resolves an incident with a closing message and, optionally,
+// the instant the impact actually ended.
 type ResolveInput struct {
-	Message string `json:"message"`
+	Message    string  `json:"message"`
+	ResolvedAt *string `json:"resolved_at"`
 }
 
 func validateTitle(v *apperror.Validator, t string) {
@@ -165,18 +173,26 @@ func validateNotes(v *apperror.Validator, n string) {
 	v.Check(utf8.RuneCountInString(n) <= 5000, "internal_notes", "As notas internas devem ter no máximo 5000 caracteres.")
 }
 
-// parseStartedAt validates a start instant: RFC 3339 with offset, not in the
-// future.
-func parseStartedAt(v *apperror.Validator, raw string, now time.Time) time.Time {
+// parseInstant validates a past instant: RFC 3339 with offset, not in the
+// future. what names it in messages ("O início", "O fim").
+func parseInstant(v *apperror.Validator, field, what, raw string, now time.Time) time.Time {
 	t, err := clock.ParseInstant(raw, nil)
 	if err != nil {
-		v.Add("started_at", "Use o formato RFC 3339 com fuso horário (ex.: 2026-10-17T14:30:00-03:00).")
+		v.Add(field, "Use o formato RFC 3339 com fuso horário (ex.: 2026-10-17T14:30:00-03:00).")
 		return time.Time{}
 	}
 	if t.After(now) {
-		v.Add("started_at", "O início não pode estar no futuro.")
+		v.Add(field, what+" não pode estar no futuro.")
 	}
 	return t
+}
+
+func parseStartedAt(v *apperror.Validator, raw string, now time.Time) time.Time {
+	return parseInstant(v, "started_at", "O início", raw, now)
+}
+
+func parseResolvedAt(v *apperror.Validator, raw string, now time.Time) time.Time {
+	return parseInstant(v, "resolved_at", "O fim", raw, now)
 }
 
 type createPlan struct {
@@ -219,7 +235,7 @@ func (in CreateInput) normalize(now time.Time) (createPlan, error) {
 
 func (in PatchInput) apply(inc Incident, now time.Time) (Incident, error) {
 	var v apperror.Validator
-	if in.Title == nil && in.Impact == nil && in.InternalNotes == nil && in.StartedAt == nil {
+	if in.Title == nil && in.Impact == nil && in.InternalNotes == nil && in.StartedAt == nil && in.ResolvedAt == nil {
 		return inc, apperror.Invalid("empty_update", "Informe ao menos um campo para atualizar.")
 	}
 	if in.Title != nil {
@@ -236,9 +252,21 @@ func (in PatchInput) apply(inc Incident, now time.Time) (Incident, error) {
 	}
 	if in.StartedAt != nil {
 		inc.StartedAt = parseStartedAt(&v, *in.StartedAt, now)
-		if inc.ResolvedAt != nil && inc.StartedAt.After(*inc.ResolvedAt) {
-			v.Add("started_at", "O início não pode ser posterior à resolução.")
+	}
+	if in.ResolvedAt != nil {
+		if inc.Status != StatusResolved {
+			v.Add("resolved_at", "Só incidentes resolvidos têm fim. Resolva o incidente informando o fim.")
+		} else {
+			t := parseResolvedAt(&v, *in.ResolvedAt, now)
+			inc.ResolvedAt = &t
 		}
+	}
+	if v.Err() == nil && inc.ResolvedAt != nil && inc.StartedAt.After(*inc.ResolvedAt) {
+		field := "started_at"
+		if in.ResolvedAt != nil {
+			field = "resolved_at"
+		}
+		v.Add(field, "O fim não pode ser anterior ao início.")
 	}
 	return inc, v.Err()
 }
