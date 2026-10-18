@@ -2,15 +2,26 @@ import { request } from "./client";
 import type {
   AuditEvent,
   Component,
-  ComponentStatus,
-  ExpectedImpact,
+  ComponentCreate,
+  ComponentGroup,
+  ComponentGroupCreate,
+  ComponentGroupPatch,
+  ComponentPatch,
   Incident,
-  IncidentImpact,
+  IncidentCreate,
+  IncidentPatch,
   IncidentStatus,
   IncidentTemplate,
+  IncidentTemplateCreate,
+  IncidentTemplatePatch,
   IncidentUpdate,
+  IncidentUpdateCreate,
   Maintenance,
+  MaintenanceCreate,
+  MaintenancePatch,
   MaintenanceTemplate,
+  MaintenanceTemplateCreate,
+  MaintenanceTemplatePatch,
   MaintenanceUpdate,
   Page,
   PublicComponent,
@@ -37,90 +48,26 @@ export const publicApi = {
 const A = "/api/v1/admin";
 const id = (v: string) => encodeURIComponent(v);
 
-export interface ComponentInput {
-  name?: string;
-  slug?: string;
-  description?: string;
-  status?: ComponentStatus;
-  is_public?: boolean;
-  is_active?: boolean;
-  display_order?: number;
-}
-
-export interface IncidentCreateInput {
-  title: string;
-  message: string;
-  impact: IncidentImpact;
-  status?: Exclude<IncidentStatus, "resolved">;
-  component_ids?: string[];
-  started_at?: string;
-  internal_notes?: string;
-  template_id?: string;
-}
-
-export interface IncidentPatchInput {
-  title?: string;
-  impact?: IncidentImpact;
-  internal_notes?: string;
-  started_at?: string;
-}
-
-export interface IncidentUpdateInput {
-  status: IncidentStatus;
-  message: string;
-  component_ids?: string[];
-}
-
-export interface MaintenanceCreateInput {
-  title: string;
-  description?: string;
-  message?: string;
-  expected_impact?: ExpectedImpact;
-  timezone: string;
-  scheduled_start: string;
-  scheduled_end: string;
-  component_ids?: string[];
-  internal_notes?: string;
-  template_id?: string;
-}
-
-export type MaintenancePatchInput = Partial<Omit<MaintenanceCreateInput, "message" | "template_id">>;
-
-export interface IncidentTemplateInput {
-  name?: string;
-  description?: string;
-  title?: string;
-  message?: string;
-  impact?: IncidentImpact;
-  status?: IncidentStatus;
-  guidance?: string;
-  is_active?: boolean;
-}
-
-export interface MaintenanceTemplateInput {
-  name?: string;
-  description?: string;
-  title?: string;
-  message?: string;
-  expected_impact?: ExpectedImpact;
-  guidance?: string;
-  is_active?: boolean;
-}
-
 export const adminApi = {
   components: {
-    list: (query: ListQuery & { is_active?: boolean; is_public?: boolean }, o: Signal = {}) =>
+    list: (query: ListQuery & { is_active?: boolean; is_public?: boolean; group_id?: string }, o: Signal = {}) =>
       request<Page<Component>>("GET", `${A}/components`, { ...o, query }),
-    create: (body: ComponentInput) => request<Component>("POST", `${A}/components`, { body }),
-    update: (cid: string, body: ComponentInput) => request<Component>("PATCH", `${A}/components/${id(cid)}`, { body }),
+    create: (body: ComponentCreate) => request<Component>("POST", `${A}/components`, { body }),
+    update: (cid: string, body: ComponentPatch) => request<Component>("PATCH", `${A}/components/${id(cid)}`, { body }),
+  },
+  groups: {
+    list: (query: ListQuery, o: Signal = {}) => request<Page<ComponentGroup>>("GET", `${A}/component-groups`, { ...o, query }),
+    create: (body: ComponentGroupCreate) => request<ComponentGroup>("POST", `${A}/component-groups`, { body }),
+    update: (gid: string, body: ComponentGroupPatch) => request<ComponentGroup>("PATCH", `${A}/component-groups/${id(gid)}`, { body }),
+    remove: (gid: string) => request<void>("DELETE", `${A}/component-groups/${id(gid)}`),
   },
   incidents: {
     list: (query: ListQuery & { state?: "active" | "resolved"; status?: IncidentStatus }, o: Signal = {}) =>
       request<Page<Incident>>("GET", `${A}/incidents`, { ...o, query }),
     get: (iid: string, o: Signal = {}) => request<Incident>("GET", `${A}/incidents/${id(iid)}`, o),
-    create: (body: IncidentCreateInput) => request<Incident>("POST", `${A}/incidents`, { body }),
-    patch: (iid: string, body: IncidentPatchInput) => request<Incident>("PATCH", `${A}/incidents/${id(iid)}`, { body }),
-    publishUpdate: (iid: string, body: IncidentUpdateInput) =>
+    create: (body: IncidentCreate) => request<Incident>("POST", `${A}/incidents`, { body }),
+    patch: (iid: string, body: IncidentPatch) => request<Incident>("PATCH", `${A}/incidents/${id(iid)}`, { body }),
+    publishUpdate: (iid: string, body: IncidentUpdateCreate) =>
       request<Incident>("POST", `${A}/incidents/${id(iid)}/updates`, { body }),
     updates: (iid: string, query: ListQuery, o: Signal = {}) =>
       request<Page<IncidentUpdate>>("GET", `${A}/incidents/${id(iid)}/updates`, { ...o, query }),
@@ -130,8 +77,8 @@ export const adminApi = {
     list: (query: ListQuery & { state?: string }, o: Signal = {}) =>
       request<Page<Maintenance>>("GET", `${A}/maintenances`, { ...o, query }),
     get: (mid: string, o: Signal = {}) => request<Maintenance>("GET", `${A}/maintenances/${id(mid)}`, o),
-    create: (body: MaintenanceCreateInput) => request<Maintenance>("POST", `${A}/maintenances`, { body }),
-    patch: (mid: string, body: MaintenancePatchInput) => request<Maintenance>("PATCH", `${A}/maintenances/${id(mid)}`, { body }),
+    create: (body: MaintenanceCreate) => request<Maintenance>("POST", `${A}/maintenances`, { body }),
+    patch: (mid: string, body: MaintenancePatch) => request<Maintenance>("PATCH", `${A}/maintenances/${id(mid)}`, { body }),
     postMessage: (mid: string, message: string) =>
       request<Maintenance>("POST", `${A}/maintenances/${id(mid)}/updates`, { body: { message } }),
     updates: (mid: string, query: ListQuery, o: Signal = {}) =>
@@ -142,15 +89,15 @@ export const adminApi = {
   incidentTemplates: {
     list: (query: ListQuery & { is_active?: boolean }, o: Signal = {}) =>
       request<Page<IncidentTemplate>>("GET", `${A}/incident-templates`, { ...o, query }),
-    create: (body: IncidentTemplateInput) => request<IncidentTemplate>("POST", `${A}/incident-templates`, { body }),
-    update: (tid: string, body: IncidentTemplateInput) =>
+    create: (body: IncidentTemplateCreate) => request<IncidentTemplate>("POST", `${A}/incident-templates`, { body }),
+    update: (tid: string, body: IncidentTemplatePatch) =>
       request<IncidentTemplate>("PATCH", `${A}/incident-templates/${id(tid)}`, { body }),
   },
   maintenanceTemplates: {
     list: (query: ListQuery & { is_active?: boolean }, o: Signal = {}) =>
       request<Page<MaintenanceTemplate>>("GET", `${A}/maintenance-templates`, { ...o, query }),
-    create: (body: MaintenanceTemplateInput) => request<MaintenanceTemplate>("POST", `${A}/maintenance-templates`, { body }),
-    update: (tid: string, body: MaintenanceTemplateInput) =>
+    create: (body: MaintenanceTemplateCreate) => request<MaintenanceTemplate>("POST", `${A}/maintenance-templates`, { body }),
+    update: (tid: string, body: MaintenanceTemplatePatch) =>
       request<MaintenanceTemplate>("PATCH", `${A}/maintenance-templates/${id(tid)}`, { body }),
   },
   audit: {

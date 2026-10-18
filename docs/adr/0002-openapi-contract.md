@@ -27,5 +27,5 @@ A API é o contrato central do produto: o frontend e futuras integrações depen
 ## Consequências
 
 - Mudanças de API exigem editar a especificação, senão os testes falham.
-- Os tipos TypeScript em `apps/frontend/src/api/types.ts` são mantidos manualmente. Gerá-los a partir da especificação (por exemplo, com `openapi-typescript`) é uma melhoria recomendada.
+- Os tipos TypeScript do frontend são gerados a partir da especificação (ver [ADR 0005](0005-typescript-types-from-openapi.md)).
 - Assets da Swagger UI (~1,8 MB) passam a fazer parte do repositório e do binário.
