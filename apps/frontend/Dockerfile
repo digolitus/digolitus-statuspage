@@ -11,7 +11,7 @@ RUN --mount=type=cache,target=/root/.npm \
 COPY . .
 RUN npm run build
 
-FROM nginxinc/nginx-unprivileged:1.30.6-alpine
+FROM nginxinc/nginx-unprivileged:1.31.7-alpine
 
 LABEL org.opencontainers.image.title="Digolitus Status Page Frontend" \
       org.opencontainers.image.description="Frontend for Digolitus Status Page" \
