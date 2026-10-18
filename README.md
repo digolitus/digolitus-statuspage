@@ -84,7 +84,7 @@ Toda funcionalidade de negócio está disponível pela API. Resumo:
 | Grupos | `GET/POST /api/v1/admin/component-groups`, `GET/PATCH/DELETE .../{id}` (exclusão só de grupo vazio) |
 | Incidentes | `GET/POST /api/v1/admin/incidents`, `GET/PATCH .../{id}`, `GET/POST .../{id}/updates`, `POST .../{id}/resolve` |
 | Manutenções | `GET/POST /api/v1/admin/maintenances`, `GET/PATCH .../{id}`, `GET/POST .../{id}/updates`, `POST .../{id}/start\|complete\|cancel` |
-| Templates | `GET/POST /api/v1/admin/incident-templates`, `GET/PATCH .../{id}` (idem para `maintenance-templates`) |
+| Templates | `GET/POST /api/v1/admin/incident-templates`, `GET/PATCH .../{id}` (idem para `maintenance-templates` e `announcement-templates`) |
 | Comunicados | `GET/POST /api/v1/admin/announcements`, `GET/PATCH/DELETE .../{id}`, `POST .../{id}/publish\|unpublish\|archive\|restore`; categorias em `/api/v1/admin/announcement-categories` e times em `/api/v1/admin/teams` |
 | Terceiros | `GET/POST /api/v1/admin/external-sources`, `GET/PATCH/DELETE .../{id}`, `POST .../{id}/sync`, `GET .../{id}/components`, `PUT .../{id}/selection` |
 | Sessão | `GET/POST /api/v1/auth/setup`, `POST /api/v1/auth/login\|logout\|password`, `GET /api/v1/auth/me` |
@@ -115,11 +115,13 @@ curl -s -X POST http://localhost:8080/api/v1/admin/maintenances \
 - **Status geral:** calculado por uma política única ([ADR 0003](docs/adr/0003-status-policy.md)). Manutenção nunca é apresentada como indisponibilidade.
 - **Impacto:** incidentes e manutenções usam a mesma escala do status do componente: Operacional (`operational`, informativo), Performance degradada, Interrupção parcial e Interrupção grave. O seletor da administração mostra o ícone de cada nível.
 - **Link do componente:** campo opcional `url` (http/https). Na página pública aparece como um ícone discreto ↗ ao lado do nome, abrindo em nova aba.
+- **Descrição do componente:** interna por padrão; com `show_description`, aparece num ícone "i" discreto ao lado do nome.
+- **Período do incidente:** `started_at` e `resolved_at` registram o início e o fim reais do impacto, que podem ser anteriores à abertura e ao encerramento na ferramenta. Os dois podem ser corrigidos depois, e a linha do tempo mantém o horário de cada publicação.
 - **Grupos:** organizam componentes na página pública. Aparecem recolhidos, exibindo o status mais grave entre seus componentes; ao expandir, mostram os componentes.
 - **Serviços de terceiros:** em `/admin/third-party`, cadastre a URL de uma página Atlassian Statuspage (ex.: `https://www.githubstatus.com`, `https://status.veracode.com`) e escolha os componentes a exibir. O backend consulta o provedor periodicamente; o status de terceiros aparece em seção própria e **não** altera o status geral ([ADR 0006](docs/adr/0006-third-party-status.md)).
-- **Times responsáveis:** cada grupo ou componente pode ter um time (Squad, RT, Comunidade, Tribo…), com links de documentação e suporte. Papéis com escopo "times" deixam cada time operar só os próprios componentes: status, incidentes, manutenções e comunicados ([ADR 0009](docs/adr/0009-team-ownership-and-scoped-roles.md)).
+- **Times responsáveis:** cada grupo ou componente pode ter um time (Squad, RT, Comunidade, Tribo…), com links de documentação e suporte e tags livres. Papéis com escopo "times" deixam cada time operar só os próprios componentes: status, incidentes, manutenções e comunicados ([ADR 0009](docs/adr/0009-team-ownership-and-scoped-roles.md)).
 - **Inscrições:** o botão *Inscrever-se* oferece e-mail, Slack, webhook (JSON assinado com HMAC) e RSS/Atom, com filtro por componente e confirmação por e-mail. A entrega usa um outbox transacional com retentativas ([ADR 0010](docs/adr/0010-subscriptions-and-notification-outbox.md)). Configure SMTP e `PUBLIC_BASE_URL` em `deploy/.env` (veja [operações](docs/operations.md#inscrições-notificações)).
-- **Comunicados:** avisos gerais que não são incidentes nem manutenções, escritos em `/admin/announcements` com categoria, time responsável, componentes relacionados, destaque, fixação, pré-visualização e agendamento. A página `/announcements` agrupa por dia e o menu público (Componentes, Histórico, Comunicados) mostra quantos são novos para o visitante ([ADR 0007](docs/adr/0007-announcements.md)).
+- **Comunicados:** avisos gerais que não são incidentes nem manutenções, escritos em `/admin/announcements` com categoria, time responsável, componentes relacionados, destaque, fixação e agendamento. O editor tem os modos visual (barra com negrito, itálico, sublinhado, tamanho, fonte, listas, citação, link e outros), markdown e pré-visualização ([ADR 0011](docs/adr/0011-announcement-text-format-and-editor.md)). Templates de comunicado preenchem o editor. A página `/announcements` agrupa por dia e o menu público (Componentes, Histórico, Comunicados) mostra quantos são novos para o visitante ([ADR 0007](docs/adr/0007-announcements.md)).
 
 ### Organização da página pública
 

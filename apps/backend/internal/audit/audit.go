@@ -31,11 +31,12 @@ const (
 	ResourceUser                 = "user"
 	ResourceRole                 = "role"
 	ResourceSubscription         = "subscription"
+	ResourceAnnouncementTemplate = "announcement_template"
 )
 
 // ResourceTypes lists every resource type, for filter validation.
 var ResourceTypes = []string{ResourceComponent, ResourceComponentGroup, ResourceIncident, ResourceMaintenance, ResourceIncidentTemplate, ResourceMaintenanceTemplate, ResourceExternalSource,
-	ResourceAnnouncement, ResourceAnnouncementCategory, ResourceTeam, ResourceUser, ResourceRole, ResourceSubscription}
+	ResourceAnnouncement, ResourceAnnouncementCategory, ResourceTeam, ResourceUser, ResourceRole, ResourceSubscription, ResourceAnnouncementTemplate}
 
 // Changes holds the relevant before/after values of an operation.
 type Changes struct {

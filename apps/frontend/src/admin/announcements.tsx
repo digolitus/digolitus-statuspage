@@ -1,13 +1,14 @@
-import { useRef, useState, type FormEvent, type RefObject } from "react";
+import { useState, type FormEvent } from "react";
 import { adminApi } from "../api/endpoints";
-import type { Announcement, AnnouncementCategory, AnnouncementCreate, AnnouncementImportance, AnnouncementState, Team } from "../api/types";
+import type { Announcement, AnnouncementCategory, AnnouncementCreate, AnnouncementImportance, AnnouncementState, AnnouncementTemplate, Team } from "../api/types";
+import { MarkdownEditor } from "../components/MarkdownEditor";
 import { RichText } from "../components/RichText";
 import { Badge, ConfirmButton, EmptyState, ErrorPanel, Field, Loading, Pager } from "../components/ui";
 import { formatDateTime, type Tone } from "../lib/format";
 import { Link, navigate } from "../lib/router";
 import { useApi } from "../lib/useApi";
 import { useAuth } from "./authContext";
-import { ComponentPicker, FormStatus, PageHeader, ReadOnlyNote, requireText, useSubmit } from "./shared";
+import { ComponentPicker, FormStatus, PageHeader, ReadOnlyNote, requireText, TemplateSelect, useSubmit } from "./shared";
 
 const announcementStateLabel: Record<AnnouncementState, string> = {
   draft: "Rascunho",
@@ -189,50 +190,6 @@ function toValues(a: Announcement): FormValues {
   };
 }
 
-/** Toolbar buttons that insert the supported formatting at the cursor. */
-function FormatToolbar({ target, onChange }: { target: RefObject<HTMLTextAreaElement | null>; onChange: (v: string) => void }) {
-  const apply = (kind: "bold" | "list" | "link") => {
-    const el = target.current;
-    if (!el) return;
-    const { selectionStart: start, selectionEnd: end, value } = el;
-    const selected = value.slice(start, end);
-    let insert: string;
-    let caret: [number, number];
-    if (kind === "bold") {
-      const text = selected || "texto em negrito";
-      insert = `**${text}**`;
-      caret = [start + 2, start + 2 + text.length];
-    } else if (kind === "link") {
-      const text = selected || "texto do link";
-      insert = `[${text}](https://)`;
-      caret = [start + text.length + 3, start + text.length + 11];
-    } else {
-      const lines = (selected || "item").split("\n").map((l) => (l.startsWith("- ") ? l : `- ${l}`));
-      const prefix = start > 0 && value[start - 1] !== "\n" ? "\n\n" : "";
-      insert = prefix + lines.join("\n");
-      caret = [start + insert.length, start + insert.length];
-    }
-    onChange(value.slice(0, start) + insert + value.slice(end));
-    requestAnimationFrame(() => {
-      el.focus();
-      el.setSelectionRange(caret[0], caret[1]);
-    });
-  };
-  return (
-    <div className="format-toolbar" role="toolbar" aria-label="Formatação do texto">
-      <button type="button" className="secondary-button" onClick={() => apply("bold")}>
-        <strong>N</strong> Negrito
-      </button>
-      <button type="button" className="secondary-button" onClick={() => apply("list")}>
-        • Lista
-      </button>
-      <button type="button" className="secondary-button" onClick={() => apply("link")}>
-        ↗ Link
-      </button>
-    </div>
-  );
-}
-
 /** Copies title, text, category and team from a previous announcement. */
 function CopyFrom({ onApply }: { onApply: (a: Announcement) => void }) {
   const { state } = useApi((signal) => adminApi.announcements.list({ sort: "-updated_at", limit: 30 }, { signal }), []);
@@ -278,9 +235,16 @@ function AnnouncementForm({
   onSaved: (a: Announcement) => void;
 }) {
   const [v, setV] = useState(initial);
-  const [preview, setPreview] = useState(false);
-  const bodyRef = useRef<HTMLTextAreaElement>(null);
   const submit = useSubmit();
+  const templates = useApi((signal) => adminApi.announcementTemplates.list({ is_active: true, limit: 100 }, { signal }), []).state;
+  const applyTemplate = (t: AnnouncementTemplate) =>
+    setV((s) => ({
+      ...s,
+      title: t.title,
+      body: t.body,
+      importance: t.importance,
+      category_id: t.category_id && categories.some((c) => c.id === t.category_id && c.is_active) ? t.category_id : s.category_id,
+    }));
   const set = <K extends keyof FormValues>(k: K, value: FormValues[K]) => setV((s) => ({ ...s, [k]: value }));
   const category = categories.find((c) => c.id === v.category_id);
 
@@ -313,6 +277,9 @@ function AnnouncementForm({
   const fe = submit.fieldErrors;
   return (
     <form className="form" onSubmit={handle} noValidate aria-label="Comunicado">
+      {!existing && templates.status === "success" && templates.data.data.length > 0 && (
+        <TemplateSelect templates={templates.data.data} onApply={applyTemplate} label="Usar template de comunicado" />
+      )}
       {!existing && (
         <CopyFrom
           onApply={(a) =>
@@ -376,41 +343,19 @@ function AnnouncementForm({
       </fieldset>
 
       <div className={`field${fe.body ? " field-invalid" : ""}`}>
-        <div className="editor-head">
-          <label htmlFor="announcement-body">Texto</label>
-          <div className="editor-tabs" role="group" aria-label="Modo do editor">
-            <button type="button" className={preview ? "chip-button" : "chip-button chip-button-active"} aria-pressed={!preview} onClick={() => setPreview(false)}>
-              Escrever
-            </button>
-            <button type="button" className={preview ? "chip-button chip-button-active" : "chip-button"} aria-pressed={preview} onClick={() => setPreview(true)}>
-              Pré-visualizar
-            </button>
-          </div>
-        </div>
-        {preview ? (
-          <div className="editor-preview" aria-label="Pré-visualização">
-            {v.body.trim() ? <RichText text={v.body} /> : <p className="muted">Nada para pré-visualizar.</p>}
-          </div>
-        ) : (
-          <>
-            <FormatToolbar target={bodyRef} onChange={(b) => set("body", b)} />
-            <textarea
-              id="announcement-body"
-              ref={bodyRef}
-              rows={10}
-              maxLength={10000}
-              value={v.body}
-              aria-invalid={fe.body ? true : undefined}
-              aria-describedby="announcement-body-hint"
-              onChange={(e) => set("body", e.target.value)}
-            />
-          </>
+        <MarkdownEditor
+          id="announcement-body"
+          label="Texto"
+          value={v.body}
+          onChange={(b) => set("body", b)}
+          invalid={!!fe.body}
+          describedBy={fe.body ? "announcement-body-error" : undefined}
+        />
+        {fe.body && (
+          <small id="announcement-body-error" className="field-error">
+            {fe.body}
+          </small>
         )}
-        <small id="announcement-body-hint" className="field-hint">
-          Linha em branco separa parágrafos. Use <code>- </code> para listas, <code>**negrito**</code> e{" "}
-          <code>[texto](https://...)</code> para links. {v.body.length}/10000
-        </small>
-        {fe.body && <small className="field-error">{fe.body}</small>}
       </div>
 
       <ComponentPicker permission="announcements.write"

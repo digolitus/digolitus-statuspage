@@ -1412,6 +1412,89 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
 
+  /api/v1/admin/announcement-templates:
+    get:
+      tags: [admin-templates]
+      operationId: listAnnouncementTemplates
+      summary: Listar templates de comunicado
+      parameters:
+        - { name: is_active, in: query, schema: { type: boolean } }
+        - $ref: '#/components/parameters/TemplateSort'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Lista paginada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AnnouncementTemplateList' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [admin-templates]
+      operationId: createAnnouncementTemplate
+      summary: Criar template de comunicado
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AnnouncementTemplateCreate' }
+      responses:
+        '201':
+          description: Criado.
+          headers: { Location: { $ref: '#/components/headers/Location' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AnnouncementTemplate' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/announcement-templates/{id}:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    get:
+      tags: [admin-templates]
+      operationId: getAnnouncementTemplate
+      summary: Consultar template de comunicado
+      responses:
+        '200':
+          description: Template.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AnnouncementTemplate' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    patch:
+      tags: [admin-templates]
+      operationId: updateAnnouncementTemplate
+      summary: Editar, ativar ou desativar template de comunicado
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AnnouncementTemplatePatch' }
+      responses:
+        '200':
+          description: Atualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AnnouncementTemplate' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
   /api/v1/admin/announcements:
     get:
       tags: [admin-announcements]
@@ -2094,7 +2177,7 @@ paths:
       parameters:
         - name: resource_type
           in: query
-          schema: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template, external_source, announcement, announcement_category, team, user, role, subscription] }
+          schema: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template, external_source, announcement, announcement_category, team, user, role, subscription, announcement_template] }
         - { name: resource_id, in: query, schema: { type: string, format: uuid } }
         - { name: action, in: query, schema: { type: string, maxLength: 64 }, description: 'Ex.: created, updated, resolved, started.' }
         - name: sort
@@ -2363,12 +2446,13 @@ components:
     Component:
       type: object
       additionalProperties: false
-      required: [id, name, slug, description, status, is_public, is_active, display_order, group_id, url, team_id, owner_team_id, created_at, updated_at]
+      required: [id, name, slug, description, show_description, status, is_public, is_active, display_order, group_id, url, team_id, owner_team_id, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
         slug: { type: string }
         description: { type: string }
+        show_description: { type: boolean, description: 'Exibe a descrição na página pública (ícone "i" ao lado do nome).' }
         status: { $ref: '#/components/schemas/ComponentStatus' }
         is_public: { type: boolean }
         is_active: { type: boolean }
@@ -2387,6 +2471,7 @@ components:
         name: { type: string, minLength: 1, maxLength: 120 }
         slug: { type: string, maxLength: 80, pattern: '^[a-z0-9]+(-[a-z0-9]+)*$', description: Único. Derivado do nome quando omitido. }
         description: { type: string, maxLength: 1000 }
+        show_description: { type: boolean, default: false, description: Exibe a descrição na página pública. }
         status: { $ref: '#/components/schemas/ComponentStatus' }
         is_public: { type: boolean, default: true }
         display_order: { type: integer, minimum: 0, maximum: 100000, default: 0 }
@@ -2401,6 +2486,7 @@ components:
         name: { type: string, minLength: 1, maxLength: 120 }
         slug: { type: string, maxLength: 80, pattern: '^[a-z0-9]+(-[a-z0-9]+)*$' }
         description: { type: string, maxLength: 1000 }
+        show_description: { type: boolean }
         status: { $ref: '#/components/schemas/ComponentStatus' }
         is_public: { type: boolean }
         is_active: { type: boolean }
@@ -2423,7 +2509,7 @@ components:
         id: { type: string, format: uuid }
         name: { type: string }
         slug: { type: string }
-        description: { type: string }
+        description: { type: string, description: 'Descrição pública; vazia quando o operador não a exibe.' }
         status: { $ref: '#/components/schemas/ComponentStatus' }
         group_id: { type: string, format: uuid, nullable: true }
         url: { type: string, nullable: true, description: Link da página do componente. }
@@ -2671,7 +2757,8 @@ components:
         title: { type: string, minLength: 1, maxLength: 200 }
         impact: { $ref: '#/components/schemas/IncidentImpact' }
         internal_notes: { type: string, maxLength: 5000 }
-        started_at: { type: string, format: date-time }
+        started_at: { type: string, format: date-time, description: 'Início real do impacto (RFC 3339 com offset, não futuro).' }
+        resolved_at: { type: string, format: date-time, description: 'Fim real do impacto, só para incidentes resolvidos (não futuro, não anterior ao início).' }
     IncidentUpdateCreate:
       type: object
       additionalProperties: false
@@ -2680,12 +2767,14 @@ components:
         status: { $ref: '#/components/schemas/IncidentStatus' }
         message: { type: string, minLength: 1, maxLength: 5000 }
         component_ids: { $ref: '#/components/schemas/UUIDList' }
+        resolved_at: { type: string, format: date-time, description: 'Só com status resolved: fim real do impacto. Padrão: agora.' }
     IncidentResolve:
       type: object
       additionalProperties: false
       required: [message]
       properties:
         message: { type: string, minLength: 1, maxLength: 5000 }
+        resolved_at: { type: string, format: date-time, description: 'Fim real do impacto (o incidente pode ser fechado aqui depois). Padrão: agora.' }
     IncidentList:
       type: object
       additionalProperties: false
@@ -2926,6 +3015,55 @@ components:
         data: { type: array, items: { $ref: '#/components/schemas/MaintenanceTemplate' } }
         pagination: { $ref: '#/components/schemas/Pagination' }
 
+    AnnouncementTemplate:
+      type: object
+      additionalProperties: false
+      required: [id, name, description, title, body, importance, category_id, guidance, is_active, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        title: { type: string }
+        body: { type: string, description: Texto em markdown (mesma sintaxe dos comunicados). }
+        importance: { $ref: '#/components/schemas/AnnouncementImportance' }
+        category_id: { type: string, format: uuid, nullable: true }
+        guidance: { type: string }
+        is_active: { type: boolean }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    AnnouncementTemplateCreate:
+      type: object
+      additionalProperties: false
+      required: [name, title, body]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        description: { type: string, maxLength: 1000 }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        body: { type: string, minLength: 1, maxLength: 10000 }
+        importance: { $ref: '#/components/schemas/AnnouncementImportance' }
+        category_id: { type: string, format: uuid, nullable: true }
+        guidance: { type: string, maxLength: 2000 }
+        is_active: { type: boolean, default: true }
+    AnnouncementTemplatePatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        description: { type: string, maxLength: 1000 }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        body: { type: string, minLength: 1, maxLength: 10000 }
+        importance: { $ref: '#/components/schemas/AnnouncementImportance' }
+        category_id: { type: string, format: uuid, nullable: true, description: '`null` remove a categoria.' }
+        guidance: { type: string, maxLength: 2000 }
+        is_active: { type: boolean }
+    AnnouncementTemplateList:
+      type: object
+      additionalProperties: false
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/AnnouncementTemplate' } }
+        pagination: { $ref: '#/components/schemas/Pagination' }
     AuditEvent:
       type: object
       additionalProperties: false
@@ -2933,7 +3071,7 @@ components:
       properties:
         id: { type: integer, format: int64 }
         occurred_at: { $ref: '#/components/schemas/Timestamp' }
-        resource_type: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template, external_source, announcement, announcement_category, team, user, role, subscription] }
+        resource_type: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template, external_source, announcement, announcement_category, team, user, role, subscription, announcement_template] }
         resource_id: { type: string, format: uuid }
         action: { type: string }
         source: { type: string, description: 'Canal de origem (ex.: admin_api).' }
@@ -3162,7 +3300,7 @@ components:
     Team:
       type: object
       additionalProperties: false
-      required: [id, name, kind, description, documentation_url, support_url, is_active, announcement_count, component_count, group_count, member_count, created_at, updated_at]
+      required: [id, name, kind, description, documentation_url, support_url, tags, is_active, announcement_count, component_count, group_count, member_count, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
@@ -3170,6 +3308,7 @@ components:
         description: { type: string }
         documentation_url: { type: string, nullable: true, description: Link da documentação do time. }
         support_url: { type: string, nullable: true, description: Link de como obter suporte. }
+        tags: { type: array, items: { type: string }, description: 'Tags livres do time (ex.: pagamentos, on-call 24x7).' }
         is_active: { type: boolean }
         announcement_count: { type: integer }
         component_count: { type: integer, description: Componentes com este time como responsável direto. }
@@ -3187,6 +3326,7 @@ components:
         description: { type: string, maxLength: 500 }
         documentation_url: { type: string, nullable: true, maxLength: 500, description: 'Endereço http(s). Vazio ou `null` remove.' }
         support_url: { type: string, nullable: true, maxLength: 500, description: 'Endereço http(s). Vazio ou `null` remove.' }
+        tags: { type: array, maxItems: 20, items: { type: string, maxLength: 30 }, description: 'Substitui a lista. Espaços extras e repetidas (sem diferenciar maiúsculas) são removidos.' }
         is_active: { type: boolean, default: true }
     TeamPatch:
       type: object
@@ -3198,6 +3338,7 @@ components:
         description: { type: string, maxLength: 500 }
         documentation_url: { type: string, nullable: true, maxLength: 500, description: 'Endereço http(s). Vazio ou `null` remove.' }
         support_url: { type: string, nullable: true, maxLength: 500, description: 'Endereço http(s). Vazio ou `null` remove.' }
+        tags: { type: array, maxItems: 20, items: { type: string, maxLength: 30 }, description: 'Substitui a lista. Espaços extras e repetidas (sem diferenciar maiúsculas) são removidos.' }
         is_active: { type: boolean }
     TeamList:
       type: object

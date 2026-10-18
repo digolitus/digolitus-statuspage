@@ -54,7 +54,7 @@ As rotas administrativas passam por um único wrapper (`app.New`). Ele valida a 
 
 | Tabela | Papel |
 |---|---|
-| `components` | Estado atual declarado de cada componente; nunca é excluído (`is_active`); `group_id`, `team_id` e `url` opcionais |
+| `components` | Estado atual declarado de cada componente; nunca é excluído (`is_active`); `group_id`, `team_id` e `url` opcionais; a descrição só é pública com `show_description` |
 | `component_groups` | Grupos de apresentação; status derivado dos componentes; excluível só quando vazio; `team_id` opcional (herdado pelos componentes sem time) |
 | `incidents` | Estado atual do incidente (`status`, `resolved_at` coerentes por `CHECK`) |
 | `incident_components` | Componentes afetados atualmente |
@@ -62,7 +62,7 @@ As rotas administrativas passam por um único wrapper (`app.New`). Ele valida a 
 | `maintenances` | Janela prevista (UTC + timezone IANA de apresentação) e instantes reais de início/fim/cancelamento |
 | `maintenance_components` | Componentes afetados |
 | `maintenance_updates` | Linha do tempo publicada, imutável |
-| `incident_templates`, `maintenance_templates` | Textos reutilizáveis; nomes únicos sem diferenciar maiúsculas |
+| `incident_templates`, `maintenance_templates`, `announcement_templates` | Textos reutilizáveis; nomes únicos sem diferenciar maiúsculas |
 | `announcements` | Comunicados (`draft`/`published`/`archived`; agendado = `published_at` futuro), com categoria e time opcionais |
 | `announcement_categories`, `teams` | Classificação e times responsáveis (tipo, links de documentação e suporte); nomes únicos sem diferenciar maiúsculas; em uso não são excluídos |
 | `announcement_components` | Componentes relacionados a um comunicado |

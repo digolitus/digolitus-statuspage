@@ -195,3 +195,24 @@ export function dayLabel(iso: string, now = new Date()): string {
 export function isFuture(iso: string | null | undefined): boolean {
   return Boolean(iso) && new Date(iso as string).getTime() > Date.now();
 }
+
+/** "2 h 15 min", "3 dias e 4 h" — the length of an incident or window. */
+export function formatDuration(fromIso: string, toIso: string): string {
+  const mins = Math.max(0, Math.round((Date.parse(toIso) - Date.parse(fromIso)) / 60000));
+  if (mins < 1) return "menos de 1 min";
+  const d = Math.floor(mins / 1440);
+  const h = Math.floor((mins % 1440) / 60);
+  const m = mins % 60;
+  if (d > 0) return h > 0 ? `${plural(d, "dia", "dias")} e ${h} h` : plural(d, "dia", "dias");
+  if (h > 0) return m > 0 ? `${h} h ${m} min` : `${h} h`;
+  return `${m} min`;
+}
+
+/** An instant as a datetime-local value in the browser's zone. */
+export function toLocalInput(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}

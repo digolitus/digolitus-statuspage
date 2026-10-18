@@ -22,16 +22,18 @@ import (
 
 // Component is the admin representation of a component.
 type Component struct {
-	ID           string  `json:"id"`
-	Name         string  `json:"name"`
-	Slug         string  `json:"slug"`
-	Description  string  `json:"description"`
-	Status       string  `json:"status"`
-	IsPublic     bool    `json:"is_public"`
-	IsActive     bool    `json:"is_active"`
-	DisplayOrder int     `json:"display_order"`
-	GroupID      *string `json:"group_id"`
-	URL          *string `json:"url"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Slug        string `json:"slug"`
+	Description string `json:"description"`
+	// ShowDescription publishes the description (an "i" on the public page).
+	ShowDescription bool    `json:"show_description"`
+	Status          string  `json:"status"`
+	IsPublic        bool    `json:"is_public"`
+	IsActive        bool    `json:"is_active"`
+	DisplayOrder    int     `json:"display_order"`
+	GroupID         *string `json:"group_id"`
+	URL             *string `json:"url"`
 	// TeamID is the team responsible for the component (optional).
 	TeamID *string `json:"team_id"`
 	// OwnerTeamID is the effective owner: TeamID or, when unset, the
@@ -63,26 +65,28 @@ func PublicRefs(refs []Ref) []Ref {
 
 // CreateInput is the payload to create a component.
 type CreateInput struct {
-	Name         string  `json:"name"`
-	Slug         *string `json:"slug"`
-	Description  *string `json:"description"`
-	Status       *string `json:"status"`
-	IsPublic     *bool   `json:"is_public"`
-	DisplayOrder *int    `json:"display_order"`
-	GroupID      *string `json:"group_id"`
-	URL          *string `json:"url"`
-	TeamID       *string `json:"team_id"`
+	Name            string  `json:"name"`
+	Slug            *string `json:"slug"`
+	Description     *string `json:"description"`
+	ShowDescription *bool   `json:"show_description"`
+	Status          *string `json:"status"`
+	IsPublic        *bool   `json:"is_public"`
+	DisplayOrder    *int    `json:"display_order"`
+	GroupID         *string `json:"group_id"`
+	URL             *string `json:"url"`
+	TeamID          *string `json:"team_id"`
 }
 
 // UpdateInput is a partial update; nil fields are left unchanged.
 type UpdateInput struct {
-	Name         *string `json:"name"`
-	Slug         *string `json:"slug"`
-	Description  *string `json:"description"`
-	Status       *string `json:"status"`
-	IsPublic     *bool   `json:"is_public"`
-	IsActive     *bool   `json:"is_active"`
-	DisplayOrder *int    `json:"display_order"`
+	Name            *string `json:"name"`
+	Slug            *string `json:"slug"`
+	Description     *string `json:"description"`
+	ShowDescription *bool   `json:"show_description"`
+	Status          *string `json:"status"`
+	IsPublic        *bool   `json:"is_public"`
+	IsActive        *bool   `json:"is_active"`
+	DisplayOrder    *int    `json:"display_order"`
 	// GroupID: absent = unchanged, null = remove from group.
 	GroupID optional.Nullable[string] `json:"group_id"`
 	// URL: absent = unchanged, null or "" = remove the link.
@@ -93,7 +97,7 @@ type UpdateInput struct {
 
 // statusOnly reports whether the patch changes nothing but the status.
 func (in UpdateInput) statusOnly() bool {
-	return in.Status != nil && in.Name == nil && in.Slug == nil && in.Description == nil && in.IsPublic == nil &&
+	return in.Status != nil && in.Name == nil && in.Slug == nil && in.Description == nil && in.ShowDescription == nil && in.IsPublic == nil &&
 		in.IsActive == nil && in.DisplayOrder == nil && !in.GroupID.Set && !in.URL.Set && !in.TeamID.Set
 }
 
@@ -206,6 +210,9 @@ func (in CreateInput) normalize() (Component, error) {
 		c.Description = strings.TrimSpace(*in.Description)
 		validateDescription(&v, c.Description)
 	}
+	if in.ShowDescription != nil {
+		c.ShowDescription = *in.ShowDescription
+	}
 	if in.Status != nil {
 		c.Status = *in.Status
 		validateStatus(&v, c.Status)
@@ -240,6 +247,10 @@ func (in UpdateInput) apply(c Component) (Component, error) {
 	if in.Description != nil {
 		c.Description = strings.TrimSpace(*in.Description)
 		validateDescription(&v, c.Description)
+		changed = true
+	}
+	if in.ShowDescription != nil {
+		c.ShowDescription = *in.ShowDescription
 		changed = true
 	}
 	if in.Status != nil {

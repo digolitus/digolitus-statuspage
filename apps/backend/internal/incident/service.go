@@ -140,6 +140,18 @@ func (s *Service) PostUpdate(ctx context.Context, id string, in UpdateInput) (In
 			return err
 		}
 		now := s.now()
+		resolvedAt := now
+		if in.ResolvedAt != nil {
+			var v apperror.Validator
+			if in.Status != StatusResolved {
+				v.Add("resolved_at", "Informe o fim apenas ao resolver o incidente.")
+			} else {
+				resolvedAt = parseResolvedAt(&v, *in.ResolvedAt, now)
+			}
+			if err := v.Err(); err != nil {
+				return err
+			}
+		}
 		existing, err := component.RefsByOwner(ctx, tx, component.OwnerIncident, []string{id})
 		if err != nil {
 			return err
@@ -171,10 +183,15 @@ func (s *Service) PostUpdate(ctx context.Context, id string, in UpdateInput) (In
 		next.Status = in.Status
 		next.UpdatedAt = now
 		if in.Status == StatusResolved {
-			if now.Before(next.StartedAt) {
+			if resolvedAt.Before(next.StartedAt) {
+				if in.ResolvedAt != nil {
+					var v apperror.Validator
+					v.Add("resolved_at", "O fim não pode ser anterior ao início.")
+					return v.Err()
+				}
 				return apperror.Conflict("incident_not_started", "O incidente não pode ser resolvido antes do horário de início informado.")
 			}
-			next.ResolvedAt = &now
+			next.ResolvedAt = &resolvedAt
 		}
 		saved, err := save(ctx, tx, next)
 		if err != nil {
@@ -219,7 +236,7 @@ func (s *Service) PostUpdate(ctx context.Context, id string, in UpdateInput) (In
 // that is already resolved is a conflict rather than a silent no-op, so a
 // client never believes it published a message that was discarded.
 func (s *Service) Resolve(ctx context.Context, id string, in ResolveInput) (Incident, error) {
-	inc, err := s.PostUpdate(ctx, id, UpdateInput{Status: StatusResolved, Message: in.Message})
+	inc, err := s.PostUpdate(ctx, id, UpdateInput{Status: StatusResolved, Message: in.Message, ResolvedAt: in.ResolvedAt})
 	if appErr, ok := apperror.As(err); ok && appErr.Code == "incident_resolved" {
 		return Incident{}, apperror.Conflict("incident_already_resolved", "O incidente já está resolvido.")
 	}
