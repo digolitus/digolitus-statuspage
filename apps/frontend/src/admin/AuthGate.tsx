@@ -3,6 +3,7 @@ import { ApiError, isAbort, SESSION_EXPIRED_EVENT } from "../api/client";
 import { authApi } from "../api/endpoints";
 import type { Me, PermissionKey } from "../api/types";
 import { ErrorPanel, Field, Loading, Notice } from "../components/ui";
+import { navigate } from "../lib/router";
 import { AuthContext, useCan } from "./authContext";
 import { FormStatus, useSubmit } from "./shared";
 
@@ -81,7 +82,11 @@ export function AuthGate({ children }: { children: ReactNode }) {
     );
   }
   if (gate.kind === "signed-out") {
-    const onSignedIn = (m: Me) => setGate({ kind: "signed-in", me: m });
+    const onSignedIn = (m: Me) => {
+      // The setup address is not a page of the admin area: go to the overview.
+      if (window.location.pathname.replace(/\/$/, "") === "/admin/setup") navigate("/admin", true);
+      setGate({ kind: "signed-in", me: m });
+    };
     return gate.setupRequired ? <SetupPage onDone={onSignedIn} /> : <LoginPage expired={gate.expired} onDone={onSignedIn} />;
   }
   if (gate.me.user.must_change_password) {
