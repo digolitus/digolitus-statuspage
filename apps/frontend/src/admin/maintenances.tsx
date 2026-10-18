@@ -16,7 +16,8 @@ import {
 } from "../lib/format";
 import { Link, navigate } from "../lib/router";
 import { useApi } from "../lib/useApi";
-import { ComponentPicker, FormStatus, PageHeader, requireText, TemplateSelect, useSubmit } from "./shared";
+import { useAuth } from "./authContext";
+import { ComponentPicker, FormStatus, PageHeader, ReadOnlyNote, requireText, TemplateSelect, useSubmit } from "./shared";
 
 
 const STATES = [
@@ -31,13 +32,17 @@ export function MaintenancesPage() {
   const [state, setStateFilter] = useState<string>("open");
   const [offset, setOffset] = useState(0);
   const list = useApi((signal) => adminApi.maintenances.list({ state: state || undefined, limit: 20, offset }, { signal }), [state, offset]);
+  const canManage = useAuth().can("maintenances.manage");
   return (
     <div className="admin-content">
       <PageHeader title="Manutenções programadas">
-        <Link className="primary-button" to="/admin/maintenances/new">
-          Programar manutenção
-        </Link>
+        {canManage && (
+          <Link className="primary-button" to="/admin/maintenances/new">
+            Programar manutenção
+          </Link>
+        )}
       </PageHeader>
+      {!canManage && <ReadOnlyNote what="programar ou alterar manutenções" />}
       <div className="filters" role="group" aria-label="Filtrar manutenções">
         {STATES.map(([value, label]) => (
           <button
@@ -319,11 +324,14 @@ export function MaintenanceDetailPage({ id }: { id: string }) {
   const [actionError, setActionError] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const msgSubmit = useSubmit();
+  const canManage = useAuth().can("maintenances.manage");
 
   if (state.status === "loading") return <div className="admin-content"><Loading /></div>;
   if (state.status === "error") return <div className="admin-content"><ErrorPanel error={state.error} onRetry={reload} /></div>;
   const m = state.data;
   const open = m.status === "scheduled" || m.status === "in_progress";
+  // Lifecycle actions and edits require the permission; reading does not.
+  const editable = open && canManage;
 
   return (
     <div className="admin-content">
@@ -368,7 +376,9 @@ export function MaintenanceDetailPage({ id }: { id: string }) {
       {m.start_overdue && <p className="overdue">O início previsto já passou. Inicie ou cancele a manutenção; nada muda automaticamente.</p>}
       {m.end_overdue && <p className="overdue">O término previsto já passou. Conclua a manutenção ou ajuste o término previsto.</p>}
 
-      {open && (
+      {open && !canManage && <ReadOnlyNote what="iniciar, concluir, cancelar ou editar manutenções" />}
+
+      {editable && (
         <section className="panel" aria-labelledby="actions-title">
           <h2 id="actions-title">Ciclo de vida</h2>
           <Field label="Mensagem pública da ação (opcional)">
@@ -402,7 +412,7 @@ export function MaintenanceDetailPage({ id }: { id: string }) {
         </section>
       )}
 
-      {open && (
+      {editable && (
         <section className="panel" aria-labelledby="message-title">
           <h2 id="message-title">Publicar mensagem</h2>
           <form
@@ -431,14 +441,14 @@ export function MaintenanceDetailPage({ id }: { id: string }) {
         </section>
       )}
 
-      {open ? (
+      {editable ? (
         <section className="panel" aria-labelledby="edit-title">
           <h2 id="edit-title">Editar ou reprogramar</h2>
           <p className="muted">Reprogramações ficam no histórico operacional. Para explicá-las publicamente, publique uma mensagem.</p>
           <EditForm key={m.updated_at} m={m} onSaved={setData} />
         </section>
       ) : (
-        <p className="muted">Manutenção encerrada; o histórico é preservado e não aceita alterações.</p>
+        !open && <p className="muted">Manutenção encerrada; o histórico é preservado e não aceita alterações.</p>
       )}
 
       <section aria-labelledby="timeline-title">

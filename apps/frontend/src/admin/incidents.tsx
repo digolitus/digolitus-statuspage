@@ -6,7 +6,8 @@ import { StatusSelect } from "../components/StatusSelect";
 import { browserTimeZone, formatDateTime, IMPACTS, impactLabel, incidentStatusLabel, toneForIncident } from "../lib/format";
 import { Link, navigate } from "../lib/router";
 import { useApi } from "../lib/useApi";
-import { ComponentPicker, FormStatus, PageHeader, requireText, TemplateSelect, useSubmit } from "./shared";
+import { useAuth } from "./authContext";
+import { ComponentPicker, FormStatus, PageHeader, ReadOnlyNote, requireText, TemplateSelect, useSubmit } from "./shared";
 
 const OPEN_STATUSES: Exclude<IncidentStatus, "resolved">[] = ["investigating", "identified", "monitoring"];
 const ALL_STATUSES = Object.keys(incidentStatusLabel) as IncidentStatus[];
@@ -19,13 +20,17 @@ export function IncidentsPage() {
   const [state, setStateFilter] = useState<"active" | "resolved" | "">("active");
   const [offset, setOffset] = useState(0);
   const list = useApi((signal) => adminApi.incidents.list({ state: state || undefined, limit: 20, offset }, { signal }), [state, offset]);
+  const canManage = useAuth().can("incidents.manage");
   return (
     <div className="admin-content">
       <PageHeader title="Incidentes">
-        <Link className="primary-button" to="/admin/incidents/new">
-          Novo incidente
-        </Link>
+        {canManage && (
+          <Link className="primary-button" to="/admin/incidents/new">
+            Novo incidente
+          </Link>
+        )}
       </PageHeader>
+      {!canManage && <ReadOnlyNote what="abrir ou atualizar incidentes" />}
       <div className="filters" role="group" aria-label="Filtrar incidentes">
         {([
           ["active", "Ativos"],
@@ -305,6 +310,7 @@ export function IncidentDetailPage({ id }: { id: string }) {
   const { state, reload, setData } = useApi((signal) => adminApi.incidents.get(id, { signal }), [id]);
   const [resolveMessage, setResolveMessage] = useState("O problema foi resolvido e o serviço está operando normalmente.");
   const [resolveError, setResolveError] = useState<string | null>(null);
+  const canManage = useAuth().can("incidents.manage");
 
   if (state.status === "loading") return <div className="admin-content"><Loading /></div>;
   if (state.status === "error") return <div className="admin-content"><ErrorPanel error={state.error} onRetry={reload} /></div>;
@@ -336,14 +342,16 @@ export function IncidentDetailPage({ id }: { id: string }) {
         </div>
       </dl>
 
-      {!resolved && (
+      {!canManage && <ReadOnlyNote what="publicar atualizações ou alterar incidentes" />}
+
+      {canManage && !resolved && (
         <section className="panel" aria-labelledby="publish-title">
           <h2 id="publish-title">Publicar atualização</h2>
           <PublishUpdateForm key={inc.updated_at} incident={inc} onSaved={setData} />
         </section>
       )}
 
-      {!resolved && (
+      {canManage && !resolved && (
         <section className="panel" aria-labelledby="resolve-title">
           <h2 id="resolve-title">Encerrar incidente</h2>
           <Field label="Mensagem de encerramento">
@@ -374,10 +382,12 @@ export function IncidentDetailPage({ id }: { id: string }) {
 
       {resolved && <p className="muted">Incidente resolvido. A linha do tempo é preservada e não aceita novas atualizações.</p>}
 
-      <section className="panel" aria-labelledby="meta-title">
-        <h2 id="meta-title">Dados do incidente</h2>
-        <MetadataForm key={inc.updated_at} incident={inc} onSaved={setData} />
-      </section>
+      {canManage && (
+        <section className="panel" aria-labelledby="meta-title">
+          <h2 id="meta-title">Dados do incidente</h2>
+          <MetadataForm key={inc.updated_at} incident={inc} onSaved={setData} />
+        </section>
+      )}
 
       <section aria-labelledby="timeline-title">
         <h2 id="timeline-title">Linha do tempo</h2>

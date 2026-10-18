@@ -6,7 +6,8 @@ import { Badge, ConfirmButton, EmptyState, ErrorPanel, Field, Loading, Pager } f
 import { formatDateTime, type Tone } from "../lib/format";
 import { Link, navigate } from "../lib/router";
 import { useApi } from "../lib/useApi";
-import { ComponentPicker, FormStatus, PageHeader, requireText, useSubmit } from "./shared";
+import { useAuth } from "./authContext";
+import { ComponentPicker, FormStatus, PageHeader, ReadOnlyNote, requireText, useSubmit } from "./shared";
 
 const announcementStateLabel: Record<AnnouncementState, string> = {
   draft: "Rascunho",
@@ -56,6 +57,7 @@ export function AnnouncementsPage() {
     [stateFilter, search, category, offset],
   );
   const categories = taxonomy.state.data?.categories ?? [];
+  const canWrite = useAuth().can("announcements.write");
 
   return (
     <div className="admin-content">
@@ -63,10 +65,13 @@ export function AnnouncementsPage() {
         <Link className="secondary-button" to="/admin/announcement-settings">
           Categorias e times
         </Link>
-        <Link className="primary-button" to="/admin/announcements/new">
-          Novo comunicado
-        </Link>
+        {canWrite && (
+          <Link className="primary-button" to="/admin/announcements/new">
+            Novo comunicado
+          </Link>
+        )}
       </PageHeader>
+      {!canWrite && <ReadOnlyNote what="escrever comunicados" />}
       <p className="muted">
         Avisos gerais para os clientes, que não são incidentes nem manutenções. Comunicados não alteram nenhum status e
         aparecem em <Link to="/announcements">/announcements</Link>, com aviso de novidade no menu da página pública.
@@ -432,6 +437,9 @@ function localToISO(value: string): string | null {
 }
 
 function Lifecycle({ a, onChanged }: { a: Announcement; onChanged: (a: Announcement) => void }) {
+  const { can } = useAuth();
+  const canPublish = can("announcements.publish");
+  const canWrite = can("announcements.write");
   const [when, setWhen] = useState("");
   const submit = useSubmit();
   const run = (fn: () => Promise<Announcement>, msg: string) =>
@@ -453,8 +461,10 @@ function Lifecycle({ a, onChanged }: { a: Announcement; onChanged: (a: Announcem
         {a.state === "archived" && <>Arquivado em {formatDateTime(a.archived_at)}; não aparece na página pública.</>}
         {a.state === "draft" && <>Visível apenas na administração.</>}
       </p>
-      {a.state === "draft" && (
+      {!canPublish && <ReadOnlyNote what="publicar, agendar, arquivar ou despublicar comunicados" />}
+      {a.state === "draft" && (canPublish || canWrite) && (
         <div className="form-actions">
+          {canPublish && <>
           <ConfirmButton
             label="Publicar agora"
             confirmLabel="Confirmar publicação"
@@ -477,7 +487,8 @@ function Lifecycle({ a, onChanged }: { a: Announcement; onChanged: (a: Announcem
           >
             Agendar
           </button>
-          <ConfirmButton
+          </>}
+          {canWrite && <ConfirmButton
             variant="danger"
             label="Excluir rascunho"
             confirmLabel="Confirmar exclusão"
@@ -486,15 +497,15 @@ function Lifecycle({ a, onChanged }: { a: Announcement; onChanged: (a: Announcem
               await adminApi.announcements.remove(a.id);
               navigate("/admin/announcements");
             }}
-          />
+          />}
         </div>
       )}
-      {a.state === "draft" && (
+      {a.state === "draft" && canPublish && (
         <small id="schedule-hint" className="field-hint">
           O horário de agendamento usa o fuso deste navegador ({Intl.DateTimeFormat().resolvedOptions().timeZone}).
         </small>
       )}
-      {(a.state === "scheduled" || a.state === "published") && (
+      {canPublish && (a.state === "scheduled" || a.state === "published") && (
         <div className="form-actions">
           {a.state === "published" && (
             <ConfirmButton
@@ -514,7 +525,7 @@ function Lifecycle({ a, onChanged }: { a: Announcement; onChanged: (a: Announcem
           />
         </div>
       )}
-      {a.state === "archived" && (
+      {canPublish && a.state === "archived" && (
         <div className="form-actions">
           <button
             type="button"
@@ -563,6 +574,7 @@ export function AnnouncementNewPage() {
 
 export function AnnouncementDetailPage({ id }: { id: string }) {
   const taxonomy = useTaxonomy();
+  const canWrite = useAuth().can("announcements.write");
   const item = useApi((signal) => adminApi.announcements.get(id, { signal }), [id]);
   return (
     <div className="admin-content">
@@ -576,6 +588,7 @@ export function AnnouncementDetailPage({ id }: { id: string }) {
       {item.state.status === "success" && taxonomy.state.status === "success" && (
         <>
           <Lifecycle a={item.state.data} onChanged={item.setData} />
+          {canWrite ? (
           <AnnouncementForm
             key={item.state.data.id}
             initial={toValues(item.state.data)}
@@ -584,6 +597,13 @@ export function AnnouncementDetailPage({ id }: { id: string }) {
             teams={taxonomy.state.data.teams}
             onSaved={item.setData}
           />
+          ) : (
+            <section className="panel" aria-label="Conteúdo">
+              <ReadOnlyNote what="editar o texto de comunicados" />
+              <h2>{item.state.data.title}</h2>
+              <RichText text={item.state.data.body} />
+            </section>
+          )}
         </>
       )}
     </div>

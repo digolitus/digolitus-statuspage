@@ -16,7 +16,8 @@ import { ConfirmButton, EmptyState, ErrorPanel, Field, Loading, Pager } from "..
 import { StatusSelect } from "../components/StatusSelect";
 import { expectedImpactLabel, IMPACTS, impactLabel, incidentStatusLabel } from "../lib/format";
 import { useApi } from "../lib/useApi";
-import { FormStatus, PageHeader, requireText, useSubmit } from "./shared";
+import { useAuth } from "./authContext";
+import { FormStatus, PageHeader, ReadOnlyNote, requireText, useSubmit } from "./shared";
 
 type Kind = "incident" | "maintenance";
 type AnyTemplate = IncidentTemplate | MaintenanceTemplate;
@@ -179,14 +180,18 @@ export function TemplatesPage({ kind }: { kind: Kind }) {
     [kind, filter, offset],
   );
   const title = kind === "incident" ? "Templates de incidente" : "Templates de manutenção";
+  const canManage = useAuth().can("templates.manage");
 
   return (
     <div className="admin-content">
       <PageHeader title={title}>
-        <button type="button" className="primary-button" aria-expanded={creating} onClick={() => setCreating((c) => !c)}>
-          Novo template
-        </button>
+        {canManage && (
+          <button type="button" className="primary-button" aria-expanded={creating} onClick={() => setCreating((c) => !c)}>
+            Novo template
+          </button>
+        )}
       </PageHeader>
+      {!canManage && <ReadOnlyNote what="criar ou editar templates" />}
       <p className="muted">
         Templates apenas preenchem formulários para revisão. Editar ou desativar um template não altera eventos já publicados.
       </p>
@@ -248,7 +253,7 @@ export function TemplatesPage({ kind }: { kind: Kind }) {
                       </div>
                     </div>
                   </div>
-                  <div className="form-actions">
+                  {canManage && <div className="form-actions">
                     <button type="button" className="secondary-button" aria-expanded={editing === t.id} onClick={() => setEditing(editing === t.id ? null : t.id)}>
                       Editar
                     </button>
@@ -262,7 +267,7 @@ export function TemplatesPage({ kind }: { kind: Kind }) {
                         reload();
                       }}
                     />
-                  </div>
+                  </div>}
                   {editing === t.id && (
                     <TemplateForm
                       kind={kind}

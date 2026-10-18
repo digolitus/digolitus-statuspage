@@ -98,14 +98,20 @@ export type AnnouncementState = "draft" | "scheduled" | "published" | "archived"
 
 export type AuditEvent = {
   action: string;
+  /** Usuário autenticado que fez a alteração; `null` em registros anteriores à autenticação. */
+  actor: {
+    id: string;
+    /** Nome e e-mail no momento da alteração. */
+    name: string;
+  } | null;
   /** Valores relevantes anteriores (`before`) e posteriores (`after`). */
   changes: Record<string, unknown>;
   id: number;
   occurred_at: Timestamp;
   request_id: string | null;
   resource_id: string;
-  resource_type: "component" | "component_group" | "incident" | "maintenance" | "incident_template" | "maintenance_template" | "external_source" | "announcement" | "announcement_category" | "team";
-  /** Canal de origem (ex.: admin_api). Não identifica uma pessoa. */
+  resource_type: "component" | "component_group" | "incident" | "maintenance" | "incident_template" | "maintenance_template" | "external_source" | "announcement" | "announcement_category" | "team" | "user" | "role";
+  /** Canal de origem (ex.: admin_api). */
   source: string;
 };
 
@@ -413,6 +419,11 @@ export type IncidentUpdateList = {
 /** RFC 3339 com offset (ex. `2026-11-20T02:00:00-03:00`) ou data e hora locais (`2026-11-20T02:00`) interpretadas no `timezone`. */
 export type InputInstant = string;
 
+export type LoginInput = {
+  email: string;
+  password: string;
+};
+
 export type Maintenance = {
   cancelled_at: NullableTimestamp;
   completed_at: NullableTimestamp;
@@ -529,6 +540,12 @@ export type MaintenanceUpdateList = {
   pagination: Pagination;
 };
 
+export type Me = {
+  is_admin: boolean;
+  permissions: PermissionKey[];
+  user: User;
+};
+
 export type NullableTimestamp = string | null;
 
 export type OpenIncidentStatus = "investigating" | "identified" | "monitoring";
@@ -539,6 +556,33 @@ export type Pagination = {
   limit: number;
   offset: number;
   total: number;
+};
+
+/** 12 a 128 caracteres; não pode ser igual ao e-mail. */
+export type Password = string;
+
+export type PasswordChange = {
+  current_password: string;
+  new_password: Password;
+};
+
+export type PasswordReset = {
+  password: Password;
+};
+
+export type PermissionInfo = {
+  description: string;
+  group: string;
+  key: PermissionKey;
+  label: string;
+  /** Permite mudar quem pode fazer o quê (usuários e papéis). */
+  sensitive: boolean;
+};
+
+export type PermissionKey = "components.status" | "components.manage" | "third_party.manage" | "incidents.manage" | "maintenances.manage" | "templates.manage" | "announcements.write" | "announcements.publish" | "announcements.settings" | "audit.read" | "users.manage" | "roles.manage";
+
+export type PermissionList = {
+  data: PermissionInfo[];
 };
 
 export type PublicAnnouncement = {
@@ -673,6 +717,52 @@ export type PublicThirdPartySource = {
   status: OverallStatus;
 };
 
+export type Role = {
+  created_at: Timestamp;
+  description: string;
+  id: string;
+  /** Papel Administrador: acesso total e imutável. */
+  is_system: boolean;
+  name: string;
+  /** O Administrador lista todas. */
+  permissions: PermissionKey[];
+  updated_at: Timestamp;
+  user_count: number;
+};
+
+export type RoleCreate = {
+  name: string;
+  description?: string;
+  permissions?: PermissionKey[];
+};
+
+export type RoleList = {
+  data: Role[];
+};
+
+export type RolePatch = {
+  description?: string;
+  name?: string;
+  permissions?: PermissionKey[];
+};
+
+export type RoleRef = {
+  id: string;
+  is_system: boolean;
+  name: string;
+};
+
+export type SetupInput = {
+  email: string;
+  name: string;
+  password: Password;
+  setup_token: string;
+};
+
+export type SetupStatus = {
+  setup_required: boolean;
+};
+
 export type StatusSummary = {
   active_incidents: PublicIncident[];
   /** Todos os componentes públicos (agrupados ou não), na ordem de exibição. */
@@ -734,3 +824,38 @@ export type TeamRef = {
 export type Timestamp = string;
 
 export type UUIDList = string[];
+
+export type User = {
+  created_at: Timestamp;
+  email: string;
+  id: string;
+  is_active: boolean;
+  last_login_at: NullableTimestamp;
+  locked_until: NullableTimestamp;
+  /** Senha definida por um administrador (criação ou redefinição): a API administrativa responde 403 `password_change_required` até o usuário escolher a própria senha em `POST /api/v1/auth/password`. */
+  must_change_password: boolean;
+  name: string;
+  roles: RoleRef[];
+  updated_at: Timestamp;
+};
+
+export type UserCreate = {
+  email: string;
+  name: string;
+  password: Password;
+  role_ids?: string[];
+};
+
+export type UserList = {
+  data: User[];
+};
+
+export type UserPatch = {
+  email?: string;
+  is_active?: boolean;
+  name?: string;
+  /** Substitui os papéis do usuário. */
+  role_ids?: string[];
+  /** `true` remove o bloqueio por tentativas de login. */
+  unlock?: boolean;
+};

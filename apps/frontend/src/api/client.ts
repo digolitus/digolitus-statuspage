@@ -1,5 +1,8 @@
 import type { ErrorBody, FieldError } from "./types";
 
+/** Fired when an admin call reports that the session ended (HTTP 401). */
+export const SESSION_EXPIRED_EVENT = "app:session-expired";
+
 /** Default time budget for one API call. */
 export const REQUEST_TIMEOUT_MS = 10_000;
 
@@ -91,7 +94,13 @@ export async function request<T>(method: string, path: string, options: RequestO
     }
     let response: Response;
     try {
-      response = await fetch(buildUrl(path, options.query), { method, headers, body, signal: controller.signal });
+      response = await fetch(buildUrl(path, options.query), {
+        method,
+        headers,
+        body,
+        signal: controller.signal,
+        credentials: "same-origin",
+      });
     } catch (error) {
       if (timedOut) {
         const timeout = new Error("timeout");
@@ -111,6 +120,9 @@ export async function request<T>(method: string, path: string, options: RequestO
       }
     }
     if (!response.ok) {
+      if (response.status === 401 && path.startsWith("/api/v1/admin/")) {
+        window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+      }
       const envelope = data as Partial<ErrorBody> | undefined;
       const err = envelope?.error;
       throw new ApiError(

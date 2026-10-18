@@ -5,7 +5,8 @@ import type { ExternalComponent, ExternalSource } from "../api/types";
 import { Badge, ConfirmButton, EmptyState, ErrorPanel, Field, Loading } from "../components/ui";
 import { externalStatusLabel, formatDateTime, toneForStatus } from "../lib/format";
 import { useApi } from "../lib/useApi";
-import { FormStatus, PageHeader, useSubmit } from "./shared";
+import { useAuth } from "./authContext";
+import { FormStatus, PageHeader, ReadOnlyNote, useSubmit } from "./shared";
 
 const EXAMPLES = ["https://www.githubstatus.com", "https://status.veracode.com"];
 
@@ -123,6 +124,7 @@ function SelectionEditor({ source, onSaved }: { source: ExternalSource; onSaved:
 }
 
 function SourceItem({ source: s, onChanged, startOpen }: { source: ExternalSource; onChanged: () => void; startOpen: boolean }) {
+  const canManage = useAuth().can("third_party.manage");
   const [open, setOpen] = useState(startOpen);
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -153,7 +155,7 @@ function SourceItem({ source: s, onChanged, startOpen }: { source: ExternalSourc
           </p>
         </div>
       </div>
-      <div className="form-actions">
+      {canManage && <div className="form-actions">
         <button type="button" className="secondary-button" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
           Escolher componentes
         </button>
@@ -196,7 +198,7 @@ function SourceItem({ source: s, onChanged, startOpen }: { source: ExternalSourc
             onChanged();
           }}
         />
-      </div>
+      </div>}
       {syncError && (
         <p className="field-error" role="alert">
           {syncError}
@@ -210,6 +212,7 @@ function SourceItem({ source: s, onChanged, startOpen }: { source: ExternalSourc
 export function ThirdPartyPage() {
   const { state, reload } = useApi((signal) => adminApi.external.list({ signal }), []);
   const [lastCreated, setLastCreated] = useState<string | null>(null);
+  const canManage = useAuth().can("third_party.manage");
   return (
     <div className="admin-content">
       <PageHeader title="Serviços de terceiros" />
@@ -217,14 +220,18 @@ export function ThirdPartyPage() {
         Incorpore o status de serviços de que a plataforma depende (GitHub, Veracode e outras páginas Atlassian Statuspage). O
         status é lido periodicamente da página de cada provedor, exibido em seção própria e não altera o status geral.
       </p>
-      <section className="panel" aria-label="Novo provedor">
-        <AddSourceForm
-          onCreated={(s) => {
-            setLastCreated(s.id);
-            reload();
-          }}
-        />
-      </section>
+      {canManage ? (
+        <section className="panel" aria-label="Novo provedor">
+          <AddSourceForm
+            onCreated={(s) => {
+              setLastCreated(s.id);
+              reload();
+            }}
+          />
+        </section>
+      ) : (
+        <ReadOnlyNote what="cadastrar ou alterar provedores" />
+      )}
       {state.status === "loading" && <Loading />}
       {state.status === "error" && <ErrorPanel error={state.error} onRetry={reload} />}
       {state.status === "success" &&

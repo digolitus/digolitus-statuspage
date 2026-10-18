@@ -5,7 +5,8 @@ import { ConfirmButton, EmptyState, ErrorPanel, Field, Loading } from "../compon
 import { plural } from "../lib/format";
 import { Link } from "../lib/router";
 import { useApi } from "../lib/useApi";
-import { FormStatus, PageHeader, requireText, useSubmit } from "./shared";
+import { useAuth } from "./authContext";
+import { FormStatus, PageHeader, ReadOnlyNote, requireText, useSubmit } from "./shared";
 
 type Values = { name: string; description: string; display_order: string };
 const blank: Values = { name: "", description: "", display_order: "0" };
@@ -71,6 +72,7 @@ export function GroupsPage() {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const { state, reload } = useApi((signal) => adminApi.groups.list({ limit: 100 }, { signal }), []);
+  const canManage = useAuth().can("components.manage");
 
   return (
     <div className="admin-content">
@@ -78,10 +80,13 @@ export function GroupsPage() {
         <Link to="/admin/components">← Componentes</Link>
       </p>
       <PageHeader title="Grupos de componentes">
-        <button type="button" className="primary-button" aria-expanded={creating} onClick={() => setCreating((c) => !c)}>
-          Novo grupo
-        </button>
+        {canManage && (
+          <button type="button" className="primary-button" aria-expanded={creating} onClick={() => setCreating((c) => !c)}>
+            Novo grupo
+          </button>
+        )}
       </PageHeader>
+      {!canManage && <ReadOnlyNote what="criar, editar ou excluir grupos" />}
       <p className="muted">
         Grupos organizam componentes na página pública, onde aparecem recolhidos com o status mais grave entre seus componentes.
         Para incluir um componente, edite-o em Componentes e escolha o grupo.
@@ -119,7 +124,7 @@ export function GroupsPage() {
                     </div>
                   </div>
                 </div>
-                <div className="form-actions">
+                {canManage && <div className="form-actions">
                   <button type="button" className="secondary-button" aria-expanded={editing === g.id} onClick={() => setEditing(editing === g.id ? null : g.id)}>
                     Editar
                   </button>
@@ -135,7 +140,7 @@ export function GroupsPage() {
                     }}
                   />
                   {g.component_count > 0 && <small className="muted">Mova os componentes para excluir o grupo.</small>}
-                </div>
+                </div>}
                 {editing === g.id && (
                   <GroupForm
                     initial={{ name: g.name, description: g.description, display_order: String(g.display_order) }}

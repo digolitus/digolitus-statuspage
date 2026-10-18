@@ -138,6 +138,15 @@ export function TemplateSelect<T extends { id: string; name: string; guidance: s
   );
 }
 
+/** Shown on pages the user may read but not change (no permission). */
+export function ReadOnlyNote({ what }: { what: string }) {
+  return (
+    <p className="read-only-note" role="note">
+      Somente leitura: seu papel não permite {what}.
+    </p>
+  );
+}
+
 export function PageHeader({ title, children }: { title: string; children?: ReactNode }) {
   return (
     <div className="admin-page-header">

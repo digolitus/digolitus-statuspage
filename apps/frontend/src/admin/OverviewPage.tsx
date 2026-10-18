@@ -3,27 +3,40 @@ import { Badge, ErrorPanel, Loading } from "../components/ui";
 import { formatDateTime, overallLabel, toneForStatus } from "../lib/format";
 import { Link } from "../lib/router";
 import { useApi } from "../lib/useApi";
+import { useAuth } from "./authContext";
 import { PageHeader } from "./shared";
 
 export function OverviewPage() {
+  const { can } = useAuth();
+  const canAudit = can("audit.read");
   const { state, reload } = useApi(async (signal) => {
     const [summary, components, audit] = await Promise.all([
       publicApi.status({ signal }),
       adminApi.components.list({ limit: 1 }, { signal }),
-      adminApi.audit.list({ limit: 5 }, { signal }),
+      // Recent changes only for roles that may read the audit log.
+      canAudit ? adminApi.audit.list({ limit: 5 }, { signal }).then((a) => a.data) : Promise.resolve(null),
     ]);
-    return { summary, totalComponents: components.pagination.total, audit: audit.data };
-  }, []);
+    return { summary, totalComponents: components.pagination.total, audit };
+  }, [canAudit]);
 
   return (
     <div className="admin-content">
       <PageHeader title="Visão geral">
-        <Link className="primary-button" to="/admin/incidents/new">
-          Abrir incidente
-        </Link>
-        <Link className="secondary-button" to="/admin/maintenances/new">
-          Programar manutenção
-        </Link>
+        {can("incidents.manage") && (
+          <Link className="primary-button" to="/admin/incidents/new">
+            Abrir incidente
+          </Link>
+        )}
+        {can("maintenances.manage") && (
+          <Link className="secondary-button" to="/admin/maintenances/new">
+            Programar manutenção
+          </Link>
+        )}
+        {can("announcements.write") && (
+          <Link className="secondary-button" to="/admin/announcements/new">
+            Novo comunicado
+          </Link>
+        )}
       </PageHeader>
       {state.status === "loading" && <Loading />}
       {state.status === "error" && <ErrorPanel error={state.error} onRetry={reload} />}
@@ -49,6 +62,8 @@ export function OverviewPage() {
               <strong>{state.data.totalComponents}</strong>
             </Link>
           </div>
+          {state.data.audit && (
+            <>
           <h2>Alterações recentes</h2>
           {state.data.audit.length === 0 ? (
             <p className="muted">Nenhuma alteração registrada.</p>
@@ -57,6 +72,7 @@ export function OverviewPage() {
               {state.data.audit.map((e) => (
                 <li key={e.id}>
                   <time dateTime={e.occurred_at}>{formatDateTime(e.occurred_at)}</time> — {e.resource_type} · {e.action}
+                  {e.actor && <span className="muted"> · {e.actor.name}</span>}
                 </li>
               ))}
             </ul>
@@ -64,6 +80,8 @@ export function OverviewPage() {
           <p>
             <Link to="/admin/audit">Ver histórico completo</Link>
           </p>
+            </>
+          )}
         </>
       )}
     </div>

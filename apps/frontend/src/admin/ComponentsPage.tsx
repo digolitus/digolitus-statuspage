@@ -6,7 +6,8 @@ import { StatusSelect } from "../components/StatusSelect";
 import { componentStatusLabel, toneForStatus } from "../lib/format";
 import { Link } from "../lib/router";
 import { useApi } from "../lib/useApi";
-import { FormStatus, PageHeader, requireText, useSubmit } from "./shared";
+import { useAuth } from "./authContext";
+import { FormStatus, PageHeader, ReadOnlyNote, requireText, useSubmit } from "./shared";
 
 const STATUSES = Object.keys(componentStatusLabel) as ComponentStatus[];
 
@@ -140,6 +141,30 @@ function ComponentForm({
   );
 }
 
+/** Status-only change, for roles with components.status but not components.manage. */
+function StatusQuickChange({ component, onSaved }: { component: Component; onSaved: () => void }) {
+  const [status, setStatus] = useState<ComponentStatus>(component.status);
+  const submit = useSubmit();
+  return (
+    <div className="status-quick">
+      <Field label={`Status de ${component.name}`}>
+        {(p) => <StatusSelect {...p} value={status} options={STATUSES} labels={componentStatusLabel} onChange={(x) => setStatus(x as ComponentStatus)} />}
+      </Field>
+      <button
+        type="button"
+        className="secondary-button"
+        disabled={submit.busy || status === component.status}
+        onClick={async () => {
+          if (await submit.run(() => adminApi.components.update(component.id, { status }), "Status atualizado.")) onSaved();
+        }}
+      >
+        Salvar status
+      </button>
+      <FormStatus error={submit.formError} success={submit.success} />
+    </div>
+  );
+}
+
 export function ComponentsPage() {
   const [filter, setFilter] = useState<"active" | "inactive" | "all">("active");
   const [offset, setOffset] = useState(0);
@@ -154,6 +179,9 @@ export function ComponentsPage() {
   const groupsState = useApi((signal) => adminApi.groups.list({ limit: 100 }, { signal }), []).state;
   const groups = groupsState.status === "success" ? groupsState.data.data : [];
   const groupName = (id: string | null) => groups.find((g) => g.id === id)?.name;
+  const { can } = useAuth();
+  const canManage = can("components.manage");
+  const canStatus = can("components.status");
 
   return (
     <div className="admin-content">
@@ -161,10 +189,13 @@ export function ComponentsPage() {
         <Link className="secondary-button" to="/admin/component-groups">
           Gerenciar grupos
         </Link>
-        <button type="button" className="primary-button" onClick={() => setCreating((c) => !c)} aria-expanded={creating}>
-          Novo componente
-        </button>
+        {canManage && (
+          <button type="button" className="primary-button" onClick={() => setCreating((c) => !c)} aria-expanded={creating}>
+            Novo componente
+          </button>
+        )}
       </PageHeader>
+      {!canManage && <ReadOnlyNote what={canStatus ? "cadastrar ou editar componentes; você pode alterar o status" : "alterar componentes"} />}
       <p className="muted">
         O status de um componente é declarado manualmente. Incidentes ativos e manutenções em andamento podem agravar o status
         exibido publicamente, conforme a política documentada na API.
@@ -242,6 +273,8 @@ export function ComponentsPage() {
                     </div>
                     <Badge tone={toneForStatus[c.status]}>{componentStatusLabel[c.status]}</Badge>
                   </div>
+                  {!canManage && canStatus && c.is_active && <StatusQuickChange component={c} onSaved={reload} />}
+                  {canManage && (
                   <div className="form-actions">
                     <button type="button" className="secondary-button" onClick={() => setEditing(editing === c.id ? null : c.id)} aria-expanded={editing === c.id}>
                       Editar
@@ -261,6 +294,7 @@ export function ComponentsPage() {
                       }}
                     />
                   </div>
+                  )}
                   {editing === c.id && (
                     <ComponentForm
                       initial={toValues(c)}

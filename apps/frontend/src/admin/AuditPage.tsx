@@ -18,6 +18,8 @@ const RESOURCE_LABEL: Record<AuditEvent["resource_type"], string> = {
   announcement: "Comunicado",
   announcement_category: "Categoria de comunicado",
   team: "Time responsável",
+  user: "Usuário",
+  role: "Papel",
 };
 
 function resourceLink(e: AuditEvent): string | null {
@@ -38,8 +40,8 @@ export function AuditPage() {
     <div className="admin-content">
       <PageHeader title="Histórico operacional" />
       <p className="muted">
-        Cada alteração é registrada na mesma transação da operação. A origem <code>admin_api</code> identifica o canal; sem
-        autenticação, o autor humano não pode ser verificado.
+        Cada alteração é registrada na mesma transação da operação, com o usuário que a fez. Registros anteriores à
+        autenticação aparecem sem autor.
       </p>
       <label className="inline-filter">
         Tipo de recurso{" "}
@@ -73,6 +75,7 @@ export function AuditPage() {
                     <th scope="col">Quando</th>
                     <th scope="col">Recurso</th>
                     <th scope="col">Ação</th>
+                    <th scope="col">Autor</th>
                     <th scope="col">Origem</th>
                     <th scope="col">Alterações</th>
                   </tr>
@@ -91,6 +94,7 @@ export function AuditPage() {
                           {link ? <Link to={link}><code>{e.resource_id.slice(0, 8)}</code></Link> : <code>{e.resource_id.slice(0, 8)}</code>}
                         </td>
                         <td>{e.action}</td>
+                        <td>{e.actor ? e.actor.name : <span className="muted">—</span>}</td>
                         <td>
                           {e.source}
                           {e.request_id && (

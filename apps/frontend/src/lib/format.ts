@@ -190,3 +190,8 @@ export function dayLabel(iso: string, now = new Date()): string {
   const label = new Intl.DateTimeFormat("pt-BR", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(new Date(iso));
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
+
+/** Whether an instant is still in the future (e.g. a temporary lock). */
+export function isFuture(iso: string | null | undefined): boolean {
+  return Boolean(iso) && new Date(iso as string).getTime() > Date.now();
+}

@@ -2,9 +2,9 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import App from "./App";
-import type { StatusSummary } from "./api/types";
+import type { PermissionKey, StatusSummary } from "./api/types";
 import { dayLabel } from "./lib/format";
-import { emptySummary, incident, maintenance } from "./test/fixtures";
+import { adminMe, emptySummary, incident, maintenance, session, unauthenticated } from "./test/fixtures";
 import { mockApi, page } from "./test/mockApi";
 
 const history = {
@@ -175,7 +175,7 @@ describe("third-party services", () => {
       { id: "e1", external_id: "c1", name: "API Requests", description: "", group_name: "Core", status: "operational" as const, is_selected: false, is_present: true },
       { id: "e2", external_id: "c2", name: "Pages", description: "", group_name: null, status: "operational" as const, is_selected: false, is_present: true },
     ];
-    const calls = mockApi({
+    const calls = mockApi({ ...session(),
       "GET /api/v1/admin/external-sources": { body: { data: [adminSource] } },
       "GET /api/v1/admin/external-sources/s1/components": { body: { data: comps } },
       "PUT /api/v1/admin/external-sources/s1/selection": { body: { data: comps.map((c) => ({ ...c, is_selected: c.id === "e1" })) } },
@@ -191,17 +191,138 @@ describe("third-party services", () => {
 });
 
 describe("admin area", () => {
-  it("warns that there is no authentication", async () => {
+  it("asks for login when there is no session, then opens the admin area", async () => {
     window.history.pushState(null, "", "/admin/components");
-    mockApi({ "GET /api/v1/admin/components": page([]) });
+    let signedIn = false;
+    const calls = mockApi({
+      "GET /api/v1/auth/me": () => (signedIn ? { body: adminMe } : unauthenticated),
+      "GET /api/v1/auth/setup": { body: { setup_required: false } },
+      "POST /api/v1/auth/login": (c) =>
+        (c.body as { password: string }).password === "senha correta e longa"
+          ? ((signedIn = true), { body: adminMe })
+          : { status: 401, body: { error: { code: "invalid_credentials", message: "E-mail ou senha inválidos." } } },
+      "GET /api/v1/admin/components": page([]),
+      "GET /api/v1/admin/component-groups": page([]),
+    });
     render(<App />);
-    expect(screen.getByText("Área administrativa sem autenticação.")).toBeInTheDocument();
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText("E-mail"), "admin@example.com");
+    await user.type(screen.getByLabelText("Senha"), "errada");
+    await user.click(screen.getByRole("button", { name: "Entrar" }));
+    expect(await screen.findByText("E-mail ou senha inválidos.")).toBeInTheDocument();
+    // The password field is cleared after a failure.
+    expect(screen.getByLabelText("Senha")).toHaveValue("");
+    await user.type(screen.getByLabelText("Senha"), "senha correta e longa");
+    await user.click(screen.getByRole("button", { name: "Entrar" }));
     expect(await screen.findByText("Nenhum componente encontrado")).toBeInTheDocument();
+    expect(screen.getByText("Admin")).toBeInTheDocument();
+    expect(calls.find((c) => c.path === "/api/v1/auth/login")?.body).toEqual({ email: "admin@example.com", password: "senha correta e longa" });
+  });
+
+  it("creates the first administrator in the initial setup", async () => {
+    window.history.pushState(null, "", "/admin/setup");
+    const calls = mockApi({
+      "GET /api/v1/auth/me": unauthenticated,
+      "GET /api/v1/auth/setup": { body: { setup_required: true } },
+      "POST /api/v1/auth/setup": { status: 201, body: adminMe },
+      "GET /api/v1/status": { body: emptySummary },
+      "GET /api/v1/admin/components": page([]),
+      "GET /api/v1/admin/audit-events": page([]),
+    });
+    render(<App />);
+    const user = userEvent.setup();
+    expect(await screen.findByRole("heading", { name: "Configuração inicial" })).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Token de configuração"), " tok123 ");
+    await user.type(screen.getByLabelText("Nome"), "Ana");
+    await user.type(screen.getByLabelText("E-mail"), "ana@example.com");
+    await user.type(screen.getByLabelText("Senha"), "uma frase longa e segura");
+    await user.type(screen.getByLabelText("Confirmar senha"), "outra frase");
+    await user.click(screen.getByRole("button", { name: "Criar administrador e entrar" }));
+    expect(screen.getByText("As senhas não conferem.")).toBeInTheDocument();
+    await user.clear(screen.getByLabelText("Confirmar senha"));
+    await user.type(screen.getByLabelText("Confirmar senha"), "uma frase longa e segura");
+    await user.click(screen.getByRole("button", { name: "Criar administrador e entrar" }));
+    expect(await screen.findByRole("heading", { name: "Visão geral" })).toBeInTheDocument();
+    expect(calls.find((c) => c.path === "/api/v1/auth/setup" && c.method === "POST")?.body).toEqual({
+      setup_token: "tok123", name: "Ana", email: "ana@example.com", password: "uma frase longa e segura",
+    });
+  });
+
+  it("requires a personal password after an administrator set it", async () => {
+    window.history.pushState(null, "", "/admin");
+    let changed = false;
+    const temp = { ...adminMe, user: { ...adminMe.user, must_change_password: true } };
+    const calls = mockApi({
+      "GET /api/v1/auth/me": () => ({ body: changed ? adminMe : temp }),
+      "POST /api/v1/auth/password": () => ((changed = true), { status: 204 }),
+      "GET /api/v1/status": { body: emptySummary },
+      "GET /api/v1/admin/components": page([]),
+      "GET /api/v1/admin/audit-events": page([]),
+    });
+    render(<App />);
+    const user = userEvent.setup();
+    expect(await screen.findByRole("heading", { name: "Defina sua senha" })).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Senha recebida"), "senha provisoria 1");
+    await user.type(screen.getByLabelText("Nova senha"), "minha senha pessoal");
+    await user.type(screen.getByLabelText("Confirmar nova senha"), "minha senha pessoal");
+    await user.click(screen.getByRole("button", { name: "Salvar e continuar" }));
+    expect(await screen.findByRole("heading", { name: "Visão geral" })).toBeInTheDocument();
+    expect(calls.find((c) => c.path === "/api/v1/auth/password")?.body).toEqual({ current_password: "senha provisoria 1", new_password: "minha senha pessoal" });
+  });
+
+  it("shows only what the user's role allows", async () => {
+    window.history.pushState(null, "", "/admin/components");
+    const operator = {
+      ...adminMe,
+      is_admin: false,
+      permissions: ["incidents.manage", "components.status"] as PermissionKey[],
+      user: { ...adminMe.user, name: "Operadora", roles: [{ id: "r2", name: "Operador de incidentes", is_system: false }] },
+    };
+    const comp = { id: "c1", name: "API", slug: "api", description: "", status: "operational" as const, is_public: true, is_active: true, display_order: 0, group_id: null, url: null, created_at: "", updated_at: "" };
+    const calls = mockApi({
+      ...session(operator),
+      "GET /api/v1/admin/components": page([comp]),
+      "GET /api/v1/admin/component-groups": page([]),
+      "PATCH /api/v1/admin/components/c1": { body: { ...comp, status: "partial_outage" } },
+    });
+    render(<App />);
+    const user = userEvent.setup();
+    await screen.findByText("api");
+    const nav = screen.getByRole("navigation", { name: "Administração" });
+    expect(within(nav).queryByRole("link", { name: "Usuários" })).not.toBeInTheDocument();
+    expect(within(nav).queryByRole("link", { name: "Histórico operacional" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Novo componente" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Editar" })).not.toBeInTheDocument();
+    expect(screen.getByText(/Somente leitura/)).toBeInTheDocument();
+    // Status-only change is allowed.
+    await user.click(screen.getByRole("combobox", { name: "Status de API" }));
+    await user.click(screen.getByRole("option", { name: "Interrupção parcial" }));
+    await user.click(screen.getByRole("button", { name: "Salvar status" }));
+    expect(await screen.findByText("Status atualizado.")).toBeInTheDocument();
+    expect(calls.find((c) => c.method === "PATCH")?.body).toEqual({ status: "partial_outage" });
+  });
+
+  it("returns to the login form when the session ends", async () => {
+    window.history.pushState(null, "", "/admin/components");
+    let alive = true;
+    mockApi({
+      "GET /api/v1/auth/me": () => (alive ? { body: adminMe } : unauthenticated),
+      "GET /api/v1/auth/setup": { body: { setup_required: false } },
+      "GET /api/v1/admin/components": () => (alive ? page([]) : unauthenticated),
+      "GET /api/v1/admin/component-groups": page([]),
+    });
+    render(<App />);
+    const user = userEvent.setup();
+    await screen.findByText("Nenhum componente encontrado");
+    alive = false;
+    await user.click(screen.getByRole("button", { name: "Desativados" }));
+    expect(await screen.findByText(/Sua sessão terminou/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Entrar" })).toBeInTheDocument();
   });
 
   it("creates an incident from a template after review", async () => {
     window.history.pushState(null, "", "/admin/incidents/new");
-    const calls = mockApi({
+    const calls = mockApi({ ...session(),
       "GET /api/v1/admin/incident-templates": page([
         { id: "t1", name: "Interrupção parcial", description: "", title: "Falha em [componente]", message: "Investigando.", impact: "partial_outage", status: "investigating", guidance: "Substitua o componente.", is_active: true, created_at: "", updated_at: "" },
       ]),
@@ -233,7 +354,7 @@ describe("admin area", () => {
 
   it("shows field errors returned by the API", async () => {
     window.history.pushState(null, "", "/admin/incidents/new");
-    mockApi({
+    mockApi({ ...session(),
       "GET /api/v1/admin/incident-templates": page([]),
       "GET /api/v1/admin/components": page([]),
       "POST /api/v1/admin/incidents": {
@@ -253,7 +374,7 @@ describe("admin area", () => {
   it("resolves an incident only after confirmation", async () => {
     window.history.pushState(null, "", `/admin/incidents/${incident.id}`);
     const resolved = { ...incident, status: "resolved" as const, resolved_at: "2026-03-01T12:00:00Z" };
-    const calls = mockApi({
+    const calls = mockApi({ ...session(),
       [`GET /api/v1/admin/incidents/${incident.id}`]: { body: incident },
       [`POST /api/v1/admin/incidents/${incident.id}/resolve`]: { body: resolved },
       "GET /api/v1/admin/incident-templates": page([]),
@@ -269,7 +390,7 @@ describe("admin area", () => {
 
   it("schedules a maintenance sending local time plus an explicit timezone", async () => {
     window.history.pushState(null, "", "/admin/maintenances/new");
-    const calls = mockApi({
+    const calls = mockApi({ ...session(),
       "GET /api/v1/admin/maintenance-templates": page([]),
       "GET /api/v1/admin/components": page([]),
       "POST /api/v1/admin/maintenances": { status: 201, body: maintenance },
@@ -292,7 +413,7 @@ describe("admin area", () => {
   it("offers only valid maintenance transitions and applies them", async () => {
     window.history.pushState(null, "", `/admin/maintenances/${maintenance.id}`);
     const started = { ...maintenance, status: "in_progress" as const, started_at: "2026-03-01T12:00:00Z" };
-    mockApi({
+    mockApi({ ...session(),
       [`GET /api/v1/admin/maintenances/${maintenance.id}`]: { body: maintenance },
       [`POST /api/v1/admin/maintenances/${maintenance.id}/start`]: { body: started },
       "GET /api/v1/admin/components": page([]),
@@ -310,7 +431,7 @@ describe("admin area", () => {
 describe("impact selector", () => {
   it("lists the four impact levels with icons and supports the keyboard", async () => {
     window.history.pushState(null, "", "/admin/incidents/new");
-    const calls = mockApi({
+    const calls = mockApi({ ...session(),
       "GET /api/v1/admin/incident-templates": page([]),
       "GET /api/v1/admin/components": page([]),
       "POST /api/v1/admin/incidents": { status: 201, body: incident },
@@ -412,7 +533,7 @@ describe("announcements", () => {
       updated_at: "2026-03-01T12:00:00Z",
     };
     const published = { ...draft, state: "published" as const, published_at: "2026-03-01T12:05:00Z" };
-    const calls = mockApi({
+    const calls = mockApi({ ...session(),
       "GET /api/v1/admin/announcement-categories": { body: { data: [{ id: "cat1", name: "Novidades", description: "Lançamentos e melhorias.", color: "blue", display_order: 0, is_active: true, announcement_count: 0, created_at: "", updated_at: "" }] } },
       "GET /api/v1/admin/teams": { body: { data: [] } },
       "GET /api/v1/admin/announcements": page([]),

@@ -4,7 +4,8 @@ import type { AnnouncementCategory, CategoryColor, Team } from "../api/types";
 import { ConfirmButton, EmptyState, ErrorPanel, Field, Loading } from "../components/ui";
 import { Link } from "../lib/router";
 import { useApi } from "../lib/useApi";
-import { FormStatus, PageHeader, requireText, useSubmit } from "./shared";
+import { useAuth } from "./authContext";
+import { FormStatus, PageHeader, ReadOnlyNote, requireText, useSubmit } from "./shared";
 
 const colorLabel: Record<CategoryColor, string> = {
   gray: "Cinza",
@@ -169,6 +170,7 @@ export function AnnouncementSettingsPage() {
   const teams = useApi((signal) => adminApi.teams.list({}, { signal }), []);
   const [editing, setEditing] = useState<string | null>(null);
   const toggle = (id: string) => setEditing((e) => (e === id ? null : id));
+  const canManage = useAuth().can("announcements.settings");
 
   return (
     <div className="admin-content">
@@ -183,7 +185,11 @@ export function AnnouncementSettingsPage() {
 
       <section className="panel" aria-labelledby="cat-title">
         <h2 id="cat-title">Categorias</h2>
-        <CategoryForm initial={{ name: "", description: "", color: "blue", display_order: "0" }} onSaved={categories.reload} />
+        {canManage ? (
+          <CategoryForm initial={{ name: "", description: "", color: "blue", display_order: "0" }} onSaved={categories.reload} />
+        ) : (
+          <ReadOnlyNote what="criar ou alterar categorias e times" />
+        )}
         {categories.state.status === "loading" && <Loading />}
         {categories.state.status === "error" && <ErrorPanel error={categories.state.error} onRetry={categories.reload} />}
         {categories.state.status === "success" &&
@@ -204,7 +210,7 @@ export function AnnouncementSettingsPage() {
                       {c.description && <p className="muted small">{c.description}</p>}
                     </div>
                   </div>
-                  <ItemActions
+                  {canManage && <ItemActions
                     name={c.name}
                     active={c.is_active}
                     count={c.announcement_count}
@@ -212,7 +218,7 @@ export function AnnouncementSettingsPage() {
                     onEdit={() => toggle(c.id)}
                     onToggle={() => adminApi.announcementCategories.update(c.id, { is_active: !c.is_active }).then(categories.reload)}
                     onDelete={() => adminApi.announcementCategories.remove(c.id).then(categories.reload)}
-                  />
+                  />}
                   {editing === c.id && (
                     <CategoryForm
                       existing={c}
@@ -228,7 +234,7 @@ export function AnnouncementSettingsPage() {
 
       <section className="panel" aria-labelledby="team-title">
         <h2 id="team-title">Times responsáveis</h2>
-        <TeamForm initial={{ name: "", description: "" }} onSaved={teams.reload} />
+        {canManage && <TeamForm initial={{ name: "", description: "" }} onSaved={teams.reload} />}
         {teams.state.status === "loading" && <Loading />}
         {teams.state.status === "error" && <ErrorPanel error={teams.state.error} onRetry={teams.reload} />}
         {teams.state.status === "success" &&
@@ -248,7 +254,7 @@ export function AnnouncementSettingsPage() {
                       {t.description && <p className="muted small">{t.description}</p>}
                     </div>
                   </div>
-                  <ItemActions
+                  {canManage && <ItemActions
                     name={t.name}
                     active={t.is_active}
                     count={t.announcement_count}
@@ -256,7 +262,7 @@ export function AnnouncementSettingsPage() {
                     onEdit={() => toggle(t.id)}
                     onToggle={() => adminApi.teams.update(t.id, { is_active: !t.is_active }).then(teams.reload)}
                     onDelete={() => adminApi.teams.remove(t.id).then(teams.reload)}
-                  />
+                  />}
                   {editing === t.id && <TeamForm existing={t} initial={{ name: t.name, description: t.description }} onSaved={teams.reload} />}
                 </li>
               ))}

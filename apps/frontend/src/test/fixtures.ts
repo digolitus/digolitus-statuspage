@@ -1,4 +1,4 @@
-import type { Incident, Maintenance, StatusSummary } from "../api/types";
+import type { Incident, Maintenance, Me, StatusSummary } from "../api/types";
 
 export const emptySummary: StatusSummary = {
   overall: { status: "unknown", basis: "declared", affected_components: 0, components_under_maintenance: 0 },
@@ -48,3 +48,30 @@ export const maintenance: Maintenance = {
   created_at: "2026-03-01T11:00:00Z",
   updated_at: "2026-03-01T11:00:00Z",
 };
+
+/** Signed-in first administrator (system role, every permission). */
+export const adminMe: Me = {
+  user: {
+    id: "u1",
+    email: "admin@example.com",
+    name: "Admin",
+    is_active: true,
+    must_change_password: false,
+    roles: [{ id: "r1", name: "Administrador", is_system: true }],
+    last_login_at: "2026-03-01T12:00:00Z",
+    locked_until: null,
+    created_at: "2026-03-01T12:00:00Z",
+    updated_at: "2026-03-01T12:00:00Z",
+  },
+  permissions: [
+    "components.status", "components.manage", "third_party.manage", "incidents.manage", "maintenances.manage", "templates.manage",
+    "announcements.write", "announcements.publish", "announcements.settings", "audit.read", "users.manage", "roles.manage",
+  ],
+  is_admin: true,
+};
+
+/** Route for an active admin session (spread into mockApi routes). */
+export const session = (me: Me = adminMe) => ({ "GET /api/v1/auth/me": { body: me } });
+
+/** 401 reply for calls without a valid session. */
+export const unauthenticated = { status: 401, body: { error: { code: "unauthenticated", message: "Faça login para continuar." } } };

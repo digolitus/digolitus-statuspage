@@ -74,3 +74,15 @@ export type AnnouncementCategoryCreate = S.AnnouncementCategoryCreate;
 export type AnnouncementCategoryPatch = S.AnnouncementCategoryPatch;
 export type TeamCreate = S.TeamCreate;
 export type TeamPatch = S.TeamPatch;
+
+// Authentication and access control.
+export type PermissionKey = S.PermissionKey;
+export type PermissionInfo = S.PermissionInfo;
+export type Me = S.Me;
+export type User = S.User;
+export type Role = S.Role;
+export type UserCreate = S.UserCreate;
+export type UserPatch = S.UserPatch;
+export type RoleCreate = S.RoleCreate;
+export type RolePatch = S.RolePatch;
+export type SetupInput = S.SetupInput;

@@ -8,6 +8,15 @@ import type {
   AnnouncementPatch,
   AnnouncementState,
   AuditEvent,
+  Me,
+  PermissionInfo,
+  Role,
+  RoleCreate,
+  RolePatch,
+  SetupInput,
+  User,
+  UserCreate,
+  UserPatch,
   Component,
   ComponentCreate,
   ComponentGroup,
@@ -65,6 +74,16 @@ export const publicApi = {
     request<PublicAnnouncement>("GET", `/api/v1/announcements/${encodeURIComponent(id)}`, o),
   announcementCategories: (o: Signal = {}) =>
     request<{ data: PublicAnnouncementCategory[] }>("GET", "/api/v1/announcement-categories", o),
+};
+
+export const authApi = {
+  setupStatus: (o: Signal = {}) => request<{ setup_required: boolean }>("GET", "/api/v1/auth/setup", o),
+  setup: (body: SetupInput) => request<Me>("POST", "/api/v1/auth/setup", { body }),
+  login: (email: string, password: string) => request<Me>("POST", "/api/v1/auth/login", { body: { email, password } }),
+  logout: () => request<void>("POST", "/api/v1/auth/logout"),
+  me: (o: Signal = {}) => request<Me>("GET", "/api/v1/auth/me", o),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<void>("POST", "/api/v1/auth/password", { body: { current_password: currentPassword, new_password: newPassword } }),
 };
 
 const A = "/api/v1/admin";
@@ -160,6 +179,19 @@ export const adminApi = {
     create: (body: TeamCreate) => request<Team>("POST", `${A}/teams`, { body }),
     update: (tid: string, body: TeamPatch) => request<Team>("PATCH", `${A}/teams/${id(tid)}`, { body }),
     remove: (tid: string) => request<void>("DELETE", `${A}/teams/${id(tid)}`),
+  },
+  permissions: (o: Signal = {}) => request<{ data: PermissionInfo[] }>("GET", `${A}/permissions`, o),
+  users: {
+    list: (o: Signal = {}) => request<{ data: User[] }>("GET", `${A}/users`, o),
+    create: (body: UserCreate) => request<User>("POST", `${A}/users`, { body }),
+    update: (uid: string, body: UserPatch) => request<User>("PATCH", `${A}/users/${id(uid)}`, { body }),
+    resetPassword: (uid: string, password: string) => request<void>("POST", `${A}/users/${id(uid)}/password`, { body: { password } }),
+  },
+  roles: {
+    list: (o: Signal = {}) => request<{ data: Role[] }>("GET", `${A}/roles`, o),
+    create: (body: RoleCreate) => request<Role>("POST", `${A}/roles`, { body }),
+    update: (rid: string, body: RolePatch) => request<Role>("PATCH", `${A}/roles/${id(rid)}`, { body }),
+    remove: (rid: string) => request<void>("DELETE", `${A}/roles/${id(rid)}`),
   },
   audit: {
     list: (
