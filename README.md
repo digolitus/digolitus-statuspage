@@ -1,344 +1,167 @@
 # Digolitus Status Page
 
-Aplicação inicial do **Digolitus Status Page**, composta por um frontend React/TypeScript servido pelo Nginx e uma API independente desenvolvida em Go.
+Plataforma para publicar o status de serviços e comunicar incidentes e manutenções programadas.
 
-A primeira versão implementa uma página inicial funcional, consulta real ao backend e endpoints básicos de saúde. Não há banco de dados, autenticação, cadastro de serviços, métricas ou histórico de incidentes nesta versão.
+- **Área pública** (`/`): status geral, componentes, incidentes ativos com linha do tempo, manutenções em andamento e programadas, e histórico.
+- **Área administrativa** (`/admin`): componentes, incidentes, manutenções, templates e histórico operacional.
+- **API REST** (`/api/v1`), documentada em OpenAPI 3.0, com Swagger UI em `/swagger/`.
+
+> **Status declarado, não monitorado.** Todos os status são informados por operadores. A aplicação não faz verificações automáticas de disponibilidade, e a interface diz isso explicitamente.
+>
+> **Administração sem autenticação.** Nesta versão, quem alcança `/admin` ou `/api/v1/admin/` pode alterar todos os dados. Por padrão, o Compose publica a aplicação apenas em `127.0.0.1`. Leia [docs/operations.md](docs/operations.md#administração-sem-autenticação) antes de expor a aplicação em qualquer rede.
+
+## Início rápido
+
+Pré-requisitos: Docker 24+ com o plugin Compose. Não é preciso login em registry nem serviços externos.
+
+```bash
+docker compose -f deploy/docker-compose.yml up --build
+```
+
+| URL | Conteúdo |
+|---|---|
+| <http://localhost:8080> | Página pública |
+| <http://localhost:8080/admin> | Área administrativa |
+| <http://localhost:8080/swagger/> | Swagger UI |
+| <http://localhost:8080/api/openapi.yaml> | Especificação OpenAPI |
+
+As migrações do banco são aplicadas automaticamente na inicialização do backend. O banco começa com 7 templates de incidente e 6 de manutenção, sem componentes, incidentes ou manutenções.
+
+### Comandos do dia a dia
+
+```bash
+make up          # sobe frontend, backend e PostgreSQL (foreground)
+make ps          # estado e saúde dos containers
+make logs        # logs de todos os serviços
+make migrate     # aplica migrações pendentes manualmente
+make down        # para os containers; os dados são preservados
+make db-reset    # DESTRUTIVO: apaga o volume do banco (pede confirmação)
+```
+
+Variáveis opcionais (porta, credenciais locais, `ADMIN_API_ENABLED` etc.) estão em [deploy/.env.example](deploy/.env.example). Copie-o para `deploy/.env` para sobrescrever os valores padrão.
 
 ## Arquitetura
 
 ```text
-Navegador
-   |
-   v
-Frontend/Nginx :8080
-   |-- /                 -> arquivos estáticos React
-   |-- /api/hello        -> backend:8080/api/hello
-   |-- /healthz          -> backend:8080/healthz
-   `-- /readyz           -> backend:8080/readyz
+Navegador ──► Nginx (frontend, 127.0.0.1:8080)
+                ├── /                   SPA React (página pública e /admin)
+                ├── /api/v1/...         ─┐
+                ├── /api/v1/admin/...   ─┤ rate limit mais restrito
+                ├── /api/openapi.yaml   ─┼──► Backend Go :8080 (rede interna)
+                ├── /swagger/           ─┤          │
+                └── /healthz, /readyz   ─┘          ▼
+                                             PostgreSQL 18 (rede interna, volume pgdata)
 ```
 
-Serviços:
+- **Backend:** monólito modular em Go (`apps/backend`), SQL explícito com `pgx`, migrações versionadas e embutidas no binário. Detalhes em [docs/architecture.md](docs/architecture.md).
+- **Frontend:** React + TypeScript + Vite (`apps/frontend`). Consome exclusivamente a API.
+- **Decisões:** [docs/adr/](docs/adr/).
 
-- `backend`: API HTTP em Go;
-- `frontend`: aplicação React compilada pelo Vite e servida pelo Nginx;
-- `default`: rede interna do Docker Compose.
+## API
 
-## Estrutura
+Toda funcionalidade de negócio está disponível pela API. Resumo:
 
-```text
-.
-├── apps
-│   ├── backend
-│   │   ├── cmd
-│   │   │   ├── api
-│   │   │   └── healthcheck
-│   │   ├── internal
-│   │   │   ├── config
-│   │   │   └── handlers
-│   │   ├── Dockerfile
-│   │   ├── go.mod
-│   │   └── ...
-│   └── frontend
-│       ├── public
-│       ├── src
-│       ├── Dockerfile
-│       ├── nginx.conf
-│       ├── package.json
-│       └── ...
-├── deploy
-│   └── docker-compose.yml
-├── .github
-│   └── workflows
-├── Makefile
-└── README.md
-```
+| Área | Endpoints |
+|---|---|
+| Saúde | `GET /healthz` (liveness), `GET /readyz` (inclui PostgreSQL) |
+| Pública | `GET /api/v1/status`, `/components`, `/incidents[/{id}]`, `/maintenances[/{id}]` |
+| Componentes | `GET/POST /api/v1/admin/components`, `GET/PATCH .../{id}` |
+| Incidentes | `GET/POST /api/v1/admin/incidents`, `GET/PATCH .../{id}`, `GET/POST .../{id}/updates`, `POST .../{id}/resolve` |
+| Manutenções | `GET/POST /api/v1/admin/maintenances`, `GET/PATCH .../{id}`, `GET/POST .../{id}/updates`, `POST .../{id}/start\|complete\|cancel` |
+| Templates | `GET/POST /api/v1/admin/incident-templates`, `GET/PATCH .../{id}` (idem para `maintenance-templates`) |
+| Auditoria | `GET /api/v1/admin/audit-events` |
 
-## Pré-requisitos
-
-Para executar localmente:
-
-- Docker 24 ou superior;
-- Docker Compose plugin;
-- Go 1.23 ou superior, para executar validações sem Docker;
-- Node.js 22 ou superior e npm 10 ou superior, para executar validações do frontend sem Docker;
-- Trivy, opcionalmente, para análise de segurança local.
-
-## Execução com Docker Compose
-
-```bash
-git clone https://github.com/digolitus/digolitus-statuspage.git
-cd digolitus-statuspage
-docker compose -f deploy/docker-compose.yml up --build
-```
-
-Acesse:
-
-```text
-http://localhost:8080
-```
-
-O backend não publica uma porta diretamente no host. O acesso ocorre pelo proxy reverso do Nginx.
-
-## Endpoints
-
-```bash
-curl -i http://localhost:8080/api/hello
-curl -i http://localhost:8080/healthz
-curl -i http://localhost:8080/readyz
-```
-
-Resposta esperada de `/api/hello`:
-
-```json
-{
-  "message": "Hello World from Digolitus Status Page",
-  "service": "digolitus-statuspage-backend"
-}
-```
-
-`/healthz` verifica se o processo está vivo e apto a responder.
-
-`/readyz` verifica se a aplicação está pronta para receber requisições. Na versão inicial, como não existem dependências externas, ambos retornam HTTP 200 quando o servidor está operacional.
-
-## Comandos Docker Compose
-
-```bash
-docker compose -f deploy/docker-compose.yml ps
-docker compose -f deploy/docker-compose.yml logs -f
-docker compose -f deploy/docker-compose.yml down
-```
-
-## Desenvolvimento sem Docker
-
-### Backend
-
-```bash
-cd apps/backend
-go test ./...
-go vet ./...
-go run ./cmd/api
-```
-
-O backend utiliza a porta `8080` por padrão. Para alterar:
-
-```bash
-PORT=9090 go run ./cmd/api
-```
-
-### Frontend
-
-```bash
-cd apps/frontend
-npm install
-npm run dev
-```
-
-Durante o desenvolvimento pelo Vite, o proxy configurado em `vite.config.ts` encaminha as chamadas para `http://localhost:8080`.
-
-Scripts disponíveis:
-
-```bash
-npm ci
-npm run lint
-npm test -- --run
-npm run build
-```
-
-## Makefile
-
-```bash
-make up
-make down
-make logs
-make ps
-make test
-make lint
-make build
-make scan
-make clean
-```
-
-O alvo `make scan` exige que o Trivy esteja instalado localmente.
-
-## Construção manual das imagens
-
-Backend:
-
-```bash
-docker build \
-  -t digolitus-statuspage-backend:local \
-  apps/backend
-```
-
-Frontend:
-
-```bash
-docker build \
-  -t digolitus-statuspage-frontend:local \
-  apps/frontend
-```
-
-## Segurança
-
-O projeto contém verificações para:
-
-- `go vet`;
-- `gosec`;
-- ESLint;
-- Trivy no filesystem;
-- Trivy em configurações;
-- Trivy nas imagens Docker;
-- detecção de segredos;
-- vulnerabilidades HIGH e CRITICAL.
-
-A política inicial bloqueia o pipeline quando vulnerabilidades HIGH ou CRITICAL são detectadas com correção disponível.
+O contrato completo (schemas, erros, paginação, filtros, ordenação e transições de estado) está em [`apps/backend/api/openapi.yaml`](apps/backend/api/openapi.yaml). Os testes falham se uma rota implementada não estiver documentada (ou vice-versa) e validam as respostas reais contra os schemas.
 
 Exemplo:
 
 ```bash
-trivy fs \
-  --scanners vuln,secret,misconfig \
-  --severity HIGH,CRITICAL \
-  .
+curl -s -X POST http://localhost:8080/api/v1/admin/components \
+  -H 'Content-Type: application/json' -d '{"name":"API pública"}'
+
+curl -s -X POST http://localhost:8080/api/v1/admin/maintenances \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"Atualização do banco","timezone":"America/Sao_Paulo",
+       "scheduled_start":"2026-11-20T02:00","scheduled_end":"2026-11-20T04:00"}'
 ```
 
-## GitHub Actions
+### Ciclos de vida
 
-Os workflows estão em `.github/workflows`:
+- **Incidente:** `investigating ⇄ identified ⇄ monitoring → resolved`. `resolved` é terminal (409 em novas atualizações). Atualizações publicadas são imutáveis.
+- **Manutenção:** `scheduled → in_progress → completed` e `scheduled → cancelled`. Nada muda automaticamente por horário; janelas atrasadas são sinalizadas (`start_overdue`, `end_overdue`).
+- **Status geral:** calculado por uma política única ([ADR 0003](docs/adr/0003-status-policy.md)). Manutenção nunca é apresentada como indisponibilidade.
 
-- `ci.yml`: testes, lint, build, validação dos Dockerfiles e Trivy;
-- `build-publish.yml`: build e publicação das imagens no GHCR;
-- `deploy.yml`: workflow preparado para receber uma imagem previamente publicada, sem presumir infraestrutura de deploy.
+## Desenvolvimento sem Docker
 
-O workflow de publicação não executa em Pull Requests e utiliza `GITHUB_TOKEN` somente no contexto de publicação.
-
-## Imagens GHCR
-
-Nomes previstos:
-
-```text
-ghcr.io/digolitus/digolitus-statuspage-backend
-ghcr.io/digolitus/digolitus-statuspage-frontend
-```
-
-As imagens são identificadas por:
-
-- SHA do commit;
-- branch;
-- tag de release;
-- versão semântica para releases.
-
-A tag `latest` não é utilizada como único mecanismo de versionamento.
-
-Como o repositório é privado, o download exige autenticação no GHCR e permissão de leitura no pacote:
+Requisitos: Go 1.27+, Node.js 24 (LTS) com npm, PostgreSQL 16+.
 
 ```bash
-echo "$GITHUB_TOKEN" | docker login ghcr.io -u SEU_USUARIO --password-stdin
-docker pull ghcr.io/digolitus/digolitus-statuspage-backend:<tag>
-```
+# Backend (porta 8080)
+cd apps/backend
+DATABASE_URL='postgres://user:pass@localhost:5432/statuspage?sslmode=disable' go run ./cmd/api
 
-Não coloque tokens no repositório, no `.env`, na documentação ou na linha de comando compartilhada.
-
-## Releases
-
-Para publicar uma versão:
-
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
-
-O workflow de publicação utilizará a tag para gerar imagens versionadas.
-
-## Adicionando novos módulos
-
-Para adicionar um novo serviço:
-
-1. Crie um diretório em `apps/<novo-modulo>`;
-2. Adicione seu Dockerfile;
-3. Adicione testes e lint;
-4. Inclua o módulo nos workflows;
-5. Inclua o módulo no job de publicação;
-6. Atualize o Compose caso ele faça parte da execução local;
-7. Atualize este README.
-
-A estrutura atual evita compartilhar código de build entre aplicações diferentes, mantendo os ciclos de build e publicação independentes.
-
-## Deploy
-
-O destino de produção ainda não foi definido.
-
-O workflow `deploy.yml` não declara sucesso sem executar uma implantação real. Ele valida a presença de um digest ou tag de imagem e encerra explicitamente informando que o adaptador de infraestrutura ainda precisa ser configurado.
-
-Antes de usar em produção, será necessário definir:
-
-- destino de deploy;
-- ambiente GitHub;
-- regras de aprovação;
-- credenciais ou identidade federada;
-- estratégia de rollback;
-- monitoramento do deploy;
-- política de promoção entre ambientes.
-
-## Solução de problemas
-
-### O frontend não inicia
-
-Verifique:
-
-```bash
-docker compose -f deploy/docker-compose.yml logs frontend
-docker compose -f deploy/docker-compose.yml ps
-```
-
-### O backend não fica saudável
-
-Verifique:
-
-```bash
-docker compose -f deploy/docker-compose.yml logs backend
-```
-
-O backend deve escutar na porta interna `8080`.
-
-### O `npm ci` falha
-
-Remova dependências antigas e recrie o lockfile:
-
-```bash
+# Frontend (Vite em http://localhost:5173, com proxy para o backend em :8080)
 cd apps/frontend
-rm -rf node_modules package-lock.json
-npm install
 npm ci
+npm run dev
 ```
 
-### O Trivy não está instalado
+Configuração do backend (variáveis de ambiente, validadas na inicialização):
 
-Instale seguindo a documentação oficial:
+| Variável | Padrão | Descrição |
+|---|---|---|
+| `DATABASE_URL` | — (obrigatória) | URL de conexão PostgreSQL |
+| `PORT` | `8080` | Porta HTTP |
+| `DB_MAX_CONNS` | `10` | Tamanho máximo do pool (1–100) |
+| `DB_AUTO_MIGRATE` | `true` | Aplica migrações na inicialização |
+| `ADMIN_API_ENABLED` | `true` | `false` remove todas as rotas administrativas (API pública somente leitura) |
+| `REQUEST_TIMEOUT` | `10s` | Tempo máximo por requisição (1s–1m) |
+| `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` (logs JSON) |
+
+## Testes e verificações
+
+```bash
+make test-backend      # unitários + validação da especificação OpenAPI
+make test-integration  # suíte completa contra PostgreSQL (TEST_DATABASE_URL)
+make test-frontend     # Vitest + Testing Library
+make lint              # gofmt, go vet, ESLint
+make build             # compila backend e frontend (inclui checagem de tipos)
+make scan              # Trivy local (vulnerabilidades, segredos, configuração)
+```
+
+Os testes de integração criam um banco isolado por teste. Para isso, precisam de um usuário com permissão de `CREATE DATABASE`:
+
+```bash
+TEST_DATABASE_URL='postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable' make test-integration
+```
+
+## CI
+
+O workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) executa em pull requests e em pushes para `main`. Ele só executa as verificações dos módulos alterados; mudanças em arquivos compartilhados (workflows, Compose, Makefile) acionam tudo. As verificações são:
+
+- **Backend:** `gofmt`, `go mod verify`/`tidy -diff`, `go vet`, testes com `-race` contra PostgreSQL (incluindo contrato OpenAPI), `govulncheck` e `gosec`.
+- **Frontend:** `npm ci`, ESLint, Vitest, checagem de tipos + build e `npm audit` das dependências de produção.
+- **Containers:** build das imagens, validação do Compose, smoke test da stack completa via Nginx (incluindo a verificação de que backend e banco não ficam expostos) e Trivy nas imagens.
+- **Repositório:** Trivy (vulnerabilidades, segredos e configuração).
+- **Pull requests:** revisão de dependências.
+
+As Actions são fixadas por SHA de commit. O Dependabot propõe atualizações semanais de Go, npm, imagens Docker e Actions.
+
+**Ainda não existem** workflows de publicação de imagens nem de deploy. O destino de produção não foi definido.
+
+## Estrutura
 
 ```text
-https://aquasecurity.github.io/trivy/
+apps/backend/     API Go (cmd/, internal/, api/openapi.yaml, migrações em internal/platform/database/migrations)
+apps/frontend/    React + Vite + Nginx
+deploy/           Docker Compose e exemplo de variáveis
+docs/             Arquitetura, operação e ADRs
+scripts/          Utilitários (ex.: atualização da Swagger UI embutida)
+CONTEXT.md        Princípios de engenharia do projeto
 ```
 
-## Estado da versão
+## Limitações conhecidas
 
-Implementado:
-
-- API Go;
-- frontend React/TypeScript;
-- proxy Nginx;
-- Docker Compose;
-- testes;
-- workflows de CI;
-- publicação preparada para GHCR;
-- deploy desacoplado da infraestrutura.
-
-Ainda não implementado:
-
-- banco de dados;
-- autenticação;
-- cadastro de serviços;
-- coleta de métricas;
-- histórico de incidentes;
-- deploy em ambiente remoto;
-- monitoramento externo.
+- Sem autenticação e autorização na administração (veja [ADR 0004](docs/adr/0004-admin-without-authentication.md)).
+- Sem verificações automáticas de saúde, cálculo de uptime, notificações ou assinaturas.
+- Sem publicação de imagens nem deploy automatizado.
