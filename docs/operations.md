@@ -68,8 +68,17 @@ Em `/admin`, informe o token e os dados do primeiro administrador. Depois que el
 | Administrador (fixo) | Todas, inclusive usuários e papéis |
 | Operador de incidentes | Incidentes, manutenções e status de componentes |
 | Gestor de catálogo e comunicados | Componentes e grupos, status, serviços de terceiros, templates, comunicados (escrever e publicar), categorias e times |
+| Operador do time (escopo: times) | Status, incidentes, manutenções e comunicados, só nos componentes dos times do usuário |
 
 Usuários sem papel só consultam os dados. Ninguém concede permissões que não tem. *Gerenciar usuários* e *Gerenciar papéis* são sensíveis: dê-as só a quem pode decidir quem faz o quê.
+
+**Times e responsabilidade compartilhada** ([ADR 0009](adr/0009-team-ownership-and-scoped-roles.md)).
+
+1. Cadastre os times em *Times responsáveis*: nome, tipo, descrição, documentação e suporte.
+2. Vincule cada componente ou grupo ao seu time. O componente sem time herda o time do grupo.
+3. Em *Usuários*, marque os times de cada pessoa e conceda um papel com escopo "Componentes dos times do usuário".
+
+Essas pessoas só alteram status e só abrem incidentes, manutenções e comunicados dos componentes dos próprios times. Fora do escopo, a API responde 403 `outside_team_scope`.
 
 **Senhas e bloqueio.** As senhas têm de 12 a 128 caracteres. Após 5 falhas seguidas, a conta fica bloqueada por 15 minutos; um administrador pode desbloqueá-la em *Usuários*. Senhas definidas por um administrador (criação ou redefinição) precisam ser trocadas no primeiro login.
 
@@ -84,6 +93,46 @@ O comando imprime uma senha provisória, desbloqueia e reativa a conta e encerra
 **Sessões.** O cookie `dsp_session` é `HttpOnly` e `SameSite=Strict`. Atrás de HTTPS, use `SESSION_COOKIE_SECURE=true`; o Compose local usa `false` porque serve HTTP em `127.0.0.1`. `SESSION_TTL` (padrão 12 h) limita a duração total da sessão, e `SESSION_IDLE_TIMEOUT` (padrão 2 h) a inatividade. Desativar um usuário, redefinir sua senha ou ele trocar a própria senha encerra as outras sessões dele.
 
 **Controles complementares.** O Nginx limita login e configuração inicial a 10 tentativas por minuto por IP, além dos limites da API, do corpo de 64 KiB e dos timeouts. `ADMIN_API_ENABLED=false` remove toda a administração (API pública somente leitura). O Compose continua publicando apenas em `127.0.0.1`.
+
+## Inscrições (notificações)
+
+As decisões estão no [ADR 0010](adr/0010-subscriptions-and-notification-outbox.md).
+
+O botão **Inscrever-se** da página pública oferece estes canais:
+
+- **E-mail, Slack e webhook:** exigem SMTP. Cada pedido é confirmado por e-mail (double opt-in).
+- **RSS/Atom:** `/api/v1/feed.atom` e `/api/v1/feed.rss`, sempre disponíveis.
+
+SMS não é oferecido, porque exige provedor pago.
+
+**Configuração mínima** (em `deploy/.env`):
+
+```bash
+PUBLIC_BASE_URL=https://status.empresa.com   # usado nos links dos e-mails
+SMTP_HOST=smtp.empresa.com
+SMTP_PORT=587
+SMTP_TLS=starttls          # tls para 465; none só para servidores de teste locais
+SMTP_USERNAME=status@empresa.com
+SMTP_PASSWORD=...          # segredo: nunca versione
+SMTP_FROM="Status Empresa <status@empresa.com>"
+```
+
+**Entrega.**
+
+- O worker (`NOTIFY_WORKER=true`, a cada `NOTIFY_INTERVAL`, padrão `10s`) envia as mensagens registradas na mesma transação de cada publicação. Ele pode rodar em várias réplicas.
+- Falhas são repetidas com backoff. Webhook ou Slack com 15 falhas seguidas é desativado, e o motivo aparece em *Inscrições*.
+- Webhooks em rede privada exigem `NOTIFY_ALLOW_PRIVATE_NETWORKS=true`.
+
+**Administração** (permissão *Gerenciar inscrições*): em *Inscrições* você consulta os inscritos, desativa, reativa, exclui e envia testes. Também cria integrações internas de webhook ou Slack, ativas sem confirmação. O segredo de assinatura do webhook é exibido uma única vez.
+
+**Validação no receptor do webhook:**
+
+1. Calcule `HMAC-SHA256(segredo, X-Digolitus-Timestamp + "." + corpo)`.
+2. Compare o resultado com `X-Digolitus-Signature` (`sha256=<hex>`).
+3. Recuse timestamps antigos.
+4. Deduplique por `X-Digolitus-Delivery`.
+
+O Nginx limita `/api/v1/subscriptions` a 6 requisições por minuto por IP.
 
 ## Serviços de terceiros
 

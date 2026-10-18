@@ -24,6 +24,8 @@ internal/
   announcement/    comunicados, categorias e times responsáveis
   auth/            login, sessões, configuração inicial, usuários, papéis e catálogo de permissões
   external/        serviços de terceiros: cadastro, leitura de Statuspage (anti-SSRF) e poller
+  notify/          eventos públicos registrados na transação de cada mudança (outbox)
+  subscription/    inscrições (e-mail, webhook, Slack), feeds RSS/Atom e worker de entrega
   tsgen/           gerador de tipos TypeScript a partir do OpenAPI (cmd/openapi-ts)
   docs/            Swagger UI embutida (assets oficiais vendorizados)
   apperror/        vocabulário de erros esperados (validação, 404, 409)
@@ -31,6 +33,7 @@ internal/
     database/      pool pgx, transações, migrações embutidas
     httpx/         roteador com registro de rotas, JSON, erros, paginação, middlewares
     clock/         relógio do servidor (UTC, microssegundos) e parsing de instantes/timezones
+    safehttp/      cliente HTTP anti-SSRF compartilhado (terceiros e webhooks)
     testsupport/   banco PostgreSQL isolado por teste
 ```
 
@@ -45,14 +48,14 @@ Cada módulo de domínio segue o mesmo formato enxuto, sem interfaces artificiai
 
 `X-Request-ID` (aceito se válido, senão gerado) → log de acesso (JSON, sem query string) → recuperação de pânico → headers de segurança (`nosniff`, `no-store`) → timeout por contexto → roteador. Corpos são limitados a 64 KiB, campos desconhecidos são rejeitados e erros seguem um envelope único com `code` estável. Rotas inexistentes e métodos não permitidos também respondem em JSON.
 
-As rotas administrativas passam por um único wrapper (`app.New`). Ele valida a sessão (`auth.Guard`), recusa requisições de outros sites, aplica a permissão da rota conforme `adminPolicy` (`internal/app/policy.go`, negando o que não estiver listado) e coloca o usuário no contexto, para que a auditoria registre o autor ([ADR 0008](adr/0008-local-authentication-and-rbac.md)).
+As rotas administrativas passam por um único wrapper (`app.New`). Ele valida a sessão (`auth.Guard`), recusa requisições de outros sites, aplica a permissão da rota conforme `adminPolicy` (`internal/app/policy.go`, negando o que não estiver listado) e coloca o usuário no contexto, para que a auditoria registre o autor ([ADR 0008](adr/0008-local-authentication-and-rbac.md)). Quando a permissão vale só para os times do usuário, os serviços conferem o dono de cada componente afetado (`auth.RequireComponents` e afins) dentro da transação ([ADR 0009](adr/0009-team-ownership-and-scoped-roles.md)).
 
 ### Modelo de dados
 
 | Tabela | Papel |
 |---|---|
-| `components` | Estado atual declarado de cada componente; nunca é excluído (`is_active`); `group_id` e `url` opcionais |
-| `component_groups` | Grupos de apresentação; status derivado dos componentes; excluível só quando vazio |
+| `components` | Estado atual declarado de cada componente; nunca é excluído (`is_active`); `group_id`, `team_id` e `url` opcionais |
+| `component_groups` | Grupos de apresentação; status derivado dos componentes; excluível só quando vazio; `team_id` opcional (herdado pelos componentes sem time) |
 | `incidents` | Estado atual do incidente (`status`, `resolved_at` coerentes por `CHECK`) |
 | `incident_components` | Componentes afetados atualmente |
 | `incident_updates` | Linha do tempo publicada, imutável, com snapshot dos componentes quando alterados |
@@ -61,12 +64,15 @@ As rotas administrativas passam por um único wrapper (`app.New`). Ele valida a 
 | `maintenance_updates` | Linha do tempo publicada, imutável |
 | `incident_templates`, `maintenance_templates` | Textos reutilizáveis; nomes únicos sem diferenciar maiúsculas |
 | `announcements` | Comunicados (`draft`/`published`/`archived`; agendado = `published_at` futuro), com categoria e time opcionais |
-| `announcement_categories`, `teams` | Classificação e responsáveis; nomes únicos sem diferenciar maiúsculas; em uso não são excluídos |
+| `announcement_categories`, `teams` | Classificação e times responsáveis (tipo, links de documentação e suporte); nomes únicos sem diferenciar maiúsculas; em uso não são excluídos |
 | `announcement_components` | Componentes relacionados a um comunicado |
 | `external_sources` | Provedores de terceiros (URL base `https`), último resultado da leitura e eventos abertos |
 | `external_components` | Componentes importados do provedor; `is_selected` define o que é publicado; `is_present = false` quando sumiram do provedor |
-| `users`, `user_roles` | Contas locais (hash Argon2id, bloqueio por tentativas, senha provisória) e seus papéis |
-| `roles` | Papéis com subconjunto do catálogo de permissões; o papel de sistema concede todas |
+| `users`, `user_roles`, `user_teams` | Contas locais (hash Argon2id, bloqueio por tentativas, senha provisória), seus papéis e seus times |
+| `roles` | Papéis com subconjunto do catálogo de permissões e escopo `global` ou `team`; o papel de sistema concede todas |
+| `subscriptions`, `subscription_components` | Inscrições por e-mail, webhook ou Slack (pendente/ativa/desativada), opcionalmente limitadas a componentes |
+| `notification_events`, `outbox_messages` | Outbox: eventos públicos gravados na transação da mudança e uma mensagem por inscrição, entregue com retentativas ([ADR 0010](adr/0010-subscriptions-and-notification-outbox.md)) |
+| `app_secrets` | Chaves geradas pela aplicação (ex.: HMAC dos links de inscrição) |
 | `sessions` | Sessões do servidor; guarda só o SHA-256 do token do cookie |
 | `setup_tokens` | Token de uso único da configuração inicial (só o hash) |
 | `audit_events` | Histórico operacional com diff antes/depois, autor, origem e request ID |
