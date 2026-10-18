@@ -42,6 +42,9 @@ import type {
   MaintenanceTemplate,
   MaintenanceTemplateCreate,
   MaintenanceTemplatePatch,
+  AnnouncementTemplate,
+  AnnouncementTemplateCreate,
+  AnnouncementTemplatePatch,
   MaintenanceUpdate,
   Page,
   PublicAnnouncement,
@@ -135,7 +138,8 @@ export const adminApi = {
       request<Incident>("POST", `${A}/incidents/${id(iid)}/updates`, { body }),
     updates: (iid: string, query: ListQuery, o: Signal = {}) =>
       request<Page<IncidentUpdate>>("GET", `${A}/incidents/${id(iid)}/updates`, { ...o, query }),
-    resolve: (iid: string, message: string) => request<Incident>("POST", `${A}/incidents/${id(iid)}/resolve`, { body: { message } }),
+    resolve: (iid: string, message: string, resolvedAt?: string) =>
+      request<Incident>("POST", `${A}/incidents/${id(iid)}/resolve`, { body: resolvedAt ? { message, resolved_at: resolvedAt } : { message } }),
   },
   maintenances: {
     list: (query: ListQuery & { state?: string }, o: Signal = {}) =>
@@ -163,6 +167,13 @@ export const adminApi = {
     create: (body: MaintenanceTemplateCreate) => request<MaintenanceTemplate>("POST", `${A}/maintenance-templates`, { body }),
     update: (tid: string, body: MaintenanceTemplatePatch) =>
       request<MaintenanceTemplate>("PATCH", `${A}/maintenance-templates/${id(tid)}`, { body }),
+  },
+  announcementTemplates: {
+    list: (query: ListQuery & { is_active?: boolean }, o: Signal = {}) =>
+      request<Page<AnnouncementTemplate>>("GET", `${A}/announcement-templates`, { ...o, query }),
+    create: (body: AnnouncementTemplateCreate) => request<AnnouncementTemplate>("POST", `${A}/announcement-templates`, { body }),
+    update: (tid: string, body: AnnouncementTemplatePatch) =>
+      request<AnnouncementTemplate>("PATCH", `${A}/announcement-templates/${id(tid)}`, { body }),
   },
   external: {
     list: (o: Signal = {}) => request<{ data: ExternalSource[] }>("GET", `${A}/external-sources`, o),

@@ -85,6 +85,12 @@ describe("public status page", () => {
     const link = within(componentsRegion).getByRole("link", { name: "Abrir a página de API (nova aba)" });
     expect(link).toHaveAttribute("href", "https://docs.example.com/api");
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    // The description is behind a discreet "i", not printed in the row.
+    expect(within(componentsRegion).queryByText("REST")).not.toBeInTheDocument();
+    await userEvent.click(within(componentsRegion).getByRole("button", { name: "Sobre API" }));
+    expect(screen.getByRole("tooltip")).toHaveTextContent("REST");
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
   });
 
   it("shows an error with retry when the first load fails", async () => {
@@ -389,6 +395,46 @@ describe("admin area", () => {
     expect(calls.find((c) => c.path.endsWith("/resolve"))?.body).toEqual({ message: expect.stringContaining("resolvido") });
   });
 
+  it("records when the impact really ended when resolving", async () => {
+    window.history.pushState(null, "", `/admin/incidents/${incident.id}`);
+    const resolved = { ...incident, status: "resolved" as const, resolved_at: "2026-03-02T10:00:00Z" };
+    const calls = mockApi({ ...session(),
+      [`GET /api/v1/admin/incidents/${incident.id}`]: { body: incident },
+      [`POST /api/v1/admin/incidents/${incident.id}/resolve`]: { body: resolved },
+      "GET /api/v1/admin/incident-templates": page([]),
+    });
+    render(<App />);
+    const user = userEvent.setup();
+    const end = await screen.findByLabelText("Fim do impacto (opcional)");
+    fireEvent.change(end, { target: { value: "2026-03-02T10:00" } });
+    await user.click(screen.getByRole("button", { name: "Resolver incidente" }));
+    await user.click(screen.getByRole("button", { name: "Confirmar resolução" }));
+    expect(await screen.findByText(/Incidente resolvido/)).toBeInTheDocument();
+    expect(calls.find((c) => c.path.endsWith("/resolve"))?.body).toEqual({
+      message: expect.any(String),
+      resolved_at: new Date("2026-03-02T10:00").toISOString(),
+    });
+    // The page shows the real period and its duration.
+    expect(screen.getByText("Fim do impacto")).toBeInTheDocument();
+    expect(screen.getByText("Duração")).toBeInTheDocument();
+  });
+
+  it("groups the admin menu, collapsed except for the current page's group", async () => {
+    window.history.pushState(null, "", "/admin/components");
+    mockApi({ ...session(), "GET /api/v1/admin/components": page([]), "GET /api/v1/admin/component-groups": page([]) });
+    render(<App />);
+    const user = userEvent.setup();
+    const nav = await screen.findByRole("navigation", { name: "Administração" });
+    const catalog = within(nav).getByRole("button", { name: "Catálogo" });
+    const operation = within(nav).getByRole("button", { name: "Operação" });
+    expect(catalog).toHaveAttribute("aria-expanded", "true");
+    expect(within(nav).getByRole("link", { name: "Componentes" })).toHaveAttribute("aria-current", "page");
+    expect(operation).toHaveAttribute("aria-expanded", "false");
+    expect(within(nav).queryByRole("link", { name: "Incidentes" })).not.toBeInTheDocument();
+    await user.click(operation);
+    expect(within(nav).getByRole("link", { name: "Incidentes" })).toBeInTheDocument();
+  });
+
   it("schedules a maintenance sending local time plus an explicit timezone", async () => {
     window.history.pushState(null, "", "/admin/maintenances/new");
     const calls = mockApi({ ...session(),
@@ -549,16 +595,18 @@ describe("announcements", () => {
     await user.type(await screen.findByLabelText("Título"), "Nova API");
     await user.selectOptions(screen.getByLabelText("Categoria"), "cat1");
     expect(screen.getByText("Lançamentos e melhorias.")).toBeInTheDocument();
-    await user.type(screen.getByLabelText("Texto"), "Disponível ");
+    // Markdown mode: the toolbar inserts the syntax; the preview renders it.
+    await user.click(screen.getByRole("tab", { name: "Markdown" }));
+    await user.type(screen.getByRole("textbox", { name: "Texto" }), "Disponível ");
     await user.click(screen.getByRole("button", { name: /Negrito/ }));
-    await user.click(screen.getByRole("button", { name: "Pré-visualizar" }));
-    expect(screen.getByText("texto em negrito").tagName).toBe("STRONG");
+    await user.click(screen.getByRole("tab", { name: "Pré-visualizar" }));
+    expect(screen.getByText("texto").tagName).toBe("STRONG");
     await user.click(screen.getByRole("button", { name: "Salvar rascunho" }));
 
     expect(await screen.findByText("Visível apenas na administração.")).toBeInTheDocument();
     expect(calls.find((c) => c.method === "POST")?.body).toEqual({
       title: "Nova API",
-      body: "Disponível **texto em negrito**",
+      body: "Disponível **texto**",
       importance: "info",
       is_pinned: false,
       category_id: "cat1",
@@ -695,5 +743,49 @@ describe("subscriptions", () => {
     await user.click(screen.getByRole("button", { name: "Cancelar inscrição" }));
     expect(await screen.findByRole("heading", { name: "Inscrição cancelada" })).toBeInTheDocument();
     expect(calls.find((c) => c.path.endsWith("/unsubscribe"))?.body).toEqual({ token: "abc" });
+  });
+});
+
+describe("announcement templates and team tags", () => {
+  it("fills the announcement editor from a template", async () => {
+    window.history.pushState(null, "", "/admin/announcements/new");
+    mockApi({
+      ...session(),
+      "GET /api/v1/admin/announcement-categories": { body: { data: [{ id: "cat1", name: "Novidades", description: "", color: "blue", display_order: 0, is_active: true, announcement_count: 0, created_at: "", updated_at: "" }] } },
+      "GET /api/v1/admin/teams": { body: { data: [] } },
+      "GET /api/v1/admin/announcements": page([]),
+      "GET /api/v1/admin/components": page([]),
+      "GET /api/v1/admin/announcement-templates": page([
+        { id: "t1", name: "Nova funcionalidade", description: "", title: "Novo: [recurso]", body: "Já está disponível **[recurso]**.", importance: "important", category_id: "cat1", guidance: "Comece pelo benefício.", is_active: true, created_at: "", updated_at: "" },
+      ]),
+    });
+    render(<App />);
+    const user = userEvent.setup();
+    await user.selectOptions(await screen.findByLabelText("Usar template de comunicado"), "t1");
+    expect(screen.getByLabelText("Título")).toHaveValue("Novo: [recurso]");
+    expect(screen.getByLabelText("Categoria")).toHaveValue("cat1");
+    expect(screen.getByText(/Comece pelo benefício/)).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "Markdown" }));
+    expect(screen.getByRole("textbox", { name: "Texto" })).toHaveValue("Já está disponível **[recurso]**.");
+  });
+
+  it("adds team tags as chips and sends them", async () => {
+    window.history.pushState(null, "", "/admin/teams");
+    const created = { id: "t9", name: "Squad X", kind: "", description: "", documentation_url: null, support_url: null, tags: ["pagamentos", "on-call"], is_active: true, announcement_count: 0, component_count: 0, group_count: 0, member_count: 0, created_at: "", updated_at: "" };
+    const calls = mockApi({
+      ...session(),
+      "GET /api/v1/admin/teams": { body: { data: [] } },
+      "POST /api/v1/admin/teams": { status: 201, body: created },
+    });
+    render(<App />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Novo time" }));
+    await user.type(screen.getByLabelText("Nome do time"), "Squad X");
+    await user.type(screen.getByLabelText("Tags"), "pagamentos{Enter}on-call,PAGAMENTOS{Enter}");
+    expect(screen.getByRole("button", { name: "Remover pagamentos" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /^Remover / })).toHaveLength(2);
+    await user.click(screen.getByRole("button", { name: "Criar time" }));
+    expect(await screen.findByText("Time criado.")).toBeInTheDocument();
+    expect((calls.find((c) => c.method === "POST")?.body as { tags: string[] }).tags).toEqual(["pagamentos", "on-call"]);
   });
 });

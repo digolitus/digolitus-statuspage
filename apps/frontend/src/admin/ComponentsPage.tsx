@@ -15,6 +15,7 @@ type FormValues = {
   name: string;
   slug: string;
   description: string;
+  show_description: boolean;
   status: ComponentStatus;
   is_public: boolean;
   display_order: string;
@@ -23,13 +24,14 @@ type FormValues = {
   team_id: string;
 };
 
-const empty: FormValues = { name: "", slug: "", description: "", status: "operational", is_public: true, display_order: "0", group_id: "", url: "", team_id: "" };
+const empty: FormValues = { name: "", slug: "", description: "", show_description: false, status: "operational", is_public: true, display_order: "0", group_id: "", url: "", team_id: "" };
 
 function toValues(c: Component): FormValues {
   return {
     name: c.name,
     slug: c.slug,
     description: c.description,
+    show_description: c.show_description,
     status: c.status,
     is_public: c.is_public,
     display_order: String(c.display_order),
@@ -72,6 +74,7 @@ function ComponentForm({
     const input: ComponentCreate = {
       name: v.name.trim(),
       description: v.description.trim(),
+      show_description: v.show_description,
       status: v.status,
       is_public: v.is_public,
       display_order: order,
@@ -137,9 +140,16 @@ function ComponentForm({
           <input {...p} type="url" inputMode="url" placeholder="https://docs.exemplo.com/api" maxLength={500} value={v.url} onChange={(e) => set("url", e.target.value)} />
         )}
       </Field>
-      <Field label="Descrição" error={fe.description}>
-        {(p) => <textarea {...p} rows={2} maxLength={1000} value={v.description} onChange={(e) => set("description", e.target.value)} />}
-      </Field>
+      <div className="field-group">
+        <Field label="Descrição" error={fe.description}>
+          {(p) => <textarea {...p} rows={2} maxLength={1000} value={v.description} onChange={(e) => set("description", e.target.value)} />}
+        </Field>
+        <label className="checkbox">
+          <input type="checkbox" checked={v.show_description} onChange={(e) => set("show_description", e.target.checked)} />
+          <span>Exibir a descrição na página pública</span>
+        </label>
+        <small className="field-hint">Fica num ícone “i” discreto ao lado do componente. Desmarcada, a descrição é só interna.</small>
+      </div>
       <label className="checkbox">
         <input type="checkbox" checked={v.is_public} onChange={(e) => set("is_public", e.target.checked)} />
         Exibir na página pública
@@ -332,6 +342,7 @@ export function ComponentsPage() {
                         {!c.is_active && <span className="tag">Desativado</span>}
                         <span className="tag">Ordem {c.display_order}</span>
                         {c.url && <span className="tag">Com link</span>}
+                        {c.description && <span className="tag">{c.show_description ? "Descrição pública" : "Descrição interna"}</span>}
                       </div>
                     </div>
                     <Badge tone={toneForStatus[c.status]}>{componentStatusLabel[c.status]}</Badge>

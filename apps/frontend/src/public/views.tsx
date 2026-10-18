@@ -4,6 +4,7 @@ import { Badge, Timeline, type TimelineEntry } from "../components/ui";
 import {
   expectedImpactLabel,
   formatDateTime,
+  formatDuration,
   impactLabel,
   incidentStatusLabel,
   maintenanceKindLabel,
@@ -72,10 +73,16 @@ export function IncidentCard({ incident, full, linkTo }: { incident: PublicIncid
           <dd>{formatDateTime(incident.started_at)}</dd>
         </div>
         {incident.resolved_at && (
-          <div>
-            <dt>Resolução</dt>
-            <dd>{formatDateTime(incident.resolved_at)}</dd>
-          </div>
+          <>
+            <div>
+              <dt>Fim</dt>
+              <dd>{formatDateTime(incident.resolved_at)}</dd>
+            </div>
+            <div>
+              <dt>Duração</dt>
+              <dd>{formatDuration(incident.started_at, incident.resolved_at)}</dd>
+            </div>
+          </>
         )}
       </dl>
       <ComponentChips components={incident.components} />

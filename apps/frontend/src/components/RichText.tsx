@@ -1,75 +1,82 @@
 import type { ReactNode } from "react";
+import { parse, plainText, type Block, type Inline } from "../lib/markdown";
 
 /**
- * Renders the lightweight formatting used in announcements:
- *  - blank line → new paragraph; single line break kept;
- *  - lines starting with "- " or "* " → bullet list;
- *  - **bold**, [text](https://...) and bare https:// links.
+ * Renders the announcement text format (see lib/markdown.ts): headings,
+ * small text, bullet and numbered lists, quotes, rules, and inline bold,
+ * italic, underline, strikethrough, highlight, monospace and links.
  *
- * Everything is rendered as React text nodes (no HTML injection), and only
- * http(s) links become anchors.
+ * Everything is rendered as React nodes (no HTML injection), and only
+ * http(s) links become anchors. Headings start at h3 so they never compete
+ * with the page or announcement title.
  */
 export function RichText({ text, className = "rich-text" }: { text: string; className?: string }) {
-  const blocks = text.replace(/\r\n?/g, "\n").trim().split(/\n{2,}/);
-  return (
-    <div className={className}>
-      {blocks.map((block, i) => {
-        const lines = block.split("\n");
-        if (lines.every((l) => /^\s*[-*]\s+/.test(l))) {
-          return (
-            <ul key={i}>
-              {lines.map((l, j) => (
-                <li key={j}>{inline(l.replace(/^\s*[-*]\s+/, ""))}</li>
-              ))}
-            </ul>
-          );
-        }
-        return (
-          <p key={i}>
-            {lines.map((l, j) => (
-              <span key={j}>
-                {j > 0 && <br />}
-                {inline(l)}
-              </span>
-            ))}
-          </p>
-        );
-      })}
-    </div>
-  );
+  return <div className={className}>{parse(text).map(block)}</div>;
 }
 
-const TOKEN = /\*\*(.+?)\*\*|\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>()]+[^\s<>().,;:!?])/g;
-
-function inline(line: string): ReactNode[] {
-  const out: ReactNode[] = [];
-  let last = 0;
-  let k = 0;
-  for (const m of line.matchAll(TOKEN)) {
-    if (m.index > last) out.push(line.slice(last, m.index));
-    if (m[1] !== undefined) {
-      out.push(<strong key={k++}>{m[1]}</strong>);
-    } else {
-      const href = m[3] ?? m[4];
-      out.push(
-        <a key={k++} href={href} target="_blank" rel="noopener noreferrer nofollow">
-          {m[2] ?? m[4]}
-        </a>,
+function block(b: Block, i: number): ReactNode {
+  switch (b.t) {
+    case "h2":
+      return <h3 key={i}>{inline(b.c)}</h3>;
+    case "h3":
+      return <h4 key={i}>{inline(b.c)}</h4>;
+    case "small":
+      return (
+        <p key={i} className="text-small">
+          {inline(b.c)}
+        </p>
+      );
+    case "quote":
+      return <blockquote key={i}>{inline(b.c)}</blockquote>;
+    case "hr":
+      return <hr key={i} />;
+    case "ul":
+    case "ol": {
+      const List = b.t;
+      return (
+        <List key={i}>
+          {b.items.map((item, j) => (
+            <li key={j}>{inline(item)}</li>
+          ))}
+        </List>
       );
     }
-    last = m.index + m[0].length;
+    default:
+      return <p key={i}>{inline(b.c)}</p>;
   }
-  if (last < line.length) out.push(line.slice(last));
-  return out;
+}
+
+function inline(nodes: Inline[]): ReactNode[] {
+  return nodes.map((n, k) => {
+    switch (n.t) {
+      case "text":
+        return n.v;
+      case "br":
+        return <br key={k} />;
+      case "code":
+        return <code key={k}>{n.v}</code>;
+      case "link":
+        return (
+          <a key={k} href={n.href} target="_blank" rel="noopener noreferrer nofollow">
+            {inline(n.c)}
+          </a>
+        );
+      case "strong":
+        return <strong key={k}>{inline(n.c)}</strong>;
+      case "em":
+        return <em key={k}>{inline(n.c)}</em>;
+      case "u":
+        return <u key={k}>{inline(n.c)}</u>;
+      case "s":
+        return <s key={k}>{inline(n.c)}</s>;
+      case "mark":
+        return <mark key={k}>{inline(n.c)}</mark>;
+    }
+  });
 }
 
 /** Plain-text excerpt (formatting markers removed) for previews. */
 export function excerpt(text: string, max = 280): string {
-  const plain = text
-    .replace(/\*\*(.+?)\*\*/g, "$1")
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .replace(/^\s*[-*]\s+/gm, "• ")
-    .replace(/\s+/g, " ")
-    .trim();
+  const plain = plainText(text);
   return plain.length > max ? `${plain.slice(0, max - 1).trimEnd()}…` : plain;
 }

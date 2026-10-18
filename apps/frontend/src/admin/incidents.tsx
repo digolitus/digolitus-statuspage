@@ -3,7 +3,7 @@ import { adminApi } from "../api/endpoints";
 import type { Incident, IncidentCreate, IncidentImpact, IncidentStatus, IncidentTemplate } from "../api/types";
 import { Badge, ConfirmButton, EmptyState, ErrorPanel, Field, Loading, Pager, Timeline } from "../components/ui";
 import { StatusSelect } from "../components/StatusSelect";
-import { browserTimeZone, formatDateTime, IMPACTS, impactLabel, incidentStatusLabel, toneForIncident } from "../lib/format";
+import { browserTimeZone, formatDateTime, IMPACTS, impactLabel, incidentStatusLabel, toneForIncident, formatDuration, toLocalInput } from "../lib/format";
 import { Link, navigate } from "../lib/router";
 import { useApi } from "../lib/useApi";
 import { useAuth } from "./authContext";
@@ -174,7 +174,7 @@ export function IncidentNewPage() {
               </select>
             )}
           </Field>
-          <Field label="Início (opcional)" error={fe.started_at} hint={`Horário local de ${browserTimeZone()}. Vazio = agora.`}>
+          <Field label="Início do impacto (opcional)" error={fe.started_at} hint={`Se começou antes de abrir aqui. Vazio = agora. Horário local (${browserTimeZone()}).`}>
             {(p) => <input {...p} type="datetime-local" value={v.started_at} onChange={(e) => setV({ ...v, started_at: e.target.value })} />}
           </Field>
         </div>
@@ -197,15 +197,40 @@ export function IncidentNewPage() {
 }
 
 function MetadataForm({ incident, onSaved }: { incident: Incident; onSaved: (i: Incident) => void }) {
-  const [v, setV] = useState({ title: incident.title, impact: incident.impact, internal_notes: incident.internal_notes });
+  const initialStart = toLocalInput(incident.started_at);
+  const initialEnd = toLocalInput(incident.resolved_at);
+  const [v, setV] = useState({
+    title: incident.title,
+    impact: incident.impact,
+    internal_notes: incident.internal_notes,
+    started_at: initialStart,
+    resolved_at: initialEnd,
+  });
   const submit = useSubmit();
+  const resolved = incident.status === "resolved";
   async function handle(e: FormEvent) {
     e.preventDefault();
     const errors: Record<string, string> = {};
     requireText(errors, "title", v.title, 200, "Título");
+    const start = v.started_at !== initialStart ? localInputToISO(v.started_at) : undefined;
+    const end = resolved && v.resolved_at !== initialEnd ? localInputToISO(v.resolved_at) : undefined;
+    if (v.started_at !== initialStart && !start) errors.started_at = "Informe data e hora do início.";
+    if (resolved && v.resolved_at !== initialEnd && !end) errors.resolved_at = "Informe data e hora do fim.";
+    const startMs = Date.parse(start ?? incident.started_at);
+    const endMs = resolved ? Date.parse(end ?? incident.resolved_at!) : NaN;
+    if (!errors.started_at && start && startMs > Date.now()) errors.started_at = "O início não pode estar no futuro.";
+    if (!errors.resolved_at && end && endMs > Date.now()) errors.resolved_at = "O fim não pode estar no futuro.";
+    if (!errors.started_at && !errors.resolved_at && resolved && endMs < startMs) errors.resolved_at = "O fim não pode ser anterior ao início.";
     if (Object.keys(errors).length) return submit.setFieldErrors(errors);
     const saved = await submit.run(
-      () => adminApi.incidents.patch(incident.id, { title: v.title.trim(), impact: v.impact, internal_notes: v.internal_notes.trim() }),
+      () =>
+        adminApi.incidents.patch(incident.id, {
+          title: v.title.trim(),
+          impact: v.impact,
+          internal_notes: v.internal_notes.trim(),
+          ...(start ? { started_at: start } : {}),
+          ...(end ? { resolved_at: end } : {}),
+        }),
       "Dados atualizados (sem publicar atualização).",
     );
     if (saved) onSaved(saved);
@@ -222,6 +247,25 @@ function MetadataForm({ incident, onSaved }: { incident: Incident; onSaved: (i: 
           )}
         </Field>
       </div>
+      <fieldset className="field period-field">
+        <legend>Período real do impacto</legend>
+        <div className="form-grid form-grid-2">
+          <Field label="Início do impacto" error={submit.fieldErrors.started_at} hint={`Horário local (${browserTimeZone()}).`}>
+            {(p) => <input {...p} type="datetime-local" value={v.started_at} onChange={(e) => setV({ ...v, started_at: e.target.value })} />}
+          </Field>
+          {resolved ? (
+            <Field label="Fim do impacto" error={submit.fieldErrors.resolved_at} hint="Quando o serviço voltou ao normal.">
+              {(p) => <input {...p} type="datetime-local" value={v.resolved_at} onChange={(e) => setV({ ...v, resolved_at: e.target.value })} />}
+            </Field>
+          ) : (
+            <p className="field-hint period-note">O fim é informado ao resolver o incidente.</p>
+          )}
+        </div>
+        <small className="field-hint">
+          Pode ser anterior à abertura ou ao encerramento aqui. A página pública mostra este período; a linha do tempo mantém o horário de
+          cada publicação.
+        </small>
+      </fieldset>
       <Field label="Notas internas" error={submit.fieldErrors.internal_notes}>
         {(p) => <textarea {...p} rows={2} maxLength={5000} value={v.internal_notes} onChange={(e) => setV({ ...v, internal_notes: e.target.value })} />}
       </Field>
@@ -241,12 +285,16 @@ function PublishUpdateForm({ incident, onSaved }: { incident: Incident; onSaved:
   const [message, setMessage] = useState("");
   const [changeComponents, setChangeComponents] = useState(false);
   const [componentIds, setComponentIds] = useState(incident.components.map((c) => c.id));
+  const [endLocal, setEndLocal] = useState("");
   const submit = useSubmit();
 
   async function handle(e: FormEvent) {
     e.preventDefault();
     const errors: Record<string, string> = {};
     requireText(errors, "message", message, 5000, "Mensagem");
+    const end = status === "resolved" ? localInputToISO(endLocal) : undefined;
+    if (end && Date.parse(end) < Date.parse(incident.started_at)) errors.resolved_at = "O fim não pode ser anterior ao início.";
+    if (end && Date.parse(end) > Date.now()) errors.resolved_at = "O fim não pode estar no futuro.";
     if (Object.keys(errors).length) return submit.setFieldErrors(errors);
     const saved = await submit.run(
       () =>
@@ -254,6 +302,7 @@ function PublishUpdateForm({ incident, onSaved }: { incident: Incident; onSaved:
           status,
           message: message.trim(),
           component_ids: changeComponents ? componentIds : undefined,
+          ...(end ? { resolved_at: end } : {}),
         }),
       "Atualização publicada.",
     );
@@ -289,6 +338,13 @@ function PublishUpdateForm({ incident, onSaved }: { incident: Incident; onSaved:
       <Field label="Mensagem pública" error={submit.fieldErrors.message}>
         {(p) => <textarea {...p} rows={3} maxLength={5000} value={message} onChange={(e) => setMessage(e.target.value)} />}
       </Field>
+      {status === "resolved" && (
+        <div className="form-grid form-grid-2">
+          <Field label="Fim do impacto (opcional)" error={submit.fieldErrors.resolved_at} hint="Vazio = agora.">
+            {(p) => <input {...p} type="datetime-local" value={endLocal} onChange={(e) => setEndLocal(e.target.value)} />}
+          </Field>
+        </div>
+      )}
       <label className="checkbox">
         <input type="checkbox" checked={changeComponents} onChange={(e) => setChangeComponents(e.target.checked)} />
         Alterar componentes afetados
@@ -310,6 +366,7 @@ export function IncidentDetailPage({ id }: { id: string }) {
   const { state, reload, setData } = useApi((signal) => adminApi.incidents.get(id, { signal }), [id]);
   const [resolveMessage, setResolveMessage] = useState("O problema foi resolvido e o serviço está operando normalmente.");
   const [resolveError, setResolveError] = useState<string | null>(null);
+  const [resolveEnd, setResolveEnd] = useState("");
   const canManage = useCanForComponents("incidents.manage", state.status === "success" ? state.data.components.map((c) => c.id) : []);
 
   if (state.status === "loading") return <div className="admin-content"><Loading /></div>;
@@ -327,15 +384,23 @@ export function IncidentDetailPage({ id }: { id: string }) {
       </PageHeader>
       <dl className="meta">
         <div>
-          <dt>Início</dt>
+          <dt>Início do impacto</dt>
           <dd>{formatDateTime(inc.started_at)}</dd>
         </div>
         {inc.resolved_at && (
           <div>
-            <dt>Resolução</dt>
+            <dt>Fim do impacto</dt>
             <dd>{formatDateTime(inc.resolved_at)}</dd>
           </div>
         )}
+        <div>
+          <dt>{inc.resolved_at ? "Duração" : "Em andamento há"}</dt>
+          <dd>{formatDuration(inc.started_at, inc.resolved_at ?? new Date().toISOString())}</dd>
+        </div>
+        <div>
+          <dt>Aberto aqui em</dt>
+          <dd>{formatDateTime(inc.created_at)}</dd>
+        </div>
         <div>
           <dt>Componentes</dt>
           <dd>{inc.components.length ? inc.components.map((c) => c.name).join(", ") : "Nenhum"}</dd>
@@ -357,6 +422,14 @@ export function IncidentDetailPage({ id }: { id: string }) {
           <Field label="Mensagem de encerramento">
             {(p) => <textarea {...p} rows={2} maxLength={5000} value={resolveMessage} onChange={(e) => setResolveMessage(e.target.value)} />}
           </Field>
+          <div className="form-grid form-grid-2">
+            <Field
+              label="Fim do impacto (opcional)"
+              hint={`Se o problema terminou antes de encerrar aqui. Vazio = agora. Horário local (${browserTimeZone()}).`}
+            >
+              {(p) => <input {...p} type="datetime-local" value={resolveEnd} onChange={(e) => setResolveEnd(e.target.value)} />}
+            </Field>
+          </div>
           {resolveError && (
             <p className="field-error" role="alert">
               {resolveError}
@@ -370,8 +443,17 @@ export function IncidentDetailPage({ id }: { id: string }) {
             disabled={!resolveMessage.trim()}
             onConfirm={async () => {
               setResolveError(null);
+              const end = localInputToISO(resolveEnd);
+              if (end && Date.parse(end) < Date.parse(inc.started_at)) {
+                setResolveError("O fim do impacto não pode ser anterior ao início.");
+                return;
+              }
+              if (end && Date.parse(end) > Date.now()) {
+                setResolveError("O fim do impacto não pode estar no futuro.");
+                return;
+              }
               try {
-                setData(await adminApi.incidents.resolve(inc.id, resolveMessage.trim()));
+                setData(await adminApi.incidents.resolve(inc.id, resolveMessage.trim(), end));
               } catch (error) {
                 setResolveError(error instanceof Error ? error.message : "Falha ao resolver.");
               }

@@ -100,6 +100,49 @@ export type AnnouncementPublish = {
 /** `scheduled` = publicado com horário de publicação futuro. */
 export type AnnouncementState = "draft" | "scheduled" | "published" | "archived";
 
+export type AnnouncementTemplate = {
+  /** Texto em markdown (mesma sintaxe dos comunicados). */
+  body: string;
+  category_id: string | null;
+  created_at: Timestamp;
+  description: string;
+  guidance: string;
+  id: string;
+  importance: AnnouncementImportance;
+  is_active: boolean;
+  name: string;
+  title: string;
+  updated_at: Timestamp;
+};
+
+export type AnnouncementTemplateCreate = {
+  body: string;
+  name: string;
+  title: string;
+  category_id?: string | null;
+  description?: string;
+  guidance?: string;
+  importance?: AnnouncementImportance;
+  is_active?: boolean;
+};
+
+export type AnnouncementTemplateList = {
+  data: AnnouncementTemplate[];
+  pagination: Pagination;
+};
+
+export type AnnouncementTemplatePatch = {
+  body?: string;
+  /** `null` remove a categoria. */
+  category_id?: string | null;
+  description?: string;
+  guidance?: string;
+  importance?: AnnouncementImportance;
+  is_active?: boolean;
+  name?: string;
+  title?: string;
+};
+
 export type AuditEvent = {
   action: string;
   /** Usuário autenticado que fez a alteração; `null` em registros anteriores à autenticação. */
@@ -114,7 +157,7 @@ export type AuditEvent = {
   occurred_at: Timestamp;
   request_id: string | null;
   resource_id: string;
-  resource_type: "component" | "component_group" | "incident" | "maintenance" | "incident_template" | "maintenance_template" | "external_source" | "announcement" | "announcement_category" | "team" | "user" | "role" | "subscription";
+  resource_type: "component" | "component_group" | "incident" | "maintenance" | "incident_template" | "maintenance_template" | "external_source" | "announcement" | "announcement_category" | "team" | "user" | "role" | "subscription" | "announcement_template";
   /** Canal de origem (ex.: admin_api). */
   source: string;
 };
@@ -138,6 +181,8 @@ export type Component = {
   name: string;
   /** Dono efetivo: `team_id` ou, se ausente, o time do grupo. Papéis de time agem sobre componentes dos seus times. */
   owner_team_id: string | null;
+  /** Exibe a descrição na página pública (ícone "i" ao lado do nome). */
+  show_description: boolean;
   slug: string;
   status: ComponentStatus;
   /** Time responsável pelo componente. */
@@ -153,6 +198,8 @@ export type ComponentCreate = {
   display_order?: number;
   group_id?: string | null;
   is_public?: boolean;
+  /** Exibe a descrição na página pública. */
+  show_description?: boolean;
   /** Único. Derivado do nome quando omitido. */
   slug?: string;
   status?: ComponentStatus;
@@ -209,6 +256,7 @@ export type ComponentPatch = {
   is_active?: boolean;
   is_public?: boolean;
   name?: string;
+  show_description?: boolean;
   slug?: string;
   status?: ComponentStatus;
   /** `null` = herda o time do grupo. */
@@ -357,12 +405,17 @@ export type IncidentList = {
 export type IncidentPatch = {
   impact?: IncidentImpact;
   internal_notes?: string;
+  /** Fim real do impacto, só para incidentes resolvidos (não futuro, não anterior ao início). */
+  resolved_at?: string;
+  /** Início real do impacto (RFC 3339 com offset, não futuro). */
   started_at?: string;
   title?: string;
 };
 
 export type IncidentResolve = {
   message: string;
+  /** Fim real do impacto (o incidente pode ser fechado aqui depois). Padrão: agora. */
+  resolved_at?: string;
 };
 
 /** `resolved` é terminal. */
@@ -426,6 +479,8 @@ export type IncidentUpdateCreate = {
   message: string;
   status: IncidentStatus;
   component_ids?: UUIDList;
+  /** Só com status resolved: fim real do impacto. Padrão: agora. */
+  resolved_at?: string;
 };
 
 export type IncidentUpdateList = {
@@ -638,6 +693,7 @@ export type PublicAnnouncementList = {
 };
 
 export type PublicComponent = {
+  /** Descrição pública; vazia quando o operador não a exibe. */
   description: string;
   display_order: number;
   group_id: string | null;
@@ -951,6 +1007,8 @@ export type Team = {
   name: string;
   /** Link de como obter suporte. */
   support_url: string | null;
+  /** Tags livres do time (ex.: pagamentos, on-call 24x7). */
+  tags: string[];
   updated_at: Timestamp;
 };
 
@@ -963,6 +1021,8 @@ export type TeamCreate = {
   kind?: string;
   /** Endereço http(s). Vazio ou `null` remove. */
   support_url?: string | null;
+  /** Substitui a lista. Espaços extras e repetidas (sem diferenciar maiúsculas) são removidos. */
+  tags?: string[];
 };
 
 export type TeamList = {
@@ -978,6 +1038,8 @@ export type TeamPatch = {
   name?: string;
   /** Endereço http(s). Vazio ou `null` remove. */
   support_url?: string | null;
+  /** Substitui a lista. Espaços extras e repetidas (sem diferenciar maiúsculas) são removidos. */
+  tags?: string[];
 };
 
 export type TeamRef = {

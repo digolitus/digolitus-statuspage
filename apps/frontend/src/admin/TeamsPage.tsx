@@ -1,6 +1,7 @@
 import { useId, useState, type FormEvent } from "react";
 import { adminApi } from "../api/endpoints";
 import type { Team, TeamCreate } from "../api/types";
+import { TagInput } from "../components/TagInput";
 import { ConfirmButton, EmptyState, ErrorPanel, Field, Loading } from "../components/ui";
 import { plural } from "../lib/format";
 import { Link } from "../lib/router";
@@ -11,8 +12,8 @@ import { FormStatus, PageHeader, ReadOnlyNote, requireText, useSubmit } from "./
 /** Suggestions only; any label up to 40 characters is accepted. */
 const KINDS = ["Squad", "RT", "Comunidade", "Tribo", "Chapter", "Guilda", "Plataforma"];
 
-type Values = { name: string; kind: string; description: string; documentation_url: string; support_url: string };
-const blank: Values = { name: "", kind: "", description: "", documentation_url: "", support_url: "" };
+type Values = { name: string; kind: string; description: string; documentation_url: string; support_url: string; tags: string[] };
+const blank: Values = { name: "", kind: "", description: "", documentation_url: "", support_url: "", tags: [] };
 
 const toValues = (t: Team): Values => ({
   name: t.name,
@@ -20,15 +21,16 @@ const toValues = (t: Team): Values => ({
   description: t.description,
   documentation_url: t.documentation_url ?? "",
   support_url: t.support_url ?? "",
+  tags: t.tags,
 });
 
 const isLink = (v: string) => /^https?:\/\/\S+$/i.test(v);
 
-function TeamForm({ existing, onSaved, onCancel }: { existing?: Team; onSaved: () => void; onCancel?: () => void }) {
+function TeamForm({ existing, onSaved, onCancel, tagSuggestions }: { existing?: Team; onSaved: () => void; onCancel?: () => void; tagSuggestions: string[] }) {
   const [v, setV] = useState(existing ? toValues(existing) : blank);
   const submit = useSubmit();
   const kindsId = useId();
-  const set = (k: keyof Values, value: string) => setV((s) => ({ ...s, [k]: value }));
+  const set = (k: Exclude<keyof Values, "tags">, value: string) => setV((s) => ({ ...s, [k]: value }));
 
   async function handle(e: FormEvent) {
     e.preventDefault();
@@ -45,6 +47,7 @@ function TeamForm({ existing, onSaved, onCancel }: { existing?: Team; onSaved: (
       description: v.description.trim(),
       documentation_url: v.documentation_url.trim() || null,
       support_url: v.support_url.trim() || null,
+      tags: v.tags,
     };
     const ok = await submit.run(
       () => (existing ? adminApi.teams.update(existing.id, body) : adminApi.teams.create(body)),
@@ -105,6 +108,14 @@ function TeamForm({ existing, onSaved, onCancel }: { existing?: Team; onSaved: (
       <Field label="Descrição" error={fe.description}>
         {(p) => <textarea {...p} rows={2} maxLength={500} value={v.description} onChange={(e) => set("description", e.target.value)} />}
       </Field>
+      <TagInput
+        label="Tags"
+        value={v.tags}
+        onChange={(tags) => setV((s) => ({ ...s, tags }))}
+        error={fe.tags}
+        suggestions={tagSuggestions}
+        hint="Rótulos livres (ex.: pagamentos, on-call 24x7). Enter ou vírgula para adicionar."
+      />
       <FormStatus error={submit.formError} success={submit.success} />
       <div className="form-actions">
         <button type="submit" className="primary-button" disabled={submit.busy}>
@@ -124,7 +135,11 @@ export function TeamsPage() {
   const { state, reload } = useApi((signal) => adminApi.teams.list({}, { signal }), []);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
   const canManage = useAuth().can("teams.manage");
+  const allTeams = state.status === "success" ? state.data.data : [];
+  const allTags = [...new Set(allTeams.flatMap((t) => t.tags))].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  const visible = tagFilter ? allTeams.filter((t) => t.tags.some((x) => x.toLowerCase() === tagFilter.toLowerCase())) : allTeams;
 
   return (
     <div className="admin-content">
@@ -143,17 +158,35 @@ export function TeamsPage() {
       </p>
       {creating && (
         <section className="panel" aria-label="Novo time">
-          <TeamForm onSaved={reload} onCancel={() => setCreating(false)} />
+          <TeamForm onSaved={reload} onCancel={() => setCreating(false)} tagSuggestions={allTags} />
         </section>
       )}
       {state.status === "loading" && <Loading />}
       {state.status === "error" && <ErrorPanel error={state.error} onRetry={reload} />}
+      {allTags.length > 0 && (
+        <div className="filters" role="group" aria-label="Filtrar por tag">
+          <button type="button" className={tagFilter ? "chip-button" : "chip-button chip-button-active"} aria-pressed={!tagFilter} onClick={() => setTagFilter(null)}>
+            Todas as tags
+          </button>
+          {allTags.map((tag) => (
+            <button
+              key={tag}
+              type="button"
+              className={tagFilter === tag ? "chip-button chip-button-active" : "chip-button"}
+              aria-pressed={tagFilter === tag}
+              onClick={() => setTagFilter(tagFilter === tag ? null : tag)}
+            >
+              #{tag}
+            </button>
+          ))}
+        </div>
+      )}
       {state.status === "success" &&
         (state.data.data.length === 0 ? (
           <EmptyState title="Nenhum time cadastrado">Crie times para distribuir a responsabilidade pelos componentes.</EmptyState>
         ) : (
           <ul className="admin-list">
-            {state.data.data.map((t) => {
+            {visible.map((t) => {
               const inUse = t.component_count + t.group_count + t.announcement_count;
               return (
                 <li key={t.id} className="admin-item">
@@ -163,6 +196,17 @@ export function TeamsPage() {
                       {t.kind && <span className="tag tag-team">{t.kind}</span>}
                       {!t.is_active && <span className="tag tag-warn">Desativado</span>}
                       {t.description && <p className="muted small">{t.description}</p>}
+                      {t.tags.length > 0 && (
+                        <ul className="team-tags" aria-label={`Tags de ${t.name}`}>
+                          {t.tags.map((tag) => (
+                            <li key={tag}>
+                              <button type="button" className="tag tag-hash" onClick={() => setTagFilter(tag)} title="Filtrar por esta tag">
+                                #{tag}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                       <div className="admin-item-tags">
                         <Link className="tag" to={`/admin/components?team=${t.id}`}>
                           {plural(t.component_count, "componente", "componentes")}
@@ -216,7 +260,7 @@ export function TeamsPage() {
                       {inUse > 0 && <small className="muted">Em uso: desvincule ou desative.</small>}
                     </div>
                   )}
-                  {editing === t.id && <TeamForm existing={t} onSaved={reload} onCancel={() => setEditing(null)} />}
+                  {editing === t.id && <TeamForm existing={t} onSaved={reload} onCancel={() => setEditing(null)} tagSuggestions={allTags} />}
                 </li>
               );
             })}

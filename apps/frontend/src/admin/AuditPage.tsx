@@ -21,6 +21,7 @@ const RESOURCE_LABEL: Record<AuditEvent["resource_type"], string> = {
   user: "Usuário",
   role: "Papel",
   subscription: "Inscrição",
+  announcement_template: "Template de comunicado",
 };
 
 function resourceLink(e: AuditEvent): string | null {
