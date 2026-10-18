@@ -13,7 +13,7 @@ A política está implementada em um único lugar (`internal/statuspolicy`), com
 
 1. **Status efetivo do componente** = o mais grave entre:
    - o status declarado;
-   - o status implícito de cada incidente ativo que o afeta (`minor` → `degraded_performance`, `major` → `partial_outage`, `critical` → `major_outage`);
+   - o impacto de cada incidente ativo que o afeta. O impacto usa o mesmo vocabulário do status (`operational`, `degraded_performance`, `partial_outage`, `major_outage`); `operational` é informativo e não degrada o componente;
    - `maintenance`, se houver manutenção em andamento que o afete.
 2. **Gravidade:** `major_outage` > `partial_outage` > `degraded_performance` > `maintenance` > `operational`. Assim, manutenção nunca esconde uma indisponibilidade.
 3. **Status geral** = o mais grave entre os componentes públicos e ativos, considerando também incidentes ativos que não afetam nenhum componente público (o impacto deles vale para a plataforma).
@@ -25,6 +25,10 @@ A política está implementada em um único lugar (`internal/statuspolicy`), com
    acrescenta nada ao status geral.
 
 Manutenções programadas (ainda não iniciadas) não alteram o status.
+
+### Revisão (2026-10-18): escala única de impacto
+
+O impacto de incidentes era `minor`/`major`/`critical`, mapeado para status, e o impacto esperado de manutenções usava `none`. As duas escalas passaram a usar o vocabulário do status do componente, apresentado como Operacional, Performance degradada, Interrupção parcial e Interrupção grave (como no Atlassian Statuspage). Quem registra o incidente escolhe diretamente o efeito nos componentes, sem tradução intermediária. A migração `0005_impact_levels` converte os dados (`minor` → `degraded_performance`, `major` → `partial_outage`, `critical` → `major_outage`, `none` → `operational`); a auditoria mantém os valores da época. É uma mudança incompatível da API, feita antes da primeira versão publicada.
 
 ## Alternativas consideradas
 

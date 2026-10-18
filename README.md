@@ -66,12 +66,13 @@ Toda funcionalidade de negócio está disponível pela API. Resumo:
 | Área | Endpoints |
 |---|---|
 | Saúde | `GET /healthz` (liveness), `GET /readyz` (inclui PostgreSQL) |
-| Pública | `GET /api/v1/status`, `/components`, `/incidents[/{id}]`, `/maintenances[/{id}]` |
+| Pública | `GET /api/v1/status`, `/components`, `/incidents[/{id}]`, `/maintenances[/{id}]`, `/announcements[/{id}]`, `/announcement-categories` |
 | Componentes | `GET/POST /api/v1/admin/components`, `GET/PATCH .../{id}` (`group_id` associa a um grupo) |
 | Grupos | `GET/POST /api/v1/admin/component-groups`, `GET/PATCH/DELETE .../{id}` (exclusão só de grupo vazio) |
 | Incidentes | `GET/POST /api/v1/admin/incidents`, `GET/PATCH .../{id}`, `GET/POST .../{id}/updates`, `POST .../{id}/resolve` |
 | Manutenções | `GET/POST /api/v1/admin/maintenances`, `GET/PATCH .../{id}`, `GET/POST .../{id}/updates`, `POST .../{id}/start\|complete\|cancel` |
 | Templates | `GET/POST /api/v1/admin/incident-templates`, `GET/PATCH .../{id}` (idem para `maintenance-templates`) |
+| Comunicados | `GET/POST /api/v1/admin/announcements`, `GET/PATCH/DELETE .../{id}`, `POST .../{id}/publish\|unpublish\|archive\|restore`; categorias em `/api/v1/admin/announcement-categories` e times em `/api/v1/admin/teams` |
 | Terceiros | `GET/POST /api/v1/admin/external-sources`, `GET/PATCH/DELETE .../{id}`, `POST .../{id}/sync`, `GET .../{id}/components`, `PUT .../{id}/selection` |
 | Auditoria | `GET /api/v1/admin/audit-events` |
 
@@ -93,9 +94,13 @@ curl -s -X POST http://localhost:8080/api/v1/admin/maintenances \
 
 - **Incidente:** `investigating ⇄ identified ⇄ monitoring → resolved`. `resolved` é terminal (409 em novas atualizações). Atualizações publicadas são imutáveis.
 - **Manutenção:** `scheduled → in_progress → completed` e `scheduled → cancelled`. Nada muda automaticamente por horário; janelas atrasadas são sinalizadas (`start_overdue`, `end_overdue`).
+- **Comunicado:** `draft → published` (agendado enquanto `published_at` é futuro) `→ archived`; publicado ou agendado pode voltar a `draft`, arquivado pode ser restaurado. Só rascunhos são excluídos.
 - **Status geral:** calculado por uma política única ([ADR 0003](docs/adr/0003-status-policy.md)). Manutenção nunca é apresentada como indisponibilidade.
+- **Impacto:** incidentes e manutenções usam a mesma escala do status do componente: Operacional (`operational`, informativo), Performance degradada, Interrupção parcial e Interrupção grave. O seletor da administração mostra o ícone de cada nível.
+- **Link do componente:** campo opcional `url` (http/https). Na página pública aparece como um ícone discreto ↗ ao lado do nome, abrindo em nova aba.
 - **Grupos:** organizam componentes na página pública. Aparecem recolhidos, exibindo o status mais grave entre seus componentes; ao expandir, mostram os componentes.
 - **Serviços de terceiros:** em `/admin/third-party`, cadastre a URL de uma página Atlassian Statuspage (ex.: `https://www.githubstatus.com`, `https://status.veracode.com`) e escolha os componentes a exibir. O backend consulta o provedor periodicamente; o status de terceiros aparece em seção própria e **não** altera o status geral ([ADR 0006](docs/adr/0006-third-party-status.md)).
+- **Comunicados:** avisos gerais que não são incidentes nem manutenções, escritos em `/admin/announcements` com categoria, time responsável, componentes relacionados, destaque, fixação, pré-visualização e agendamento. A página `/announcements` agrupa por dia e o menu público (Componentes, Histórico, Comunicados) mostra quantos são novos para o visitante ([ADR 0007](docs/adr/0007-announcements.md)).
 
 ### Organização da página pública
 
@@ -204,5 +209,6 @@ CONTEXT.md        Princípios de engenharia do projeto
 
 - Sem autenticação e autorização na administração (veja [ADR 0004](docs/adr/0004-admin-without-authentication.md)).
 - Serviços de terceiros: apenas páginas no formato Atlassian Statuspage.
+- Comunicados: o aviso de novidade é por navegador; não há envio por e-mail ou assinatura.
 - Sem verificações automáticas de saúde, cálculo de uptime, notificações ou assinaturas.
 - Sem deploy automatizado (a publicação de imagens existe).

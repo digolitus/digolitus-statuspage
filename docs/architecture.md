@@ -21,6 +21,7 @@ internal/
   maintenance/     manutenções e transições
   templates/       templates de incidente e manutenção
   audit/           histórico operacional (gravação e consulta)
+  announcement/    comunicados, categorias e times responsáveis
   external/        serviços de terceiros: cadastro, leitura de Statuspage (anti-SSRF) e poller
   tsgen/           gerador de tipos TypeScript a partir do OpenAPI (cmd/openapi-ts)
   docs/            Swagger UI embutida (assets oficiais vendorizados)
@@ -49,7 +50,7 @@ As rotas administrativas passam por um único wrapper (`app.New`), que marca a o
 
 | Tabela | Papel |
 |---|---|
-| `components` | Estado atual declarado de cada componente; nunca é excluído (`is_active`); `group_id` opcional |
+| `components` | Estado atual declarado de cada componente; nunca é excluído (`is_active`); `group_id` e `url` opcionais |
 | `component_groups` | Grupos de apresentação; status derivado dos componentes; excluível só quando vazio |
 | `incidents` | Estado atual do incidente (`status`, `resolved_at` coerentes por `CHECK`) |
 | `incident_components` | Componentes afetados atualmente |
@@ -58,6 +59,9 @@ As rotas administrativas passam por um único wrapper (`app.New`), que marca a o
 | `maintenance_components` | Componentes afetados |
 | `maintenance_updates` | Linha do tempo publicada, imutável |
 | `incident_templates`, `maintenance_templates` | Textos reutilizáveis; nomes únicos sem diferenciar maiúsculas |
+| `announcements` | Comunicados (`draft`/`published`/`archived`; agendado = `published_at` futuro), com categoria e time opcionais |
+| `announcement_categories`, `teams` | Classificação e responsáveis; nomes únicos sem diferenciar maiúsculas; em uso não são excluídos |
+| `announcement_components` | Componentes relacionados a um comunicado |
 | `external_sources` | Provedores de terceiros (URL base `https`), último resultado da leitura e eventos abertos |
 | `external_components` | Componentes importados do provedor; `is_selected` define o que é publicado; `is_present = false` quando sumiram do provedor |
 | `audit_events` | Histórico operacional com diff antes/depois, origem e request ID |
