@@ -63,7 +63,7 @@ export function AnnouncementsPage() {
     <div className="admin-content">
       <PageHeader title="Comunicados">
         <Link className="secondary-button" to="/admin/announcement-settings">
-          Categorias e times
+          Categorias
         </Link>
         {canWrite && (
           <Link className="primary-button" to="/admin/announcements/new">
@@ -359,7 +359,7 @@ function AnnouncementForm({
       </div>
       <fieldset className="field">
         <legend>Destaque</legend>
-        <div className="picker-options">
+        <div className="picker-options picker-inline">
           <label className="checkbox">
             <input type="radio" name="importance" checked={v.importance === "info"} onChange={() => set("importance", "info")} />
             Informativo
@@ -413,7 +413,7 @@ function AnnouncementForm({
         {fe.body && <small className="field-error">{fe.body}</small>}
       </div>
 
-      <ComponentPicker
+      <ComponentPicker permission="announcements.write"
         legend="Componentes relacionados (opcional)"
         selected={v.component_ids}
         onChange={(ids) => set("component_ids", ids)}
@@ -437,9 +437,9 @@ function localToISO(value: string): string | null {
 }
 
 function Lifecycle({ a, onChanged }: { a: Announcement; onChanged: (a: Announcement) => void }) {
-  const { can } = useAuth();
-  const canPublish = can("announcements.publish");
-  const canWrite = can("announcements.write");
+  const { canFor } = useAuth();
+  const canPublish = canFor("announcements.publish", a.team?.id);
+  const canWrite = canFor("announcements.write", a.team?.id);
   const [when, setWhen] = useState("");
   const submit = useSubmit();
   const run = (fn: () => Promise<Announcement>, msg: string) =>
@@ -557,7 +557,7 @@ export function AnnouncementNewPage() {
         <>
           {taxonomy.state.data.categories.length === 0 && (
             <p className="muted small">
-              Dica: crie <Link to="/admin/announcement-settings">categorias e times</Link> para organizar os comunicados.
+              Dica: crie <Link to="/admin/announcement-settings">categorias</Link> e <Link to="/admin/teams">times</Link> para organizar os comunicados.
             </p>
           )}
           <AnnouncementForm
@@ -574,8 +574,9 @@ export function AnnouncementNewPage() {
 
 export function AnnouncementDetailPage({ id }: { id: string }) {
   const taxonomy = useTaxonomy();
-  const canWrite = useAuth().can("announcements.write");
+  const { canFor } = useAuth();
   const item = useApi((signal) => adminApi.announcements.get(id, { signal }), [id]);
+  const canWrite = item.state.status === "success" && canFor("announcements.write", item.state.data.team?.id);
   return (
     <div className="admin-content">
       <PageHeader title="Comunicado" />

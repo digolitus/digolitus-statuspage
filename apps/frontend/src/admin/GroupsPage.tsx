@@ -1,23 +1,25 @@
 import { useState, type FormEvent } from "react";
 import { adminApi } from "../api/endpoints";
-import type { ComponentGroup, ComponentGroupCreate } from "../api/types";
+import type { ComponentGroup, ComponentGroupCreate, Team } from "../api/types";
 import { ConfirmButton, EmptyState, ErrorPanel, Field, Loading } from "../components/ui";
 import { plural } from "../lib/format";
 import { Link } from "../lib/router";
 import { useApi } from "../lib/useApi";
 import { useAuth } from "./authContext";
-import { FormStatus, PageHeader, ReadOnlyNote, requireText, useSubmit } from "./shared";
+import { FormStatus, PageHeader, ReadOnlyNote, requireText, TeamSelect, useSubmit, useTeams } from "./shared";
 
-type Values = { name: string; description: string; display_order: string };
-const blank: Values = { name: "", description: "", display_order: "0" };
+type Values = { name: string; description: string; display_order: string; team_id: string };
+const blank: Values = { name: "", description: "", display_order: "0", team_id: "" };
 
 function GroupForm({
   initial,
+  teams,
   submitLabel,
   onSubmit,
   onCancel,
 }: {
   initial: Values;
+  teams: Team[];
   submitLabel: string;
   onSubmit: (body: ComponentGroupCreate) => Promise<unknown>;
   onCancel?: () => void;
@@ -32,7 +34,7 @@ function GroupForm({
     if (!Number.isInteger(order) || order < 0 || order > 100000) errors.display_order = "Informe um inteiro entre 0 e 100000.";
     if (Object.keys(errors).length) return submit.setFieldErrors(errors);
     const ok = await submit.run(
-      () => onSubmit({ name: v.name.trim(), description: v.description.trim(), display_order: order }),
+      () => onSubmit({ name: v.name.trim(), description: v.description.trim(), display_order: order, team_id: v.team_id || null }),
       "Grupo salvo.",
     );
     if (ok && initial === blank) setV(blank);
@@ -40,7 +42,7 @@ function GroupForm({
   const fe = submit.fieldErrors;
   return (
     <form className="form" onSubmit={handle} noValidate>
-      <div className="form-grid">
+      <div className="form-grid form-grid-3">
         <Field label="Nome" error={fe.name}>
           {(p) => <input {...p} value={v.name} maxLength={120} onChange={(e) => setV({ ...v, name: e.target.value })} />}
         </Field>
@@ -49,6 +51,14 @@ function GroupForm({
             <input {...p} type="number" min={0} max={100000} value={v.display_order} onChange={(e) => setV({ ...v, display_order: e.target.value })} />
           )}
         </Field>
+        <TeamSelect
+          teams={teams}
+          value={v.team_id}
+          onChange={(team_id) => setV({ ...v, team_id })}
+          permission="components.manage"
+          error={fe.team_id}
+          hint="Opcional. Vale para os componentes do grupo sem time próprio."
+        />
       </div>
       <Field label="Descrição" error={fe.description} hint="Exibida ao expandir o grupo na página pública.">
         {(p) => <textarea {...p} rows={2} maxLength={1000} value={v.description} onChange={(e) => setV({ ...v, description: e.target.value })} />}
@@ -72,7 +82,10 @@ export function GroupsPage() {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const { state, reload } = useApi((signal) => adminApi.groups.list({ limit: 100 }, { signal }), []);
-  const canManage = useAuth().can("components.manage");
+  const { can, canFor } = useAuth();
+  const canManage = can("components.manage");
+  const teams = useTeams();
+  const teamName = (id: string | null) => teams.find((t) => t.id === id)?.name;
 
   return (
     <div className="admin-content">
@@ -95,6 +108,7 @@ export function GroupsPage() {
         <section className="panel" aria-label="Novo grupo">
           <GroupForm
             initial={blank}
+            teams={teams}
             submitLabel="Criar grupo"
             onSubmit={async (body) => {
               const g = await adminApi.groups.create(body);
@@ -121,10 +135,11 @@ export function GroupsPage() {
                     <div className="admin-item-tags">
                       <span className="tag">{plural(g.component_count, "componente", "componentes")}</span>
                       <span className="tag">Ordem {g.display_order}</span>
+                      {g.team_id && <span className="tag tag-team">Time: {teamName(g.team_id) ?? "…"}</span>}
                     </div>
                   </div>
                 </div>
-                {canManage && <div className="form-actions">
+                {canFor("components.manage", g.team_id) && <div className="form-actions">
                   <button type="button" className="secondary-button" aria-expanded={editing === g.id} onClick={() => setEditing(editing === g.id ? null : g.id)}>
                     Editar
                   </button>
@@ -143,7 +158,8 @@ export function GroupsPage() {
                 </div>}
                 {editing === g.id && (
                   <GroupForm
-                    initial={{ name: g.name, description: g.description, display_order: String(g.display_order) }}
+                    initial={{ name: g.name, description: g.description, display_order: String(g.display_order), team_id: g.team_id ?? "" }}
+                    teams={teams}
                     submitLabel="Salvar alterações"
                     onSubmit={async (body) => {
                       const saved = await adminApi.groups.update(g.id, body);

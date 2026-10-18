@@ -39,6 +39,11 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (Component, error)
 		if created, err = insert(ctx, tx, c); err != nil {
 			return err
 		}
+		// Team-scoped managers may only create components their teams own
+		// (own team or group's team); checked on the inserted row.
+		if err := auth.RequireComponents(ctx, tx, auth.PermComponentsManage, []string{created.ID}); err != nil {
+			return err
+		}
 		return audit.Record(ctx, tx, audit.ResourceComponent, created.ID, "created", audit.Changes{After: created}, created.CreatedAt)
 	})
 	return created, err
@@ -53,6 +58,9 @@ func (s *Service) Update(ctx context.Context, id string, in UpdateInput) (Compon
 		if err != nil {
 			return err
 		}
+		if err := requireUpdate(ctx, tx, id, in.statusOnly()); err != nil {
+			return err
+		}
 		next, err := in.apply(current)
 		if err != nil {
 			return err
@@ -60,6 +68,12 @@ func (s *Service) Update(ctx context.Context, id string, in UpdateInput) (Compon
 		next.UpdatedAt = s.now()
 		if updated, err = update(ctx, tx, next); err != nil {
 			return err
+		}
+		// A team-scoped manager cannot hand the component to another team.
+		if !in.statusOnly() {
+			if err := auth.RequireComponents(ctx, tx, auth.PermComponentsManage, []string{id}); err != nil {
+				return err
+			}
 		}
 		action := "updated"
 		switch {
@@ -75,6 +89,19 @@ func (s *Service) Update(ctx context.Context, id string, in UpdateInput) (Compon
 		return audit.Record(ctx, tx, audit.ResourceComponent, id, action, audit.Diff(current, updated), updated.UpdatedAt)
 	})
 	return updated, err
+}
+
+// requireUpdate applies team scopes: a status-only change is allowed by
+// components.status or components.manage for the component; anything else
+// needs components.manage.
+func requireUpdate(ctx context.Context, q database.Querier, id string, statusOnly bool) error {
+	if statusOnly {
+		err := auth.RequireComponents(ctx, q, auth.PermComponentsStatus, []string{id})
+		if err == nil || !auth.Can(ctx, auth.PermComponentsManage) {
+			return err
+		}
+	}
+	return auth.RequireComponents(ctx, q, auth.PermComponentsManage, []string{id})
 }
 
 // Handler exposes admin component endpoints.
@@ -100,7 +127,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	q := httpx.NewQuery(r.URL.Query())
 	page := q.Page()
 	sort := q.Sort([]string{"display_order", "name", "created_at", "updated_at"}, httpx.Sort{Field: "display_order"})
-	f := Filter{Active: q.Bool("is_active"), Public: q.Bool("is_public"), GroupID: q.UUID("group_id")}
+	f := Filter{Active: q.Bool("is_active"), Public: q.Bool("is_public"), GroupID: q.UUID("group_id"), TeamID: q.UUID("team_id")}
 	if err := q.Err(); err != nil {
 		httpx.Fail(w, r, err)
 		return

@@ -2,8 +2,8 @@
 
 Plataforma para publicar o status de serviços e comunicar incidentes e manutenções programadas.
 
-- **Área pública** (`/`): status geral, eventos em andamento (só quando existem), componentes com grupos recolhíveis, manutenções programadas e histórico sob demanda.
-- **Área administrativa** (`/admin`): login local, usuários e papéis com permissões, componentes, grupos, incidentes, manutenções, templates, comunicados, serviços de terceiros e histórico operacional com autor.
+- **Área pública** (`/`): status geral, eventos em andamento (só quando existem), componentes com grupos recolhíveis, manutenções programadas, histórico sob demanda e inscrição para receber atualizações (e-mail, Slack, webhook, RSS/Atom).
+- **Área administrativa** (`/admin`): login local, usuários e papéis com permissões (globais ou por time), times responsáveis, componentes, grupos, incidentes, manutenções, templates, comunicados, inscrições, serviços de terceiros e histórico operacional com autor.
 - **API REST** (`/api/v1`), documentada em OpenAPI 3.0, com Swagger UI em `/swagger/`.
 
 > **Status declarado, não monitorado.** Todos os status são informados por operadores. A aplicação não faz verificações automáticas de disponibilidade, e a interface diz isso explicitamente.
@@ -78,7 +78,8 @@ Toda funcionalidade de negócio está disponível pela API. Resumo:
 | Área | Endpoints |
 |---|---|
 | Saúde | `GET /healthz` (liveness), `GET /readyz` (inclui PostgreSQL) |
-| Pública | `GET /api/v1/status`, `/components`, `/incidents[/{id}]`, `/maintenances[/{id}]`, `/announcements[/{id}]`, `/announcement-categories` |
+| Pública | `GET /api/v1/status`, `/components`, `/incidents[/{id}]`, `/maintenances[/{id}]`, `/announcements[/{id}]`, `/announcement-categories`, `/feed.atom`, `/feed.rss` |
+| Inscrição | `GET /api/v1/subscriptions/options`, `POST /api/v1/subscriptions`, `POST .../confirm`, `POST/PUT .../manage`, `POST .../unsubscribe` (tokens dos links enviados por e-mail) |
 | Componentes | `GET/POST /api/v1/admin/components`, `GET/PATCH .../{id}` (`group_id` associa a um grupo) |
 | Grupos | `GET/POST /api/v1/admin/component-groups`, `GET/PATCH/DELETE .../{id}` (exclusão só de grupo vazio) |
 | Incidentes | `GET/POST /api/v1/admin/incidents`, `GET/PATCH .../{id}`, `GET/POST .../{id}/updates`, `POST .../{id}/resolve` |
@@ -88,6 +89,8 @@ Toda funcionalidade de negócio está disponível pela API. Resumo:
 | Terceiros | `GET/POST /api/v1/admin/external-sources`, `GET/PATCH/DELETE .../{id}`, `POST .../{id}/sync`, `GET .../{id}/components`, `PUT .../{id}/selection` |
 | Sessão | `GET/POST /api/v1/auth/setup`, `POST /api/v1/auth/login\|logout\|password`, `GET /api/v1/auth/me` |
 | Acesso | `GET/POST /api/v1/admin/users`, `GET/PATCH .../{id}`, `POST .../{id}/password`; `GET/POST /api/v1/admin/roles`, `GET/PATCH/DELETE .../{id}`; `GET /api/v1/admin/permissions` |
+| Times | `GET/POST /api/v1/admin/teams`, `GET/PATCH/DELETE .../{id}` (`team_id` em grupos e componentes) |
+| Inscrições (admin) | `GET/POST /api/v1/admin/subscriptions`, `GET/PATCH/DELETE .../{id}`, `POST .../{id}/test` |
 | Auditoria | `GET /api/v1/admin/audit-events` |
 
 O contrato completo (schemas, erros, paginação, filtros, ordenação e transições de estado) está em [`apps/backend/api/openapi.yaml`](apps/backend/api/openapi.yaml). Os testes falham se uma rota implementada não estiver documentada (ou vice-versa) e validam as respostas reais contra os schemas.
@@ -114,6 +117,8 @@ curl -s -X POST http://localhost:8080/api/v1/admin/maintenances \
 - **Link do componente:** campo opcional `url` (http/https). Na página pública aparece como um ícone discreto ↗ ao lado do nome, abrindo em nova aba.
 - **Grupos:** organizam componentes na página pública. Aparecem recolhidos, exibindo o status mais grave entre seus componentes; ao expandir, mostram os componentes.
 - **Serviços de terceiros:** em `/admin/third-party`, cadastre a URL de uma página Atlassian Statuspage (ex.: `https://www.githubstatus.com`, `https://status.veracode.com`) e escolha os componentes a exibir. O backend consulta o provedor periodicamente; o status de terceiros aparece em seção própria e **não** altera o status geral ([ADR 0006](docs/adr/0006-third-party-status.md)).
+- **Times responsáveis:** cada grupo ou componente pode ter um time (Squad, RT, Comunidade, Tribo…), com links de documentação e suporte. Papéis com escopo "times" deixam cada time operar só os próprios componentes: status, incidentes, manutenções e comunicados ([ADR 0009](docs/adr/0009-team-ownership-and-scoped-roles.md)).
+- **Inscrições:** o botão *Inscrever-se* oferece e-mail, Slack, webhook (JSON assinado com HMAC) e RSS/Atom, com filtro por componente e confirmação por e-mail. A entrega usa um outbox transacional com retentativas ([ADR 0010](docs/adr/0010-subscriptions-and-notification-outbox.md)). Configure SMTP e `PUBLIC_BASE_URL` em `deploy/.env` (veja [operações](docs/operations.md#inscrições-notificações)).
 - **Comunicados:** avisos gerais que não são incidentes nem manutenções, escritos em `/admin/announcements` com categoria, time responsável, componentes relacionados, destaque, fixação, pré-visualização e agendamento. A página `/announcements` agrupa por dia e o menu público (Componentes, Histórico, Comunicados) mostra quantos são novos para o visitante ([ADR 0007](docs/adr/0007-announcements.md)).
 
 ### Organização da página pública
@@ -226,6 +231,6 @@ CONTEXT.md        Princípios de engenharia do projeto
 
 - Autenticação apenas local (sem SSO/OIDC, 2FA ou recuperação de senha por e-mail).
 - Serviços de terceiros: apenas páginas no formato Atlassian Statuspage.
-- Comunicados: o aviso de novidade é por navegador; não há envio por e-mail ou assinatura.
-- Sem verificações automáticas de saúde, cálculo de uptime, notificações ou assinaturas.
+- Inscrições: sem SMS (exige provedor pago); e-mail, Slack e webhook pela página pública exigem SMTP configurado.
+- Sem verificações automáticas de saúde ou cálculo de uptime.
 - Sem deploy automatizado (a publicação de imagens existe).

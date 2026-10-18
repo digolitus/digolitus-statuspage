@@ -1,6 +1,10 @@
 // Code generated from apps/backend/api/openapi.yaml. DO NOT EDIT.
 // Regenerate with: make generate-types (go run ./cmd/openapi-ts in apps/backend).
 
+export type Accepted = {
+  message: string;
+};
+
 export type Announcement = {
   archived_at: NullableTimestamp;
   /** Texto com formatação leve: parágrafos, listas com `- `, `**negrito**` e links `[texto](https://...)`. */
@@ -110,7 +114,7 @@ export type AuditEvent = {
   occurred_at: Timestamp;
   request_id: string | null;
   resource_id: string;
-  resource_type: "component" | "component_group" | "incident" | "maintenance" | "incident_template" | "maintenance_template" | "external_source" | "announcement" | "announcement_category" | "team" | "user" | "role";
+  resource_type: "component" | "component_group" | "incident" | "maintenance" | "incident_template" | "maintenance_template" | "external_source" | "announcement" | "announcement_category" | "team" | "user" | "role" | "subscription";
   /** Canal de origem (ex.: admin_api). */
   source: string;
 };
@@ -132,8 +136,12 @@ export type Component = {
   is_active: boolean;
   is_public: boolean;
   name: string;
+  /** Dono efetivo: `team_id` ou, se ausente, o time do grupo. Papéis de time agem sobre componentes dos seus times. */
+  owner_team_id: string | null;
   slug: string;
   status: ComponentStatus;
+  /** Time responsável pelo componente. */
+  team_id: string | null;
   updated_at: Timestamp;
   /** Link público da página do componente (documentação, produto, endpoint). */
   url: string | null;
@@ -148,6 +156,8 @@ export type ComponentCreate = {
   /** Único. Derivado do nome quando omitido. */
   slug?: string;
   status?: ComponentStatus;
+  /** Time responsável. `null` = herda o time do grupo. */
+  team_id?: string | null;
   /** Endereço http(s) completo, sem credenciais. Vazio ou `null` = sem link. */
   url?: string | null;
 };
@@ -160,6 +170,8 @@ export type ComponentGroup = {
   display_order: number;
   id: string;
   name: string;
+  /** Time responsável; componentes sem time próprio o herdam. */
+  team_id: string | null;
   updated_at: Timestamp;
 };
 
@@ -168,6 +180,7 @@ export type ComponentGroupCreate = {
   name: string;
   description?: string;
   display_order?: number;
+  team_id?: string | null;
 };
 
 export type ComponentGroupList = {
@@ -179,6 +192,8 @@ export type ComponentGroupPatch = {
   description?: string;
   display_order?: number;
   name?: string;
+  /** `null` remove o time. */
+  team_id?: string | null;
 };
 
 export type ComponentList = {
@@ -196,6 +211,8 @@ export type ComponentPatch = {
   name?: string;
   slug?: string;
   status?: ComponentStatus;
+  /** `null` = herda o time do grupo. */
+  team_id?: string | null;
   /** Endereço http(s) completo, sem credenciais. Vazio ou `null` = sem link. */
   url?: string | null;
 };
@@ -542,7 +559,10 @@ export type MaintenanceUpdateList = {
 
 export type Me = {
   is_admin: boolean;
+  /** Todas as permissões efetivas (globais ou de time). */
   permissions: PermissionKey[];
+  /** Subconjunto válido só para os componentes dos times do usuário (`user.teams`). */
+  team_permissions: PermissionKey[];
   user: User;
 };
 
@@ -575,11 +595,13 @@ export type PermissionInfo = {
   group: string;
   key: PermissionKey;
   label: string;
+  /** Pode ser concedida por papéis de time (escopo `team`). */
+  scopable: boolean;
   /** Permite mudar quem pode fazer o quê (usuários e papéis). */
   sensitive: boolean;
 };
 
-export type PermissionKey = "components.status" | "components.manage" | "third_party.manage" | "incidents.manage" | "maintenances.manage" | "templates.manage" | "announcements.write" | "announcements.publish" | "announcements.settings" | "audit.read" | "users.manage" | "roles.manage";
+export type PermissionKey = "components.status" | "components.manage" | "third_party.manage" | "incidents.manage" | "maintenances.manage" | "templates.manage" | "announcements.write" | "announcements.publish" | "announcements.settings" | "teams.manage" | "subscriptions.manage" | "audit.read" | "users.manage" | "roles.manage";
 
 export type PermissionList = {
   data: PermissionInfo[];
@@ -726,6 +748,7 @@ export type Role = {
   name: string;
   /** O Administrador lista todas. */
   permissions: PermissionKey[];
+  scope: RoleScope;
   updated_at: Timestamp;
   user_count: number;
 };
@@ -734,6 +757,7 @@ export type RoleCreate = {
   name: string;
   description?: string;
   permissions?: PermissionKey[];
+  scope?: RoleScope;
 };
 
 export type RoleList = {
@@ -744,6 +768,7 @@ export type RolePatch = {
   description?: string;
   name?: string;
   permissions?: PermissionKey[];
+  scope?: RoleScope;
 };
 
 export type RoleRef = {
@@ -751,6 +776,9 @@ export type RoleRef = {
   is_system: boolean;
   name: string;
 };
+
+/** `global`: vale para toda a plataforma. `team`: só para componentes (e grupos/comunicados) dos times do usuário; aceita apenas permissões `scopable`. */
+export type RoleScope = "global" | "team";
 
 export type SetupInput = {
   email: string;
@@ -789,20 +817,152 @@ export type StatusSummary = {
   third_party: PublicThirdPartySource[];
 };
 
+export type SubscribeInput = {
+  channel: SubscriptionChannel;
+  /** Destinatário (e-mail) ou contato que confirma (webhook/Slack). */
+  email: string;
+  component_ids?: UUIDList;
+  /** Webhook: https://... Slack: https://hooks.slack.com/services/... */
+  url?: string;
+};
+
+export type Subscription = {
+  all_components: boolean;
+  channel: SubscriptionChannel;
+  components: SubscriptionComponentRef[];
+  confirmed_at: NullableTimestamp;
+  created_at: Timestamp;
+  created_by: "public" | "admin";
+  disabled_reason: string | null;
+  email: string | null;
+  /** Falhas de entrega seguidas. */
+  failure_count: number;
+  id: string;
+  last_delivery_at: NullableTimestamp;
+  last_error: string | null;
+  status: SubscriptionStatus;
+  target_url: string | null;
+  updated_at: Timestamp;
+};
+
+export type SubscriptionAdminCreate = {
+  channel: SubscriptionChannel;
+  component_ids?: UUIDList;
+  /** Obrigatório para e-mail; contato opcional para webhook/Slack. */
+  email?: string | null;
+  url?: string | null;
+};
+
+export type SubscriptionAdminPatch = {
+  component_ids?: UUIDList;
+  enabled?: boolean;
+};
+
+export type SubscriptionChannel = "email" | "webhook" | "slack";
+
+export type SubscriptionComponentRef = {
+  id: string;
+  name: string;
+};
+
+/** Subscription com o segredo de assinatura, exibido somente na criação. */
+export type SubscriptionCreated = {
+  all_components: boolean;
+  channel: SubscriptionChannel;
+  components: SubscriptionComponentRef[];
+  confirmed_at: NullableTimestamp;
+  created_at: Timestamp;
+  created_by: "public" | "admin";
+  disabled_reason: string | null;
+  email: string | null;
+  /** Falhas de entrega seguidas. */
+  failure_count: number;
+  id: string;
+  last_delivery_at: NullableTimestamp;
+  last_error: string | null;
+  /** Exibido somente na criação (webhook). */
+  signing_secret: string | null;
+  status: SubscriptionStatus;
+  target_url: string | null;
+  updated_at: Timestamp;
+};
+
+export type SubscriptionList = {
+  counts: {
+    active: number;
+    disabled: number;
+    pending: number;
+  };
+  data: Subscription[];
+  pagination: Pagination;
+};
+
+export type SubscriptionManageView = {
+  /** `true` = todas as atualizações; senão, só as dos componentes listados (e as gerais). */
+  all_components: boolean;
+  channel: SubscriptionChannel;
+  components: SubscriptionComponentRef[];
+  created_at: Timestamp;
+  email: string | null;
+  id: string;
+  /** Webhook: chave HMAC para validar `X-Digolitus-Signature`. */
+  signing_secret: string | null;
+  status: SubscriptionStatus;
+  target_url: string | null;
+};
+
+export type SubscriptionOptions = {
+  atom_url: string;
+  email: boolean;
+  rss_url: string;
+  slack: boolean;
+  /** Não suportado nesta versão (exige provedor de SMS). */
+  sms: boolean;
+  webhook: boolean;
+};
+
+export type SubscriptionPreferences = {
+  token: string;
+  component_ids?: UUIDList;
+};
+
+/** `pending` aguarda confirmação por e-mail; `disabled` por administrador ou após falhas seguidas de entrega. */
+export type SubscriptionStatus = "pending" | "active" | "disabled";
+
+export type SubscriptionToken = {
+  token: string;
+};
+
 export type Team = {
   announcement_count: number;
+  /** Componentes com este time como responsável direto. */
+  component_count: number;
   created_at: Timestamp;
   description: string;
+  /** Link da documentação do time. */
+  documentation_url: string | null;
+  group_count: number;
   id: string;
   is_active: boolean;
+  /** Tipo livre (ex.: Squad, RT, Comunidade, Tribo). Vazio quando não informado. */
+  kind: string;
+  /** Usuários membros (papéis de time agem sobre o que o time possui). */
+  member_count: number;
   name: string;
+  /** Link de como obter suporte. */
+  support_url: string | null;
   updated_at: Timestamp;
 };
 
 export type TeamCreate = {
   name: string;
   description?: string;
+  /** Endereço http(s). Vazio ou `null` remove. */
+  documentation_url?: string | null;
   is_active?: boolean;
+  kind?: string;
+  /** Endereço http(s). Vazio ou `null` remove. */
+  support_url?: string | null;
 };
 
 export type TeamList = {
@@ -811,8 +971,13 @@ export type TeamList = {
 
 export type TeamPatch = {
   description?: string;
+  /** Endereço http(s). Vazio ou `null` remove. */
+  documentation_url?: string | null;
   is_active?: boolean;
+  kind?: string;
   name?: string;
+  /** Endereço http(s). Vazio ou `null` remove. */
+  support_url?: string | null;
 };
 
 export type TeamRef = {
@@ -836,6 +1001,8 @@ export type User = {
   must_change_password: boolean;
   name: string;
   roles: RoleRef[];
+  /** Times do usuário; papéis de time agem sobre os componentes deles. */
+  teams: UserTeamRef[];
   updated_at: Timestamp;
 };
 
@@ -844,6 +1011,7 @@ export type UserCreate = {
   name: string;
   password: Password;
   role_ids?: string[];
+  team_ids?: string[];
 };
 
 export type UserList = {
@@ -856,6 +1024,13 @@ export type UserPatch = {
   name?: string;
   /** Substitui os papéis do usuário. */
   role_ids?: string[];
+  /** Substitui os times do usuário. */
+  team_ids?: string[];
   /** `true` remove o bloqueio por tentativas de login. */
   unlock?: boolean;
+};
+
+export type UserTeamRef = {
+  id: string;
+  name: string;
 };

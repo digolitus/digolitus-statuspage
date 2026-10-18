@@ -58,6 +58,7 @@ export const adminMe: Me = {
     is_active: true,
     must_change_password: false,
     roles: [{ id: "r1", name: "Administrador", is_system: true }],
+    teams: [],
     last_login_at: "2026-03-01T12:00:00Z",
     locked_until: null,
     created_at: "2026-03-01T12:00:00Z",
@@ -65,8 +66,9 @@ export const adminMe: Me = {
   },
   permissions: [
     "components.status", "components.manage", "third_party.manage", "incidents.manage", "maintenances.manage", "templates.manage",
-    "announcements.write", "announcements.publish", "announcements.settings", "audit.read", "users.manage", "roles.manage",
+    "announcements.write", "announcements.publish", "announcements.settings", "teams.manage", "subscriptions.manage", "audit.read", "users.manage", "roles.manage",
   ],
+  team_permissions: [],
   is_admin: true,
 };
 

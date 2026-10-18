@@ -65,10 +65,24 @@ services:
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
       SESSION_TTL: ${SESSION_TTL:-12h}
       SESSION_IDLE_TIMEOUT: ${SESSION_IDLE_TIMEOUT:-2h}
+      # Subscriptions (notifications). E-mail, webhook and Slack self-service
+      # need SMTP (double opt-in); RSS/Atom feeds always work.
+      SITE_NAME: ${SITE_NAME:-Digolitus Status Page}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_TLS: ${SMTP_TLS:-starttls}
+      NOTIFY_WORKER: ${NOTIFY_WORKER:-true}
+      NOTIFY_INTERVAL: ${NOTIFY_INTERVAL:-10s}
+      NOTIFY_ALLOW_PRIVATE_NETWORKS: ${NOTIFY_ALLOW_PRIVATE_NETWORKS:-false}
     depends_on:
       db:
         condition: service_healthy
-    # egress: outbound HTTPS to third-party status pages (e.g. githubstatus.com).
+    # egress: outbound HTTPS to third-party status pages (e.g. githubstatus.com),
+    # SMTP and subscriber webhooks/Slack.
     # The database stays on the internal network only.
     networks: [internal, egress]
     healthcheck:

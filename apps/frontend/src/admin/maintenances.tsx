@@ -17,7 +17,7 @@ import {
 import { Link, navigate } from "../lib/router";
 import { useApi } from "../lib/useApi";
 import { useAuth } from "./authContext";
-import { ComponentPicker, FormStatus, PageHeader, ReadOnlyNote, requireText, TemplateSelect, useSubmit } from "./shared";
+import { ComponentPicker, FormStatus, PageHeader, ReadOnlyNote, requireText, TemplateSelect, useCanForComponents, useSubmit } from "./shared";
 
 
 const STATES = [
@@ -209,7 +209,7 @@ export function MaintenanceNewPage() {
             )}
           </Field>
         </div>
-        <ComponentPicker selected={v.component_ids} onChange={(ids) => set("component_ids", ids)} error={fe.component_ids} />
+        <ComponentPicker permission="maintenances.manage" selected={v.component_ids} onChange={(ids) => set("component_ids", ids)} error={fe.component_ids} />
         <Field label="Notas internas (não publicadas)" error={fe.internal_notes}>
           {(p) => <textarea {...p} rows={2} maxLength={5000} value={v.internal_notes} onChange={(e) => set("internal_notes", e.target.value)} />}
         </Field>
@@ -294,7 +294,7 @@ function EditForm({ m, onSaved }: { m: Maintenance; onSaved: (m: Maintenance) =>
           )}
         </Field>
       </div>
-      <ComponentPicker selected={v.component_ids} onChange={(ids) => setV({ ...v, component_ids: ids })} keep={m.components} error={fe.component_ids} />
+      <ComponentPicker permission="maintenances.manage" selected={v.component_ids} onChange={(ids) => setV({ ...v, component_ids: ids })} keep={m.components} error={fe.component_ids} />
       <Field label="Notas internas" error={fe.internal_notes}>
         {(p) => <textarea {...p} rows={2} maxLength={5000} value={v.internal_notes} onChange={(e) => setV({ ...v, internal_notes: e.target.value })} />}
       </Field>
@@ -324,7 +324,7 @@ export function MaintenanceDetailPage({ id }: { id: string }) {
   const [actionError, setActionError] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const msgSubmit = useSubmit();
-  const canManage = useAuth().can("maintenances.manage");
+  const canManage = useCanForComponents("maintenances.manage", state.status === "success" ? state.data.components.map((c) => c.id) : []);
 
   if (state.status === "loading") return <div className="admin-content"><Loading /></div>;
   if (state.status === "error") return <div className="admin-content"><ErrorPanel error={state.error} onRetry={reload} /></div>;

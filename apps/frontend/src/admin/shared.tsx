@@ -1,8 +1,9 @@
 import { useId, useState, type ReactNode } from "react";
 import { ApiError, errorMessage } from "../api/client";
 import { adminApi } from "../api/endpoints";
-import type { Component } from "../api/types";
-import { Loading, Notice } from "../components/ui";
+import type { Component, PermissionKey, Team } from "../api/types";
+import { Field, Loading, Notice } from "../components/ui";
+import { useAuth } from "./authContext";
 import { useApi } from "../lib/useApi";
 
 /** Tracks submission state and maps API errors to fields. */
@@ -62,17 +63,23 @@ export function ComponentPicker({
   keep = [],
   error,
   legend = "Componentes afetados",
+  permission,
 }: {
   selected: string[];
   onChange: (ids: string[]) => void;
   keep?: { id: string; name: string }[];
   error?: string;
   legend?: string;
+  /** With a team-scoped grant, only the user's components are offered. */
+  permission?: PermissionKey;
 }) {
+  const { canFor, teamOnly } = useAuth();
   const { state } = useApi((signal) => adminApi.components.list({ is_active: true, limit: 100 }, { signal }), []);
   let options: { id: string; name: string }[] = [];
   if (state.status === "success") {
-    options = state.data.data.map((c: Component) => ({ id: c.id, name: c.name }));
+    options = state.data.data
+      .filter((c: Component) => !permission || selected.includes(c.id) || canFor(permission, c.owner_team_id))
+      .map((c: Component) => ({ id: c.id, name: c.name }));
     for (const k of keep) {
       if (!options.some((o) => o.id === k.id)) options.push(k);
     }
@@ -83,7 +90,12 @@ export function ComponentPicker({
       <legend>{legend}</legend>
       {state.status === "loading" && <Loading label="Carregando componentes…" />}
       {state.status === "error" && <small className="field-error">{errorMessage(state.error)}</small>}
-      {state.status === "success" && options.length === 0 && <small className="field-hint">Nenhum componente ativo cadastrado.</small>}
+      {state.status === "success" && options.length === 0 && (
+        <small className="field-hint">{permission && teamOnly(permission) ? "Nenhum componente dos seus times." : "Nenhum componente ativo cadastrado."}</small>
+      )}
+      {permission && teamOnly(permission) && options.length > 0 && (
+        <small className="field-hint">Seu papel vale só para os componentes dos seus times.</small>
+      )}
       <div className="picker-options">
         {options.map((o) => (
           <label key={o.id} className="checkbox">
@@ -161,4 +173,70 @@ export function requireText(errors: Record<string, string>, field: string, value
   const v = value.trim();
   if (!v) errors[field] = `${label} é obrigatório.`;
   else if (v.length > max) errors[field] = `${label} deve ter no máximo ${max} caracteres.`;
+}
+
+/** Teams, for selects and labels (any signed-in user may list them). */
+export function useTeams(): Team[] {
+  const { state } = useApi((signal) => adminApi.teams.list({}, { signal }), []);
+  return state.status === "success" ? state.data.data : [];
+}
+
+/**
+ * Optional responsible team. Users whose permission is team-scoped only
+ * see their own teams (plus the current one, so it stays visible).
+ */
+export function TeamSelect({
+  teams,
+  value,
+  onChange,
+  permission,
+  error,
+  hint,
+  emptyLabel = "Sem time responsável",
+}: {
+  teams: Team[];
+  value: string;
+  onChange: (id: string) => void;
+  permission: Parameters<ReturnType<typeof useAuth>["can"]>[0];
+  error?: string;
+  hint?: string;
+  emptyLabel?: string;
+}) {
+  const { me, teamOnly } = useAuth();
+  const mine = new Set(me.user.teams.map((t) => t.id));
+  const scoped = teamOnly(permission);
+  const options = teams.filter((t) => t.id === value || (t.is_active && (!scoped || mine.has(t.id))));
+  return (
+    <Field label="Time responsável" error={error} hint={hint ?? (scoped ? "Seu papel vale só para os seus times." : "Opcional.")}>
+      {(p) => (
+        <select {...p} value={value} onChange={(e) => onChange(e.target.value)}>
+          <option value="">{emptyLabel}</option>
+          {options.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.kind ? `${t.name} (${t.kind})` : t.name}
+            </option>
+          ))}
+        </select>
+      )}
+    </Field>
+  );
+}
+
+/**
+ * Whether `permission` covers an item affecting `componentIds` (incident,
+ * maintenance). Team-scoped grants need at least one component and all of
+ * them owned by the user's teams; the API enforces the same rule.
+ */
+export function useCanForComponents(permission: PermissionKey, componentIds: string[]): boolean {
+  const { can, canFor, teamOnly } = useAuth();
+  const scoped = teamOnly(permission);
+  const { state } = useApi(
+    (signal) => (scoped ? adminApi.components.list({ limit: 100 }, { signal }) : Promise.resolve(null)),
+    [scoped],
+  );
+  if (!can(permission)) return false;
+  if (!scoped) return true;
+  if (state.status !== "success" || !state.data || componentIds.length === 0) return false;
+  const owners = new Map(state.data.data.map((c) => [c.id, c.owner_team_id]));
+  return componentIds.every((id) => canFor(permission, owners.get(id)));
 }

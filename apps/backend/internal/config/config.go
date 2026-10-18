@@ -30,7 +30,32 @@ type Config struct {
 	SessionTTL          time.Duration
 	SessionIdleTimeout  time.Duration
 	SessionCookieSecure bool
+	// Notifications to subscribers.
+	SiteName       string
+	PublicBaseURL  string // absolute URL of the public page, used in links
+	SMTP           SMTP
+	NotifyWorker   bool
+	NotifyInterval time.Duration
+	// Allows webhook targets on private/loopback addresses (tests or
+	// intranet integrations). Off by default.
+	NotifyAllowPrivate bool
 }
+
+// SMTP configures e-mail delivery. E-mail subscriptions are offered only
+// when Host is set (and PUBLIC_BASE_URL, for the links).
+type SMTP struct {
+	Host     string
+	Port     int
+	Username string
+	Password string
+	From     string
+	// TLS: "starttls" (default), "tls" (implicit, port 465) or "none"
+	// (local development servers only).
+	TLS string
+}
+
+// EmailEnabled reports whether e-mail notifications can be sent.
+func (c Config) EmailEnabled() bool { return c.SMTP.Host != "" && c.PublicBaseURL != "" }
 
 // Load reads configuration from the process environment.
 func Load() (Config, error) {
@@ -101,6 +126,39 @@ func FromLookup(lookup func(string) (string, bool)) (Config, error) {
 		errs = append(errs, errors.New("REQUEST_TIMEOUT must be a duration between 1s and 1m"))
 	}
 	cfg.RequestTimeout = timeout
+
+	cfg.SiteName = get("SITE_NAME", "Digolitus Status Page")
+	cfg.PublicBaseURL = strings.TrimRight(get("PUBLIC_BASE_URL", ""), "/")
+	if cfg.PublicBaseURL != "" && !strings.HasPrefix(cfg.PublicBaseURL, "https://") && !strings.HasPrefix(cfg.PublicBaseURL, "http://") {
+		errs = append(errs, errors.New("PUBLIC_BASE_URL must be an absolute http(s) URL, e.g. https://status.example.com"))
+	}
+	parseBool("NOTIFY_WORKER", "true", &cfg.NotifyWorker)
+	parseBool("NOTIFY_ALLOW_PRIVATE_NETWORKS", "false", &cfg.NotifyAllowPrivate)
+	notifyInterval, err := time.ParseDuration(get("NOTIFY_INTERVAL", "10s"))
+	if err != nil || notifyInterval < time.Second || notifyInterval > 5*time.Minute {
+		errs = append(errs, errors.New("NOTIFY_INTERVAL must be a duration between 1s and 5m"))
+	}
+	cfg.NotifyInterval = notifyInterval
+	cfg.SMTP = SMTP{Host: get("SMTP_HOST", ""), Username: get("SMTP_USERNAME", ""), Password: get("SMTP_PASSWORD", ""),
+		From: get("SMTP_FROM", ""), TLS: get("SMTP_TLS", "starttls")}
+	if cfg.SMTP.Host != "" {
+		port, err := strconv.ParseInt(get("SMTP_PORT", "587"), 10, 32)
+		if err != nil || port < 1 || port > 65535 {
+			errs = append(errs, errors.New("SMTP_PORT must be an integer between 1 and 65535"))
+		}
+		cfg.SMTP.Port = int(port)
+		if !strings.Contains(cfg.SMTP.From, "@") || strings.ContainsAny(cfg.SMTP.From, "\r\n") {
+			errs = append(errs, errors.New("SMTP_FROM is required with SMTP_HOST (e.g. Status <status@example.com>)"))
+		}
+		switch cfg.SMTP.TLS {
+		case "starttls", "tls", "none":
+		default:
+			errs = append(errs, errors.New("SMTP_TLS must be starttls, tls or none"))
+		}
+		if cfg.PublicBaseURL == "" {
+			errs = append(errs, errors.New("PUBLIC_BASE_URL is required with SMTP_HOST (links in e-mails)"))
+		}
+	}
 
 	switch cfg.LogLevel {
 	case "debug", "info", "warn", "error":

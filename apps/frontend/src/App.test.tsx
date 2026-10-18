@@ -572,3 +572,128 @@ describe("announcements", () => {
     expect(screen.getByRole("link", { name: "Ver na página pública" })).toHaveAttribute("href", "/announcements/a9");
   });
 });
+
+describe("team ownership", () => {
+  const squad = { id: "t1", name: "Squad Pagamentos", kind: "Squad" };
+  const other = { id: "t2", name: "Squad Busca", kind: "Squad" };
+  const team = (t: typeof squad) => ({
+    ...t,
+    description: "",
+    documentation_url: null,
+    support_url: null,
+    is_active: true,
+    announcement_count: 0,
+    component_count: 1,
+    group_count: 0,
+    member_count: 1,
+    created_at: "",
+    updated_at: "",
+  });
+  const comp = (id: string, name: string, teamId: string | null, owner: string | null) => ({
+    id, name, slug: id, description: "", status: "operational" as const, is_public: true, is_active: true, display_order: 0,
+    group_id: null, url: null, team_id: teamId, owner_team_id: owner, created_at: "", updated_at: "",
+  });
+
+  it("lets a team-scoped user manage only the components of their teams", async () => {
+    window.history.pushState(null, "", "/admin/components");
+    const member = {
+      ...adminMe,
+      is_admin: false,
+      permissions: ["components.manage", "components.status"] as PermissionKey[],
+      team_permissions: ["components.manage", "components.status"] as PermissionKey[],
+      user: { ...adminMe.user, name: "Dev", roles: [{ id: "r3", name: "Operador do time", is_system: false }], teams: [{ id: squad.id, name: squad.name }] },
+    };
+    mockApi({
+      ...session(member),
+      "GET /api/v1/admin/components": page([comp("c1", "Checkout", "t1", "t1"), comp("c2", "Busca", null, "t2")]),
+      "GET /api/v1/admin/component-groups": page([]),
+      "GET /api/v1/admin/teams": { body: { data: [team(squad), team(other)] } },
+    });
+    render(<App />);
+    const user = userEvent.setup();
+    expect(await screen.findByText("Time: Squad Busca (grupo)")).toBeInTheDocument();
+    expect(screen.getByText(/Seu papel vale só para os componentes dos seus times \(Squad Pagamentos\)/)).toBeInTheDocument();
+    const edits = screen.getAllByRole("button", { name: "Editar" });
+    expect(edits).toHaveLength(1);
+    await user.click(edits[0]);
+    const select = screen.getByLabelText("Time responsável");
+    const labels = within(select).getAllByRole("option").map((o: HTMLElement) => o.textContent);
+    expect(labels).toContain("Squad Pagamentos (Squad)");
+    expect(labels).not.toContain("Squad Busca (Squad)");
+  });
+
+  it("restricts team-scoped roles to scopable permissions", async () => {
+    window.history.pushState(null, "", "/admin/roles");
+    const calls = mockApi({
+      ...session(),
+      "GET /api/v1/admin/roles": { body: { data: [] } },
+      "GET /api/v1/admin/permissions": {
+        body: {
+          data: [
+            { key: "incidents.manage", label: "Gerenciar incidentes", description: "Abrir e atualizar.", group: "Operação", sensitive: false, scopable: true },
+            { key: "users.manage", label: "Gerenciar usuários", description: "Contas.", group: "Acesso", sensitive: true, scopable: false },
+          ],
+        },
+      },
+      "POST /api/v1/admin/roles": { status: 201, body: { id: "r9", name: "Squad", description: "", scope: "team", permissions: ["incidents.manage"], is_system: false, user_count: 0, created_at: "", updated_at: "" } },
+    });
+    render(<App />);
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText("Nome do papel"), "Squad");
+    await user.click(screen.getByRole("checkbox", { name: /Gerenciar usuários/ }));
+    await user.click(screen.getByRole("checkbox", { name: /Gerenciar incidentes/ }));
+    await user.click(screen.getByRole("radio", { name: "Componentes dos times do usuário" }));
+    expect(screen.getByRole("checkbox", { name: /Gerenciar usuários/ })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: /Gerenciar usuários/ })).not.toBeChecked();
+    await user.click(screen.getByRole("button", { name: "Criar papel" }));
+    expect(await screen.findByText("Papel criado.")).toBeInTheDocument();
+    expect(calls.find((c) => c.method === "POST")?.body).toEqual({ name: "Squad", description: "", scope: "team", permissions: ["incidents.manage"] });
+  });
+});
+
+describe("subscriptions", () => {
+  const options = { email: true, webhook: true, slack: true, sms: false, atom_url: "/api/v1/feed.atom", rss_url: "/api/v1/feed.rss" };
+
+  it("subscribes by e-mail from the header, with double opt-in", async () => {
+    const calls = mockApi({
+      "GET /api/v1/status": { body: emptySummary },
+      ...history,
+      "GET /api/v1/subscriptions/options": { body: options },
+      "GET /api/v1/components": page([]),
+      "POST /api/v1/subscriptions": { status: 202, body: { message: "ok" } },
+    });
+    render(<App />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Inscrever-se" }));
+    const dialog = await screen.findByRole("dialog", { name: /Inscrever-se/ });
+    expect(within(dialog).queryByRole("tab", { name: "SMS" })).not.toBeInTheDocument();
+    await user.type(await within(dialog).findByLabelText("E-mail"), "pessoa@example.com");
+    await user.click(within(dialog).getByRole("button", { name: "Inscrever-se" }));
+    expect(await within(dialog).findByText("Confira seu e-mail.")).toBeInTheDocument();
+    expect(calls.find((c) => c.method === "POST")?.body).toEqual({ channel: "email", email: "pessoa@example.com", component_ids: [] });
+
+    await user.click(within(dialog).getByRole("tab", { name: "RSS / Atom" }));
+    expect(within(dialog).getByRole("link", { name: "Feed Atom" })).toHaveAttribute("href", "/api/v1/feed.atom");
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("confirms a subscription with a click and drops the token from the address bar", async () => {
+    window.history.pushState(null, "", "/subscriptions/confirm?token=abc");
+    const view = { id: "s1", channel: "email", email: "pessoa@example.com", target_url: null, status: "active", all_components: true, components: [], signing_secret: null, created_at: "" };
+    const calls = mockApi({
+      "GET /api/v1/components": page([]),
+      "POST /api/v1/subscriptions/confirm": { body: view },
+      "POST /api/v1/subscriptions/unsubscribe": { status: 204 },
+    });
+    render(<App />);
+    const user = userEvent.setup();
+    expect(window.location.search).toBe("");
+    await user.click(screen.getByRole("button", { name: "Confirmar inscrição" }));
+    expect(await screen.findByText(/Inscrição confirmada/)).toBeInTheDocument();
+    expect(calls.find((c) => c.path.endsWith("/confirm"))?.body).toEqual({ token: "abc" });
+    await user.click(screen.getByRole("button", { name: "Cancelar inscrição" }));
+    expect(await screen.findByRole("heading", { name: "Inscrição cancelada" })).toBeInTheDocument();
+    expect(calls.find((c) => c.path.endsWith("/unsubscribe"))?.body).toEqual({ token: "abc" });
+  });
+});

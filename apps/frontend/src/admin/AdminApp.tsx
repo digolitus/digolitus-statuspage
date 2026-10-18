@@ -11,6 +11,8 @@ import { GroupsPage } from "./GroupsPage";
 import { IncidentDetailPage, IncidentNewPage, IncidentsPage } from "./incidents";
 import { MaintenanceDetailPage, MaintenanceNewPage, MaintenancesPage } from "./maintenances";
 import { OverviewPage } from "./OverviewPage";
+import { SubscriptionsPage } from "./SubscriptionsPage";
+import { TeamsPage } from "./TeamsPage";
 import { TemplatesPage } from "./TemplatesPage";
 import { ThirdPartyPage } from "./ThirdPartyPage";
 
@@ -25,7 +27,9 @@ const NAV: { to: string; label: string; need?: PermissionKey[] }[] = [
   { to: "/admin/maintenances", label: "Manutenções" },
   { to: "/admin/maintenance-templates", label: "Templates de manutenção" },
   { to: "/admin/announcements", label: "Comunicados" },
-  { to: "/admin/announcement-settings", label: "Categorias e times" },
+  { to: "/admin/announcement-settings", label: "Categorias de comunicado" },
+  { to: "/admin/teams", label: "Times responsáveis" },
+  { to: "/admin/subscriptions", label: "Inscrições", need: ["subscriptions.manage"] },
   { to: "/admin/audit", label: "Histórico operacional", need: ["audit.read"] },
   { to: "/admin/users", label: "Usuários", need: ["users.manage"] },
   { to: "/admin/roles", label: "Papéis e permissões", need: ["roles.manage", "users.manage"] },
@@ -62,6 +66,8 @@ function Route({ pathname }: { pathname: string }) {
   if (match("/admin/announcements/new", pathname)) return allowed("announcements.write") ? <AnnouncementNewPage /> : <Forbidden />;
   if ((p = match("/admin/announcements/:id", pathname))) return <AnnouncementDetailPage key={p.id} id={p.id} />;
   if (match("/admin/announcement-settings", pathname)) return <AnnouncementSettingsPage />;
+  if (match("/admin/teams", pathname)) return <TeamsPage />;
+  if (match("/admin/subscriptions", pathname)) return allowed("subscriptions.manage") ? <SubscriptionsPage /> : <Forbidden />;
   if (match("/admin/audit", pathname)) return allowed("audit.read") ? <AuditPage /> : <Forbidden />;
   if (match("/admin/users", pathname)) return allowed("users.manage") ? <UsersPage /> : <Forbidden />;
   if (match("/admin/roles", pathname)) return allowed("roles.manage", "users.manage") ? <RolesPage /> : <Forbidden />;

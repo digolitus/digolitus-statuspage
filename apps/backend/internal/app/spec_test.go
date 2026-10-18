@@ -8,9 +8,16 @@ import (
 	"testing"
 
 	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/getkin/kin-openapi/openapi3filter"
 
 	"github.com/digolitus/digolitus-statuspage/apps/backend/api"
 )
+
+func init() {
+	// Feeds are XML documents; the contract only checks status and media type.
+	openapi3filter.RegisterBodyDecoder("application/atom+xml", openapi3filter.PlainBodyDecoder)
+	openapi3filter.RegisterBodyDecoder("application/rss+xml", openapi3filter.PlainBodyDecoder)
+}
 
 func loadSpec(t *testing.T) *openapi3.T {
 	t.Helper()
@@ -68,11 +75,14 @@ func TestRoutesMatchSpec(t *testing.T) {
 }
 
 // TestAdminRoutesCanBeDisabled ensures ADMIN_API_ENABLED=false removes every
-// mutating route, leaving a read-only public API.
+// admin route and every mutating route except visitors' own subscription
+// self-service (subscribe, confirm, manage, unsubscribe), so a public
+// read-only instance can still take subscriptions.
 func TestAdminRoutesCanBeDisabled(t *testing.T) {
 	application := New(nil, Options{AdminAPIEnabled: false})
 	for _, r := range application.Router.Routes() {
-		if strings.HasPrefix(r.Path, "/api/v1/admin/") || r.Method != http.MethodGet {
+		selfService := strings.HasPrefix(r.Path, "/api/v1/subscriptions")
+		if strings.HasPrefix(r.Path, "/api/v1/admin/") || r.Method != http.MethodGet && !selfService {
 			t.Errorf("route %s %s must not be registered when the admin API is disabled", r.Method, r.Path)
 		}
 	}

@@ -48,6 +48,19 @@ export type PublicAnnouncement = S.PublicAnnouncement;
 export type AnnouncementCategory = S.AnnouncementCategory;
 export type PublicAnnouncementCategory = S.PublicAnnouncementCategory;
 export type Team = S.Team;
+export type RoleScope = S.RoleScope;
+
+// Subscriptions (notifications).
+export type SubscriptionChannel = S.SubscriptionChannel;
+export type SubscriptionStatus = S.SubscriptionStatus;
+export type SubscriptionOptions = S.SubscriptionOptions;
+export type SubscribeInput = S.SubscribeInput;
+export type SubscriptionManageView = S.SubscriptionManageView;
+export type Subscription = S.Subscription;
+export type SubscriptionList = S.SubscriptionList;
+export type SubscriptionCreated = S.SubscriptionCreated;
+export type SubscriptionAdminCreate = S.SubscriptionAdminCreate;
+export type SubscriptionAdminPatch = S.SubscriptionAdminPatch;
 
 export type ErrorBody = S.Error;
 export type FieldError = NonNullable<S.Error["error"]["details"]>[number];

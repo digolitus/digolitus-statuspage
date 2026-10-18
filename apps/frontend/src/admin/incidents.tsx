@@ -7,7 +7,7 @@ import { browserTimeZone, formatDateTime, IMPACTS, impactLabel, incidentStatusLa
 import { Link, navigate } from "../lib/router";
 import { useApi } from "../lib/useApi";
 import { useAuth } from "./authContext";
-import { ComponentPicker, FormStatus, PageHeader, ReadOnlyNote, requireText, TemplateSelect, useSubmit } from "./shared";
+import { ComponentPicker, FormStatus, PageHeader, ReadOnlyNote, requireText, TemplateSelect, useCanForComponents, useSubmit } from "./shared";
 
 const OPEN_STATUSES: Exclude<IncidentStatus, "resolved">[] = ["investigating", "identified", "monitoring"];
 const ALL_STATUSES = Object.keys(incidentStatusLabel) as IncidentStatus[];
@@ -178,7 +178,7 @@ export function IncidentNewPage() {
             {(p) => <input {...p} type="datetime-local" value={v.started_at} onChange={(e) => setV({ ...v, started_at: e.target.value })} />}
           </Field>
         </div>
-        <ComponentPicker selected={v.component_ids} onChange={(ids) => setV({ ...v, component_ids: ids })} error={fe.component_ids} />
+        <ComponentPicker permission="incidents.manage" selected={v.component_ids} onChange={(ids) => setV({ ...v, component_ids: ids })} error={fe.component_ids} />
         <Field label="Notas internas (não publicadas)" error={fe.internal_notes}>
           {(p) => <textarea {...p} rows={2} maxLength={5000} value={v.internal_notes} onChange={(e) => setV({ ...v, internal_notes: e.target.value })} />}
         </Field>
@@ -294,7 +294,7 @@ function PublishUpdateForm({ incident, onSaved }: { incident: Incident; onSaved:
         Alterar componentes afetados
       </label>
       {changeComponents && (
-        <ComponentPicker selected={componentIds} onChange={setComponentIds} keep={incident.components} error={submit.fieldErrors.component_ids} />
+        <ComponentPicker permission="incidents.manage" selected={componentIds} onChange={setComponentIds} keep={incident.components} error={submit.fieldErrors.component_ids} />
       )}
       <FormStatus error={submit.formError} success={submit.success} />
       <div className="form-actions">
@@ -310,7 +310,7 @@ export function IncidentDetailPage({ id }: { id: string }) {
   const { state, reload, setData } = useApi((signal) => adminApi.incidents.get(id, { signal }), [id]);
   const [resolveMessage, setResolveMessage] = useState("O problema foi resolvido e o serviço está operando normalmente.");
   const [resolveError, setResolveError] = useState<string | null>(null);
-  const canManage = useAuth().can("incidents.manage");
+  const canManage = useCanForComponents("incidents.manage", state.status === "success" ? state.data.components.map((c) => c.id) : []);
 
   if (state.status === "loading") return <div className="admin-content"><Loading /></div>;
   if (state.status === "error") return <div className="admin-content"><ErrorPanel error={state.error} onRetry={reload} /></div>;

@@ -1,13 +1,13 @@
 import { useState, type FormEvent } from "react";
 import { adminApi } from "../api/endpoints";
-import type { Component, ComponentCreate, ComponentGroup, ComponentStatus } from "../api/types";
+import type { Component, ComponentCreate, ComponentGroup, ComponentStatus, Team } from "../api/types";
 import { Badge, ConfirmButton, EmptyState, ErrorPanel, Field, Loading, Pager } from "../components/ui";
 import { StatusSelect } from "../components/StatusSelect";
 import { componentStatusLabel, toneForStatus } from "../lib/format";
-import { Link } from "../lib/router";
+import { Link, useLocation } from "../lib/router";
 import { useApi } from "../lib/useApi";
 import { useAuth } from "./authContext";
-import { FormStatus, PageHeader, ReadOnlyNote, requireText, useSubmit } from "./shared";
+import { FormStatus, PageHeader, ReadOnlyNote, requireText, TeamSelect, useSubmit, useTeams } from "./shared";
 
 const STATUSES = Object.keys(componentStatusLabel) as ComponentStatus[];
 
@@ -20,9 +20,10 @@ type FormValues = {
   display_order: string;
   group_id: string;
   url: string;
+  team_id: string;
 };
 
-const empty: FormValues = { name: "", slug: "", description: "", status: "operational", is_public: true, display_order: "0", group_id: "", url: "" };
+const empty: FormValues = { name: "", slug: "", description: "", status: "operational", is_public: true, display_order: "0", group_id: "", url: "", team_id: "" };
 
 function toValues(c: Component): FormValues {
   return {
@@ -34,18 +35,21 @@ function toValues(c: Component): FormValues {
     display_order: String(c.display_order),
     group_id: c.group_id ?? "",
     url: c.url ?? "",
+    team_id: c.team_id ?? "",
   };
 }
 
 function ComponentForm({
   initial,
   groups,
+  teams,
   submitLabel,
   onSubmit,
   onCancel,
 }: {
   initial: FormValues;
   groups: ComponentGroup[];
+  teams: Team[];
   submitLabel: string;
   onSubmit: (input: ComponentCreate) => Promise<unknown>;
   onCancel?: () => void;
@@ -73,6 +77,7 @@ function ComponentForm({
       display_order: order,
       group_id: v.group_id || null,
       url: v.url.trim() || null,
+      team_id: v.team_id || null,
     };
     if (v.slug.trim()) input.slug = v.slug.trim();
     const ok = await submit.run(() => onSubmit(input), "Componente salvo.");
@@ -82,7 +87,7 @@ function ComponentForm({
   const fe = submit.fieldErrors;
   return (
     <form className="form" onSubmit={handle} noValidate>
-      <div className="form-grid">
+      <div className="form-grid form-grid-3">
         <Field label="Nome" error={fe.name}>
           {(p) => <input {...p} value={v.name} maxLength={120} onChange={(e) => set("name", e.target.value)} />}
         </Field>
@@ -106,6 +111,19 @@ function ComponentForm({
             </select>
           )}
         </Field>
+        <TeamSelect
+          teams={teams}
+          value={v.team_id}
+          onChange={(x) => set("team_id", x)}
+          permission="components.manage"
+          error={fe.team_id}
+          hint="Opcional. Sem time, vale o time do grupo."
+          emptyLabel={(() => {
+            const g = groups.find((x) => x.id === v.group_id);
+            const t = g?.team_id ? teams.find((x) => x.id === g.team_id) : undefined;
+            return t ? `Herdar do grupo (${t.name})` : "Sem time responsável";
+          })()}
+        />
         <Field label="Ordem de exibição" error={fe.display_order}>
           {(p) => <input {...p} type="number" min={0} max={100000} value={v.display_order} onChange={(e) => set("display_order", e.target.value)} />}
         </Field>
@@ -171,17 +189,26 @@ export function ComponentsPage() {
   const [editing, setEditing] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [groupFilter, setGroupFilter] = useState("");
+  const initialTeam = useLocation().search.get("team") ?? "";
+  const [teamFilter, setTeamFilter] = useState(initialTeam);
   const isActive = filter === "all" ? undefined : filter === "active";
   const { state, reload } = useApi(
-    (signal) => adminApi.components.list({ is_active: isActive, group_id: groupFilter || undefined, limit: 50, offset }, { signal }),
-    [filter, groupFilter, offset],
+    (signal) =>
+      adminApi.components.list(
+        { is_active: isActive, group_id: groupFilter || undefined, team_id: teamFilter || undefined, limit: 50, offset },
+        { signal },
+      ),
+    [filter, groupFilter, teamFilter, offset],
   );
+  const teams = useTeams();
+  const teamName = (id: string | null) => teams.find((t) => t.id === id)?.name;
   const groupsState = useApi((signal) => adminApi.groups.list({ limit: 100 }, { signal }), []).state;
   const groups = groupsState.status === "success" ? groupsState.data.data : [];
   const groupName = (id: string | null) => groups.find((g) => g.id === id)?.name;
-  const { can } = useAuth();
+  const { me, can, canFor, teamOnly } = useAuth();
   const canManage = can("components.manage");
   const canStatus = can("components.status");
+  const scoped = teamOnly("components.manage") || (!canManage && teamOnly("components.status"));
 
   return (
     <div className="admin-content">
@@ -196,6 +223,11 @@ export function ComponentsPage() {
         )}
       </PageHeader>
       {!canManage && <ReadOnlyNote what={canStatus ? "cadastrar ou editar componentes; você pode alterar o status" : "alterar componentes"} />}
+      {scoped && (
+        <p className="read-only-note" role="note">
+          Seu papel vale só para os componentes dos seus times ({me.user.teams.map((t) => t.name).join(", ") || "nenhum time"}).
+        </p>
+      )}
       <p className="muted">
         O status de um componente é declarado manualmente. Incidentes ativos e manutenções em andamento podem agravar o status
         exibido publicamente, conforme a política documentada na API.
@@ -205,6 +237,7 @@ export function ComponentsPage() {
           <ComponentForm
             initial={empty}
             groups={groups}
+            teams={teams}
             submitLabel="Criar componente"
             onSubmit={async (input) => {
               const c = await adminApi.components.create(input);
@@ -215,6 +248,7 @@ export function ComponentsPage() {
           />
         </section>
       )}
+      <div className="toolbar">
       <div className="filters" role="group" aria-label="Filtrar componentes">
         {(["active", "inactive", "all"] as const).map((f) => (
           <button
@@ -231,6 +265,25 @@ export function ComponentsPage() {
           </button>
         ))}
       </div>
+      {teams.length > 0 && (
+        <label className="inline-filter">
+          Time{" "}
+          <select
+            value={teamFilter}
+            onChange={(e) => {
+              setTeamFilter(e.target.value);
+              setOffset(0);
+            }}
+          >
+            <option value="">Todos</option>
+            {teams.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       {groups.length > 0 && (
         <label className="inline-filter">
           Grupo{" "}
@@ -250,6 +303,7 @@ export function ComponentsPage() {
           </select>
         </label>
       )}
+      </div>
       {state.status === "loading" && <Loading />}
       {state.status === "error" && <ErrorPanel error={state.error} onRetry={reload} />}
       {state.status === "success" &&
@@ -258,13 +312,22 @@ export function ComponentsPage() {
         ) : (
           <>
             <ul className="admin-list">
-              {state.data.data.map((c) => (
+              {state.data.data.map((c) => {
+                const manageThis = canFor("components.manage", c.owner_team_id);
+                const statusThis = canFor("components.status", c.owner_team_id);
+                return (
                 <li key={c.id} className="admin-item">
                   <div className="admin-item-head">
                     <div>
                       <strong>{c.name}</strong> <code>{c.slug}</code>
                       <div className="admin-item-tags">
                         {c.group_id && <span className="tag">Grupo: {groupName(c.group_id) ?? "…"}</span>}
+                        {c.owner_team_id && (
+                          <span className="tag tag-team" title={c.team_id ? "Time responsável" : "Herdado do grupo"}>
+                            Time: {teamName(c.owner_team_id) ?? "…"}
+                            {!c.team_id && " (grupo)"}
+                          </span>
+                        )}
                         {!c.is_public && <span className="tag">Oculto</span>}
                         {!c.is_active && <span className="tag">Desativado</span>}
                         <span className="tag">Ordem {c.display_order}</span>
@@ -273,8 +336,8 @@ export function ComponentsPage() {
                     </div>
                     <Badge tone={toneForStatus[c.status]}>{componentStatusLabel[c.status]}</Badge>
                   </div>
-                  {!canManage && canStatus && c.is_active && <StatusQuickChange component={c} onSaved={reload} />}
-                  {canManage && (
+                  {!manageThis && statusThis && c.is_active && <StatusQuickChange component={c} onSaved={reload} />}
+                  {manageThis && (
                   <div className="form-actions">
                     <button type="button" className="secondary-button" onClick={() => setEditing(editing === c.id ? null : c.id)} aria-expanded={editing === c.id}>
                       Editar
@@ -299,6 +362,7 @@ export function ComponentsPage() {
                     <ComponentForm
                       initial={toValues(c)}
                       groups={groups}
+                      teams={teams}
                       submitLabel="Salvar alterações"
                       onSubmit={async (input) => {
                         const updated = await adminApi.components.update(c.id, input);
@@ -309,7 +373,8 @@ export function ComponentsPage() {
                     />
                   )}
                 </li>
-              ))}
+                );
+              })}
             </ul>
             <Pager pagination={state.data.pagination} onChange={setOffset} />
           </>

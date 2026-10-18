@@ -33,6 +33,7 @@ import (
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/external"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/clock"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/database"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/subscription"
 )
 
 func main() {
@@ -115,12 +116,30 @@ func run(args []string) error {
 		}
 	}
 
+	var mailer subscription.Mailer
+	if cfg.EmailEnabled() {
+		m, err := subscription.NewSMTPMailer(subscription.SMTPConfig{Host: cfg.SMTP.Host, Port: cfg.SMTP.Port, Username: cfg.SMTP.Username,
+			Password: cfg.SMTP.Password, From: cfg.SMTP.From, TLS: cfg.SMTP.TLS})
+		if err != nil {
+			return err
+		}
+		mailer = m
+		if cfg.SMTP.TLS == "none" {
+			log.Warn("SMTP without TLS (SMTP_TLS=none): use only with a local development server")
+		}
+	} else {
+		log.Info("e-mail notifications disabled (set SMTP_HOST and PUBLIC_BASE_URL to enable): only feeds and admin-created webhooks/Slack are available")
+	}
 	application := app.New(pool, app.Options{
 		AdminAPIEnabled:  cfg.AdminAPIEnabled,
 		RequestTimeout:   cfg.RequestTimeout,
 		ExternalInterval: cfg.ExternalInterval,
 		ExternalFetcher:  external.NewHTTPFetcher(10*time.Second, cfg.ExternalAllowPrivate),
 		Auth:             authCfg,
+		Mailer:           mailer,
+		Poster:           subscription.NewHTTPPoster(10*time.Second, cfg.NotifyAllowPrivate),
+		PublicBaseURL:    cfg.PublicBaseURL,
+		SiteName:         cfg.SiteName,
 	})
 	if !cfg.AdminAPIEnabled {
 		log.Info("admin API disabled (ADMIN_API_ENABLED=false): serving public endpoints only")
@@ -140,6 +159,13 @@ func run(args []string) error {
 	}
 	if cfg.ExternalAllowPrivate {
 		log.Warn("third-party sources may target private networks (EXTERNAL_STATUS_ALLOW_PRIVATE_NETWORKS=true)")
+	}
+	if cfg.NotifyAllowPrivate {
+		log.Warn("webhooks may target private networks (NOTIFY_ALLOW_PRIVATE_NETWORKS=true)")
+	}
+	if cfg.NotifyWorker {
+		go subscription.NewWorker(application.Subscriptions, log).Run(ctx, cfg.NotifyInterval)
+		log.Info("notification worker enabled", "interval", cfg.NotifyInterval.String())
 	}
 	if cfg.ExternalSync {
 		go external.NewPoller(application.External, log).Run(ctx)

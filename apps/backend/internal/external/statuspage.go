@@ -6,13 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/netip"
 	"net/url"
 	"strings"
-	"syscall"
 	"time"
+
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/safehttp"
 )
 
 // MaxResponseBytes bounds a provider response.
@@ -98,29 +98,8 @@ func NormalizeBaseURL(raw string) (string, error) {
 	return base, nil
 }
 
-var blockedPrefixes = func() []netip.Prefix {
-	var out []netip.Prefix
-	for _, s := range []string{"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "198.18.0.0/15", "240.0.0.0/4", "64:ff9b::/96"} {
-		out = append(out, netip.MustParsePrefix(s))
-	}
-	return out
-}()
-
-// publicAddress reports whether ip may be contacted: no loopback, private,
-// link-local, multicast, unspecified or special-purpose ranges.
-func publicAddress(ip netip.Addr) bool {
-	ip = ip.Unmap()
-	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
-		ip.IsMulticast() || ip.IsUnspecified() || ip.IsInterfaceLocalMulticast() {
-		return false
-	}
-	for _, p := range blockedPrefixes {
-		if p.Contains(ip) {
-			return false
-		}
-	}
-	return true
-}
+// publicAddress reports whether ip may be contacted (see safehttp).
+func publicAddress(ip netip.Addr) bool { return safehttp.PublicAddress(ip) }
 
 // HTTPFetcher reads Statuspage (Atlassian) public APIs.
 type HTTPFetcher struct {
@@ -133,38 +112,7 @@ type HTTPFetcher struct {
 // environment variables are ignored so that the check applies to the
 // provider itself.
 func NewHTTPFetcher(timeout time.Duration, allowPrivate bool) *HTTPFetcher {
-	dialer := &net.Dialer{Timeout: 5 * time.Second}
-	if !allowPrivate {
-		dialer.Control = func(_, address string, _ syscall.RawConn) error {
-			ap, err := netip.ParseAddrPort(address)
-			if err != nil || !publicAddress(ap.Addr()) {
-				return errors.New("destination address is not public")
-			}
-			return nil
-		}
-	}
-	transport := &http.Transport{
-		Proxy:                 nil,
-		DialContext:           dialer.DialContext,
-		TLSHandshakeTimeout:   5 * time.Second,
-		ResponseHeaderTimeout: timeout,
-		MaxIdleConns:          10,
-		IdleConnTimeout:       60 * time.Second,
-		ForceAttemptHTTP2:     true,
-	}
-	return &HTTPFetcher{client: &http.Client{
-		Timeout:   timeout,
-		Transport: transport,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 3 {
-				return errors.New("too many redirects")
-			}
-			if req.URL.Scheme != "https" {
-				return errors.New("redirect to non-https URL")
-			}
-			return nil
-		},
-	}}
+	return &HTTPFetcher{client: safehttp.NewClient(safehttp.Options{Timeout: timeout, AllowPrivate: allowPrivate, MaxRedirects: 3})}
 }
 
 // Statuspage v2 summary payload (subset).

@@ -22,18 +22,23 @@ import (
 
 // Component is the admin representation of a component.
 type Component struct {
-	ID           string    `json:"id"`
-	Name         string    `json:"name"`
-	Slug         string    `json:"slug"`
-	Description  string    `json:"description"`
-	Status       string    `json:"status"`
-	IsPublic     bool      `json:"is_public"`
-	IsActive     bool      `json:"is_active"`
-	DisplayOrder int       `json:"display_order"`
-	GroupID      *string   `json:"group_id"`
-	URL          *string   `json:"url"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID           string  `json:"id"`
+	Name         string  `json:"name"`
+	Slug         string  `json:"slug"`
+	Description  string  `json:"description"`
+	Status       string  `json:"status"`
+	IsPublic     bool    `json:"is_public"`
+	IsActive     bool    `json:"is_active"`
+	DisplayOrder int     `json:"display_order"`
+	GroupID      *string `json:"group_id"`
+	URL          *string `json:"url"`
+	// TeamID is the team responsible for the component (optional).
+	TeamID *string `json:"team_id"`
+	// OwnerTeamID is the effective owner: TeamID or, when unset, the
+	// group's team. Team-scoped roles act on components their teams own.
+	OwnerTeamID *string   `json:"owner_team_id"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // Ref is the minimal reference to a component embedded in other resources.
@@ -66,6 +71,7 @@ type CreateInput struct {
 	DisplayOrder *int    `json:"display_order"`
 	GroupID      *string `json:"group_id"`
 	URL          *string `json:"url"`
+	TeamID       *string `json:"team_id"`
 }
 
 // UpdateInput is a partial update; nil fields are left unchanged.
@@ -81,12 +87,14 @@ type UpdateInput struct {
 	GroupID optional.Nullable[string] `json:"group_id"`
 	// URL: absent = unchanged, null or "" = remove the link.
 	URL optional.Nullable[string] `json:"url"`
+	// TeamID: absent = unchanged, null = no own team (inherits the group's).
+	TeamID optional.Nullable[string] `json:"team_id"`
 }
 
 // statusOnly reports whether the patch changes nothing but the status.
 func (in UpdateInput) statusOnly() bool {
 	return in.Status != nil && in.Name == nil && in.Slug == nil && in.Description == nil && in.IsPublic == nil &&
-		in.IsActive == nil && in.DisplayOrder == nil && !in.GroupID.Set && !in.URL.Set
+		in.IsActive == nil && in.DisplayOrder == nil && !in.GroupID.Set && !in.URL.Set && !in.TeamID.Set
 }
 
 var slugPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
@@ -162,6 +170,16 @@ func NormalizeLink(v *apperror.Validator, field string, raw *string) *string {
 	return &s
 }
 
+// normalizeRef validates an optional UUID reference.
+func normalizeRef(v *apperror.Validator, field string, id *string) *string {
+	if id == nil {
+		return nil
+	}
+	s := strings.ToLower(strings.TrimSpace(*id))
+	v.Check(httpx.IsUUID(s), field, "Informe um UUID válido ou null.")
+	return &s
+}
+
 func validateOrder(v *apperror.Validator, o int) {
 	v.Check(o >= 0 && o <= 100000, "display_order", "Informe um inteiro entre 0 e 100000.")
 }
@@ -201,6 +219,7 @@ func (in CreateInput) normalize() (Component, error) {
 	}
 	c.GroupID = normalizeGroupID(&v, in.GroupID)
 	c.URL = NormalizeLink(&v, "url", in.URL)
+	c.TeamID = normalizeRef(&v, "team_id", in.TeamID)
 	return c, v.Err()
 }
 
@@ -243,6 +262,10 @@ func (in UpdateInput) apply(c Component) (Component, error) {
 	}
 	if in.GroupID.Set {
 		c.GroupID = normalizeGroupID(&v, in.GroupID.Value)
+		changed = true
+	}
+	if in.TeamID.Set {
+		c.TeamID = normalizeRef(&v, "team_id", in.TeamID.Value)
 		changed = true
 	}
 	if in.URL.Set {

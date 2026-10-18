@@ -14,8 +14,10 @@ import (
 
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/apperror"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/audit"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/component"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/database"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/httpx"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/optional"
 )
 
 // Colors are the category colors. A closed palette keeps the public page
@@ -44,22 +46,40 @@ type CategoryInput struct {
 	IsActive     *bool   `json:"is_active"`
 }
 
-// Team is the team responsible for an announcement.
+// Team is a responsible team: it can own components and groups, sign
+// announcements and group users (team-scoped roles act on what it owns).
 type Team struct {
-	ID                string    `json:"id"`
-	Name              string    `json:"name"`
-	Description       string    `json:"description"`
-	IsActive          bool      `json:"is_active"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Kind is a free label such as Squad, RT, Comunidade or Tribo.
+	Kind             string  `json:"kind"`
+	Description      string  `json:"description"`
+	DocumentationURL *string `json:"documentation_url"`
+	SupportURL       *string `json:"support_url"`
+	IsActive         bool    `json:"is_active"`
+	// Usage counts. A team in use (announcements, components, groups) is
+	// deactivated rather than deleted; members are simply removed.
 	AnnouncementCount int       `json:"announcement_count"`
+	ComponentCount    int       `json:"component_count"`
+	GroupCount        int       `json:"group_count"`
+	MemberCount       int       `json:"member_count"`
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
 }
 
-// TeamInput creates (Name required) or patches (nil = unchanged).
+// TeamKinds are suggestions for Team.Kind; any label up to 40 characters
+// is accepted.
+var TeamKinds = []string{"Squad", "RT", "Comunidade", "Tribo", "Chapter", "Guilda", "Plataforma"}
+
+// TeamInput creates (Name required) or patches (nil/absent = unchanged;
+// null or "" clears a link).
 type TeamInput struct {
-	Name        *string `json:"name"`
-	Description *string `json:"description"`
-	IsActive    *bool   `json:"is_active"`
+	Name             *string                   `json:"name"`
+	Kind             *string                   `json:"kind"`
+	Description      *string                   `json:"description"`
+	DocumentationURL optional.Nullable[string] `json:"documentation_url"`
+	SupportURL       optional.Nullable[string] `json:"support_url"`
+	IsActive         *bool                     `json:"is_active"`
 }
 
 func checkName(v *apperror.Validator, name string, maxLen int) {
@@ -121,6 +141,19 @@ func (in TeamInput) apply(t Team, create bool) (Team, error) {
 		checkDescription(&v, t.Description)
 		changed = true
 	}
+	if in.Kind != nil {
+		t.Kind = strings.TrimSpace(*in.Kind)
+		v.Check(utf8.RuneCountInString(t.Kind) <= 40, "kind", "Use no máximo 40 caracteres (ex.: Squad, RT, Comunidade, Tribo).")
+		changed = true
+	}
+	if in.DocumentationURL.Set {
+		t.DocumentationURL = component.NormalizeLink(&v, "documentation_url", in.DocumentationURL.Value)
+		changed = true
+	}
+	if in.SupportURL.Set {
+		t.SupportURL = component.NormalizeLink(&v, "support_url", in.SupportURL.Value)
+		changed = true
+	}
 	if in.IsActive != nil {
 		t.IsActive = *in.IsActive
 		changed = true
@@ -141,12 +174,16 @@ func scanCategory(row pgx.Row) (Category, error) {
 	return c, err
 }
 
-const teamColumns = `id, name, description, is_active,
-	(SELECT count(*) FROM announcements a WHERE a.team_id = teams.id)::int, created_at, updated_at`
+const teamColumns = `id, name, kind, description, documentation_url, support_url, is_active,
+	(SELECT count(*) FROM announcements a WHERE a.team_id = teams.id)::int,
+	(SELECT count(*) FROM components c WHERE c.team_id = teams.id)::int,
+	(SELECT count(*) FROM component_groups g WHERE g.team_id = teams.id)::int,
+	(SELECT count(*) FROM user_teams ut WHERE ut.team_id = teams.id)::int, created_at, updated_at`
 
 func scanTeam(row pgx.Row) (Team, error) {
 	var t Team
-	err := row.Scan(&t.ID, &t.Name, &t.Description, &t.IsActive, &t.AnnouncementCount, &t.CreatedAt, &t.UpdatedAt)
+	err := row.Scan(&t.ID, &t.Name, &t.Kind, &t.Description, &t.DocumentationURL, &t.SupportURL, &t.IsActive,
+		&t.AnnouncementCount, &t.ComponentCount, &t.GroupCount, &t.MemberCount, &t.CreatedAt, &t.UpdatedAt)
 	t.CreatedAt, t.UpdatedAt = t.CreatedAt.UTC(), t.UpdatedAt.UTC()
 	return t, err
 }
@@ -301,8 +338,8 @@ func (s *Service) CreateTeam(ctx context.Context, in TeamInput) (Team, error) {
 		} else if n >= maxTaxonomy {
 			return apperror.Conflict("team_limit", "Limite de 100 times atingido. Desative ou reutilize times existentes.")
 		}
-		created, err = scanTeam(tx.QueryRow(ctx, `INSERT INTO teams (name, description, is_active, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $4) RETURNING `+teamColumns, t.Name, t.Description, t.IsActive, now))
+		created, err = scanTeam(tx.QueryRow(ctx, `INSERT INTO teams (name, kind, description, documentation_url, support_url, is_active, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $7) RETURNING `+teamColumns, t.Name, t.Kind, t.Description, t.DocumentationURL, t.SupportURL, t.IsActive, now))
 		if err != nil {
 			return nameConflict(err, "teams_name_key", "team_name_conflict", "Já existe um time com este nome.")
 		}
@@ -324,8 +361,9 @@ func (s *Service) UpdateTeam(ctx context.Context, id string, in TeamInput) (Team
 			return err
 		}
 		now := s.now()
-		updated, err = scanTeam(tx.QueryRow(ctx, `UPDATE teams SET name = $2, description = $3, is_active = $4, updated_at = $5
-			WHERE id = $1 RETURNING `+teamColumns, id, next.Name, next.Description, next.IsActive, now))
+		updated, err = scanTeam(tx.QueryRow(ctx, `UPDATE teams SET name = $2, kind = $3, description = $4, documentation_url = $5,
+			support_url = $6, is_active = $7, updated_at = $8 WHERE id = $1 RETURNING `+teamColumns,
+			id, next.Name, next.Kind, next.Description, next.DocumentationURL, next.SupportURL, next.IsActive, now))
 		if err != nil {
 			return nameConflict(err, "teams_name_key", "team_name_conflict", "Já existe um time com este nome.")
 		}
@@ -341,9 +379,10 @@ func (s *Service) DeleteTeam(ctx context.Context, id string) error {
 		if err != nil {
 			return err
 		}
-		if current.AnnouncementCount > 0 {
-			return apperror.Conflict("team_in_use",
-				fmt.Sprintf("O time é responsável por %d comunicado(s). Desative-o para que não seja mais oferecido.", current.AnnouncementCount))
+		if n := current.AnnouncementCount + current.ComponentCount + current.GroupCount; n > 0 {
+			return apperror.Conflict("team_in_use", fmt.Sprintf(
+				"O time é responsável por %d comunicado(s), %d componente(s) e %d grupo(s). Desative-o para que não seja mais oferecido.",
+				current.AnnouncementCount, current.ComponentCount, current.GroupCount))
 		}
 		if _, err := tx.Exec(ctx, "DELETE FROM teams WHERE id = $1", id); err != nil {
 			if _, ok := database.ConstraintError(err, database.CodeForeignKeyViolation); ok {
