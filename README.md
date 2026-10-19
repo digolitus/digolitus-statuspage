@@ -1,5 +1,7 @@
 # Digolitus Status Page
 
+![Texto alternativo](./brand/logo-digolitus-statuspage-tema-light.png) 
+
 Plataforma para publicar o status de serviços e comunicar incidentes e manutenções programadas.
 
 - **Área pública** (`/`): status geral, eventos em andamento (só quando existem), componentes com grupos recolhíveis, manutenções programadas, histórico sob demanda e inscrição para receber atualizações (e-mail, Slack, webhook, RSS/Atom).
