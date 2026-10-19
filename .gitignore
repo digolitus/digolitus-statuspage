@@ -1,3 +1,16 @@
+# macOS
+
+.DS_Store
+*/.DS_Store
+*/*/.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100/
+.Trashes/
+.fseventsd/
+.DocumentRevisions-V100/
+
 # Logs
 logs
 *.log
