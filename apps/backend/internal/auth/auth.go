@@ -1,5 +1,6 @@
 // Package auth implements local authentication (e-mail + password, server
-// side sessions) and role-based authorization for the admin area.
+// side sessions), social sign-in for existing users (Google, Apple,
+// Facebook) and role-based authorization for the admin area.
 //
 // Rules worth knowing:
 //   - The first administrator is created through a one-time setup token
@@ -29,6 +30,7 @@ import (
 
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/apperror"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/audit"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/auth/social"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/clock"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/database"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/httpx"
@@ -42,11 +44,16 @@ const (
 	touchEvery = time.Minute
 )
 
-// Config configures sessions.
+// Config configures sessions and social sign-in.
 type Config struct {
 	SessionTTL   time.Duration
 	IdleTimeout  time.Duration
 	CookieSecure bool
+	// Providers enabled for social sign-in, in display order.
+	Providers []social.Provider
+	// BaseURL is the site's absolute URL (PUBLIC_BASE_URL), used to build
+	// the OAuth redirect URIs. Required when Providers is not empty.
+	BaseURL string
 }
 
 // Service implements authentication and user/role management.
@@ -990,6 +997,13 @@ func (s *Service) UpdateUser(ctx context.Context, actor *Principal, id string, i
 			locked_until = CASE WHEN $6 THEN NULL ELSE locked_until END WHERE id = $1`,
 			id, next.Name, next.Email, next.IsActive, now, unlock); err != nil {
 			return emailConflict(err)
+		}
+		// Social sign-in links were made through the old address: a new
+		// address may belong to someone else, so they must be made again.
+		if next.Email != current.Email {
+			if _, err := tx.Exec(ctx, "DELETE FROM user_identities WHERE user_id = $1", id); err != nil {
+				return fmt.Errorf("unlink identities: %w", err)
+			}
 		}
 		if in.RoleIDs != nil {
 			if err := setUserRoles(ctx, tx, id, ids); err != nil {

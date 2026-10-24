@@ -391,6 +391,73 @@ paths:
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/ValidationError' }
         '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/auth/providers:
+    get:
+      tags: [auth]
+      operationId: listLoginProviders
+      summary: Provedores de login social habilitados
+      description: |
+        Provedores externos (Google, Apple, Facebook) configurados nesta instalação, na ordem de exibição. Lista vazia
+        quando só o login com e-mail e senha está disponível.
+      responses:
+        '200':
+          description: Provedores habilitados.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginProviderList' }
+  /api/v1/auth/oauth/{provider}:
+    parameters:
+      - $ref: '#/components/parameters/LoginProvider'
+    get:
+      tags: [auth]
+      operationId: startSocialLogin
+      summary: Iniciar login social
+      description: |
+        Redireciona o navegador para o login do provedor e grava o cookie `dsp_oauth` (válido por 10 minutos) com o
+        `state`, o `nonce` e o verificador PKCE. Use como link de navegação, não por `fetch`.
+      responses:
+        '302':
+          description: Redirecionamento para o provedor.
+          headers:
+            Location: { description: Página de login do provedor., schema: { type: string } }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/auth/oauth/{provider}/callback:
+    parameters:
+      - $ref: '#/components/parameters/LoginProvider'
+    get:
+      tags: [auth]
+      operationId: socialLoginCallback
+      summary: Retorno do login social
+      description: |
+        Chamado pelo provedor. Só entra quem já tem conta ativa: a identidade é vinculada no primeiro acesso quando o
+        e-mail verificado do provedor é o do usuário, e reconhecida pelo ID do provedor nos seguintes. Em caso de
+        sucesso, cria a sessão (`dsp_session`) e redireciona para `/admin`. Em caso de falha, redireciona para
+        `/admin?login_error=<código>`, com `cancelled`, `not_allowed` (sem conta ativa correspondente) ou `failed`.
+      parameters:
+        - { name: code, in: query, schema: { type: string } }
+        - { name: state, in: query, schema: { type: string } }
+        - { name: error, in: query, schema: { type: string } }
+      responses:
+        '302': { $ref: '#/components/responses/SocialLoginRedirect' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [auth]
+      operationId: socialLoginCallbackForm
+      summary: Retorno do login social (form_post)
+      description: Igual ao GET, para provedores que devolvem o resultado por formulário (Apple).
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                code: { type: string }
+                state: { type: string }
+                error: { type: string }
+                user: { type: string, description: Ignorado. }
+      responses:
+        '302': { $ref: '#/components/responses/SocialLoginRedirect' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /api/v1/subscriptions/options:
     get:
       tags: [subscriptions]
@@ -2259,6 +2326,12 @@ components:
       description: 'Padrão: `name`.'
       schema: { type: string, enum: [name, -name, created_at, -created_at, updated_at, -updated_at] }
 
+    LoginProvider:
+      name: provider
+      in: path
+      required: true
+      schema: { type: string, enum: [google, apple, facebook] }
+
   headers:
     Location:
       description: URL do recurso criado.
@@ -2287,6 +2360,10 @@ components:
       description: Sessão criada por `POST /api/v1/auth/login` ou `POST /api/v1/auth/setup`.
 
   responses:
+    SocialLoginRedirect:
+      description: Redirecionamento para `/admin` (sucesso) ou `/admin?login_error=<código>` (falha).
+      headers:
+        Location: { description: Destino na área administrativa., schema: { type: string } }
     Unauthorized:
       description: Sem sessão válida (`unauthenticated`) ou credenciais inválidas (`invalid_credentials`).
       content:
@@ -3495,6 +3572,21 @@ components:
         permissions: { type: array, items: { $ref: '#/components/schemas/PermissionKey' }, description: Todas as permissões efetivas (globais ou de time). }
         team_permissions: { type: array, items: { $ref: '#/components/schemas/PermissionKey' }, description: 'Subconjunto válido só para os componentes dos times do usuário (`user.teams`).' }
         is_admin: { type: boolean }
+    LoginProvider:
+      type: object
+      additionalProperties: false
+      required: [id, name]
+      properties:
+        id: { type: string, enum: [google, apple, facebook] }
+        name: { type: string, description: Nome exibido no botão. }
+    LoginProviderList:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/LoginProvider' }
     SetupStatus:
       type: object
       additionalProperties: false

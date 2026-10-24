@@ -117,6 +117,10 @@ func (h *Handler) RegisterAuth(rt *httpx.Router) {
 	rt.Handle(http.MethodPost, "/api/v1/auth/logout", h.logout)
 	rt.Handle(http.MethodGet, "/api/v1/auth/me", h.me)
 	rt.Handle(http.MethodPost, "/api/v1/auth/password", h.changePassword)
+	rt.Handle(http.MethodGet, "/api/v1/auth/providers", h.providers)
+	rt.Handle(http.MethodGet, "/api/v1/auth/oauth/{provider}", h.oauthStart)
+	rt.Handle(http.MethodGet, "/api/v1/auth/oauth/{provider}/callback", h.oauthCallback)
+	rt.Handle(http.MethodPost, "/api/v1/auth/oauth/{provider}/callback", h.oauthCallback)
 }
 
 // RegisterAdmin mounts user and role management behind the admin guard.

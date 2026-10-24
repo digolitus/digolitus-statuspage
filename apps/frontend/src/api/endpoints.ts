@@ -8,6 +8,7 @@ import type {
   AnnouncementPatch,
   AnnouncementState,
   AuditEvent,
+  LoginProvider,
   Me,
   PermissionInfo,
   Role,
@@ -110,7 +111,11 @@ export const authApi = {
   me: (o: Signal = {}) => request<Me>("GET", "/api/v1/auth/me", o),
   changePassword: (currentPassword: string, newPassword: string) =>
     request<void>("POST", "/api/v1/auth/password", { body: { current_password: currentPassword, new_password: newPassword } }),
+  providers: (o: Signal = {}) => request<{ data: LoginProvider[] }>("GET", "/api/v1/auth/providers", o),
 };
+
+/** Social sign-in starts with a full-page navigation, not a fetch. */
+export const socialLoginUrl = (provider: LoginProvider["id"]) => `/api/v1/auth/oauth/${provider}`;
 
 const A = "/api/v1/admin";
 const id = (v: string) => encodeURIComponent(v);

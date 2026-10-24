@@ -78,6 +78,17 @@ services:
       NOTIFY_WORKER: ${NOTIFY_WORKER:-true}
       NOTIFY_INTERVAL: ${NOTIFY_INTERVAL:-10s}
       NOTIFY_ALLOW_PRIVATE_NETWORKS: ${NOTIFY_ALLOW_PRIVATE_NETWORKS:-false}
+      # Social sign-in for existing users (needs PUBLIC_BASE_URL). Each
+      # provider is enabled when all of its variables are set. For Apple,
+      # mount the .p8 key and point OAUTH_APPLE_PRIVATE_KEY_FILE at it.
+      OAUTH_GOOGLE_CLIENT_ID: ${OAUTH_GOOGLE_CLIENT_ID:-}
+      OAUTH_GOOGLE_CLIENT_SECRET: ${OAUTH_GOOGLE_CLIENT_SECRET:-}
+      OAUTH_FACEBOOK_APP_ID: ${OAUTH_FACEBOOK_APP_ID:-}
+      OAUTH_FACEBOOK_APP_SECRET: ${OAUTH_FACEBOOK_APP_SECRET:-}
+      OAUTH_APPLE_CLIENT_ID: ${OAUTH_APPLE_CLIENT_ID:-}
+      OAUTH_APPLE_TEAM_ID: ${OAUTH_APPLE_TEAM_ID:-}
+      OAUTH_APPLE_KEY_ID: ${OAUTH_APPLE_KEY_ID:-}
+      OAUTH_APPLE_PRIVATE_KEY_FILE: ${OAUTH_APPLE_PRIVATE_KEY_FILE:-}
     depends_on:
       db:
         condition: service_healthy

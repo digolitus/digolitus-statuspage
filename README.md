@@ -165,6 +165,9 @@ Configuração do backend (variáveis de ambiente, validadas na inicialização)
 | `SESSION_COOKIE_SECURE` | `true` | Cookie de sessão só por HTTPS. O Compose local usa `false` (HTTP em 127.0.0.1) |
 | `SESSION_TTL` | `12h` | Duração máxima da sessão (15m–720h) |
 | `SESSION_IDLE_TIMEOUT` | `2h` | Encerra a sessão após inatividade (5m–`SESSION_TTL`) |
+| `OAUTH_GOOGLE_CLIENT_ID`, `OAUTH_GOOGLE_CLIENT_SECRET` | — | Login com Google para usuários cadastrados (exige `PUBLIC_BASE_URL`) |
+| `OAUTH_APPLE_CLIENT_ID`, `OAUTH_APPLE_TEAM_ID`, `OAUTH_APPLE_KEY_ID`, `OAUTH_APPLE_PRIVATE_KEY_FILE` | — | Login com Apple: Services ID, Team ID, Key ID e caminho da chave `.p8` |
+| `OAUTH_FACEBOOK_APP_ID`, `OAUTH_FACEBOOK_APP_SECRET` | — | Login com Facebook |
 | `EXTERNAL_STATUS_ALLOW_PRIVATE_NETWORKS` | `false` | Permite provedores em redes privadas/loopback (veja [ADR 0006](docs/adr/0006-third-party-status.md)) |
 
 ## Testes e verificações
@@ -233,7 +236,7 @@ CONTEXT.md        Princípios de engenharia do projeto
 
 ## Limitações conhecidas
 
-- Autenticação apenas local (sem SSO/OIDC, 2FA ou recuperação de senha por e-mail).
+- Login social (Google, Apple, Facebook) só para usuários já cadastrados ([ADR 0012](docs/adr/0012-social-sign-in.md)). Ainda não há SSO corporativo (Entra ID, Keycloak), 2FA nem recuperação de senha por e-mail.
 - Serviços de terceiros: apenas páginas no formato Atlassian Statuspage.
 - Inscrições: sem SMS (exige provedor pago); e-mail, Slack e webhook pela página pública exigem SMTP configurado.
 - Sem verificações automáticas de saúde ou cálculo de uptime.

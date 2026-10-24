@@ -189,7 +189,13 @@ func newBareHarnessWith(t *testing.T, adjust func(*Options)) *harness {
 // the real setup flow.
 func newHarness(t *testing.T) *harness {
 	t.Helper()
-	h := newBareHarness(t)
+	return newHarnessWith(t, nil)
+}
+
+// newHarnessWith is newHarness with adjusted options.
+func newHarnessWith(t *testing.T, adjust func(*Options)) *harness {
+	t.Helper()
+	h := newBareHarnessWith(t, adjust)
 	token, err := h.app.Auth.EnsureSetupToken(context.Background())
 	if err != nil || token == "" {
 		t.Fatalf("setup token: %q %v", token, err)
@@ -366,7 +372,7 @@ func (h *harness) call(method, path string, body any, opts ...callOpt) response 
 		}
 	}
 
-	resp, err := http.DefaultClient.Do(newReq())
+	resp, err := noRedirects.Do(newReq())
 	if err != nil {
 		h.t.Fatalf("%s %s: %v", method, path, err)
 	}
@@ -387,6 +393,9 @@ func (h *harness) call(method, path string, body any, opts ...callOpt) response 
 	}
 	return response{status: resp.StatusCode, header: resp.Header, body: data}
 }
+
+// noRedirects returns redirects as responses, so tests can check them.
+var noRedirects = &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 
 // mustStatus fails unless the response has the expected status.
 func mustStatus(t *testing.T, r response, want int) response {

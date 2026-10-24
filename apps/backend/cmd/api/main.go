@@ -29,6 +29,7 @@ import (
 
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/app"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/auth"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/auth/social"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/config"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/external"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/clock"
@@ -45,6 +46,30 @@ func main() {
 
 // printSetupToken writes a fresh setup token to stdout, for when the token
 // logged at startup is no longer available.
+// socialProviders builds the configured social sign-in providers, in the
+// order shown on the login page.
+func socialProviders(o config.OAuth) ([]social.Provider, error) {
+	var out []social.Provider
+	if o.GoogleEnabled() {
+		out = append(out, social.NewGoogle(o.GoogleClientID, o.GoogleClientSecret))
+	}
+	if o.AppleEnabled() {
+		data, err := os.ReadFile(o.AppleKeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("OAUTH_APPLE_PRIVATE_KEY_FILE: %w", err)
+		}
+		key, err := social.ParseAppleKey(data)
+		if err != nil {
+			return nil, fmt.Errorf("OAUTH_APPLE_PRIVATE_KEY_FILE: %w", err)
+		}
+		out = append(out, social.NewApple(o.AppleClientID, o.AppleTeamID, o.AppleKeyID, key))
+	}
+	if o.FacebookEnabled() {
+		out = append(out, social.NewFacebook(o.FacebookAppID, o.FacebookAppSecret))
+	}
+	return out, nil
+}
+
 func printSetupToken(ctx context.Context, svc *auth.Service) error {
 	token, err := svc.EnsureSetupToken(ctx)
 	if err != nil {
@@ -98,7 +123,12 @@ func run(args []string) error {
 	if command == "migrate" {
 		return database.Migrate(ctx, pool, log)
 	}
-	authCfg := auth.Config{SessionTTL: cfg.SessionTTL, IdleTimeout: cfg.SessionIdleTimeout, CookieSecure: cfg.SessionCookieSecure}
+	providers, err := socialProviders(cfg.OAuth)
+	if err != nil {
+		return err
+	}
+	authCfg := auth.Config{SessionTTL: cfg.SessionTTL, IdleTimeout: cfg.SessionIdleTimeout, CookieSecure: cfg.SessionCookieSecure,
+		Providers: providers, BaseURL: cfg.PublicBaseURL}
 	if command == "setup-token" {
 		return printSetupToken(ctx, auth.NewService(pool, clock.System, authCfg))
 	}
@@ -146,6 +176,9 @@ func run(args []string) error {
 	} else {
 		if !cfg.SessionCookieSecure {
 			log.Warn("session cookie without Secure flag (SESSION_COOKIE_SECURE=false): use only for local HTTP access")
+		}
+		for _, p := range providers {
+			log.Info("social sign-in enabled", "provider", p.ID(), "redirect_uri", cfg.PublicBaseURL+"/api/v1/auth/oauth/"+p.ID()+"/callback")
 		}
 		// First run: no user yet. Print a one-time token for /admin/setup.
 		token, err := application.Auth.EnsureSetupToken(ctx)
