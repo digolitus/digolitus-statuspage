@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { ApiError, isAbort, SESSION_EXPIRED_EVENT } from "../api/client";
-import { authApi } from "../api/endpoints";
-import type { Me, PermissionKey } from "../api/types";
+import { authApi, socialLoginUrl } from "../api/endpoints";
+import type { LoginProvider, Me, PermissionKey } from "../api/types";
 import { ErrorPanel, Field, Loading, Notice } from "../components/ui";
 import { navigate } from "../lib/router";
 import { AuthContext, useCan } from "./authContext";
@@ -126,10 +126,35 @@ function AuthShell({ children, title }: { children: ReactNode; title?: string })
   );
 }
 
+/** Messages for ?login_error=<code>, set by the social sign-in callback. */
+const SOCIAL_LOGIN_ERRORS: Record<string, string> = {
+  not_allowed: "Nenhum usuário ativo corresponde a essa conta. Peça a um administrador para cadastrar você com o mesmo e-mail.",
+  cancelled: "O login foi cancelado.",
+  failed: "Não foi possível entrar com o provedor. Tente novamente.",
+};
+
+/** Reads and removes ?login_error from the address bar. */
+function takeSocialLoginError(): string | null {
+  const url = new URL(window.location.href);
+  const code = url.searchParams.get("login_error");
+  if (code === null) return null;
+  url.searchParams.delete("login_error");
+  window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+  return SOCIAL_LOGIN_ERRORS[code] ?? SOCIAL_LOGIN_ERRORS.failed;
+}
+
 function LoginPage({ expired, onDone }: { expired: boolean; onDone: (me: Me) => void }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [socialError] = useState(takeSocialLoginError);
+  const [providers, setProviders] = useState<LoginProvider[]>([]);
   const submit = useSubmit();
+  useEffect(() => {
+    // Without the list (older backend, network error) only the password form shows.
+    const controller = new AbortController();
+    authApi.providers({ signal: controller.signal }).then((r) => setProviders(r.data), () => {});
+    return () => controller.abort();
+  }, []);
   async function handle(e: FormEvent) {
     e.preventDefault();
     if (!email.trim() || !password) return submit.setFieldErrors({ email: email.trim() ? "" : "Informe o e-mail.", password: password ? "" : "Informe a senha." });
@@ -140,6 +165,14 @@ function LoginPage({ expired, onDone }: { expired: boolean; onDone: (me: Me) => 
   return (
     <AuthShell title="Entrar na administração">
       {expired && <Notice tone="warn">Sua sessão terminou. Entre novamente para continuar.</Notice>}
+      {socialError && (
+        <div className="error-panel" role="alert">
+          <div>
+            <strong>Não foi possível entrar</strong>
+            <span>{socialError}</span>
+          </div>
+        </div>
+      )}
       <form className="form" onSubmit={handle} noValidate aria-label="Entrar">
         <Field label="E-mail" error={submit.fieldErrors.email || undefined}>
           {(p) => <input {...p} type="email" autoComplete="username" value={email} maxLength={254} onChange={(e) => setEmail(e.target.value)} autoFocus />}
@@ -160,6 +193,19 @@ function LoginPage({ expired, onDone }: { expired: boolean; onDone: (me: Me) => 
         </button>
         <p className="muted small">Esqueceu a senha? Peça a um administrador para redefini-la.</p>
       </form>
+      {providers.length > 0 && (
+        <div className="social-login" role="group" aria-label="Outras formas de entrar">
+          <p className="social-login-divider">
+            <span>ou</span>
+          </p>
+          {providers.map((p) => (
+            <a key={p.id} className="secondary-button" href={socialLoginUrl(p.id)}>
+              Entrar com {p.name}
+            </a>
+          ))}
+          <p className="muted small">Só para quem já tem usuário: use a conta com o mesmo e-mail cadastrado.</p>
+        </div>
+      )}
     </AuthShell>
   );
 }

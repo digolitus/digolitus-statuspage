@@ -92,7 +92,15 @@ O comando imprime uma senha provisória, desbloqueia e reativa a conta e encerra
 
 **Sessões.** O cookie `dsp_session` é `HttpOnly` e `SameSite=Strict`. Atrás de HTTPS, use `SESSION_COOKIE_SECURE=true`; o Compose local usa `false` porque serve HTTP em `127.0.0.1`. `SESSION_TTL` (padrão 12 h) limita a duração total da sessão, e `SESSION_IDLE_TIMEOUT` (padrão 2 h) a inatividade. Desativar um usuário, redefinir sua senha ou ele trocar a própria senha encerra as outras sessões dele.
 
-**Controles complementares.** O Nginx limita login e configuração inicial a 10 tentativas por minuto por IP, além dos limites da API, do corpo de 64 KiB e dos timeouts. `ADMIN_API_ENABLED=false` remove toda a administração (API pública somente leitura). O Compose continua publicando apenas em `127.0.0.1`.
+**Login social (Google, Apple, Facebook).** Opcional, só para usuários já cadastrados: a pessoa entra com a conta do provedor que tem o mesmo e-mail do usuário ([ADR 0012](adr/0012-social-sign-in.md)). Exige `PUBLIC_BASE_URL` e HTTPS (a Apple não aceita HTTP). Cadastre no provedor o *redirect URI* `PUBLIC_BASE_URL/api/v1/auth/oauth/<google|apple|facebook>/callback`, que o backend também registra no log ao iniciar (`social sign-in enabled`).
+
+- **Google:** em Google Cloud Console → APIs e serviços → Credenciais, crie um *ID do cliente OAuth* do tipo "Aplicativo da Web" e defina `OAUTH_GOOGLE_CLIENT_ID` e `OAUTH_GOOGLE_CLIENT_SECRET`.
+- **Apple:** em Apple Developer → Certificates, IDs & Profiles, crie um *Services ID* com "Sign in with Apple" (domínio e *return URL*) e uma *Key* com "Sign in with Apple". Defina `OAUTH_APPLE_CLIENT_ID` (o Services ID), `OAUTH_APPLE_TEAM_ID`, `OAUTH_APPLE_KEY_ID` e `OAUTH_APPLE_PRIVATE_KEY_FILE` (caminho do `.p8` montado no contêiner, por exemplo como *secret*).
+- **Facebook:** em Meta for Developers, crie um app com "Login do Facebook", cadastre a URI de redirecionamento OAuth válida e defina `OAUTH_FACEBOOK_APP_ID` e `OAUTH_FACEBOOK_APP_SECRET`.
+
+Falhas aparecem na tela de login, e o motivo fica no log (`social login refused` ou `social login failed`, com `reason`). Na Apple, quem escolhe "Ocultar meu e-mail" não corresponde ao cadastro. Trocar o e-mail de um usuário desfaz os vínculos dele com os provedores.
+
+**Controles complementares.** O Nginx limita login, login social e configuração inicial a 10 tentativas por minuto por IP, além dos limites da API, do corpo de 64 KiB e dos timeouts. `ADMIN_API_ENABLED=false` remove toda a administração (API pública somente leitura). O Compose continua publicando apenas em `127.0.0.1`.
 
 ## Inscrições (notificações)
 

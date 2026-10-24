@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -39,7 +40,32 @@ type Config struct {
 	// Allows webhook targets on private/loopback addresses (tests or
 	// intranet integrations). Off by default.
 	NotifyAllowPrivate bool
+	// Social sign-in for existing admin users.
+	OAuth OAuth
 }
+
+// OAuth configures social sign-in. Each provider is enabled when all of its
+// settings are present; it needs PUBLIC_BASE_URL for the redirect URI.
+type OAuth struct {
+	GoogleClientID     string
+	GoogleClientSecret string
+	FacebookAppID      string
+	FacebookAppSecret  string
+	// Apple: Services ID, team ID, key ID and the .p8 private key file.
+	AppleClientID string
+	AppleTeamID   string
+	AppleKeyID    string
+	AppleKeyFile  string
+}
+
+// GoogleEnabled reports whether Google sign-in is configured.
+func (o OAuth) GoogleEnabled() bool { return o.GoogleClientID != "" }
+
+// FacebookEnabled reports whether Facebook sign-in is configured.
+func (o OAuth) FacebookEnabled() bool { return o.FacebookAppID != "" }
+
+// AppleEnabled reports whether Apple sign-in is configured.
+func (o OAuth) AppleEnabled() bool { return o.AppleClientID != "" }
 
 // SMTP configures e-mail delivery. E-mail subscriptions are offered only
 // when Host is set (and PUBLIC_BASE_URL, for the links).
@@ -158,6 +184,36 @@ func FromLookup(lookup func(string) (string, bool)) (Config, error) {
 		if cfg.PublicBaseURL == "" {
 			errs = append(errs, errors.New("PUBLIC_BASE_URL is required with SMTP_HOST (links in e-mails)"))
 		}
+	}
+
+	cfg.OAuth = OAuth{
+		GoogleClientID: get("OAUTH_GOOGLE_CLIENT_ID", ""), GoogleClientSecret: get("OAUTH_GOOGLE_CLIENT_SECRET", ""),
+		FacebookAppID: get("OAUTH_FACEBOOK_APP_ID", ""), FacebookAppSecret: get("OAUTH_FACEBOOK_APP_SECRET", ""),
+		AppleClientID: get("OAUTH_APPLE_CLIENT_ID", ""), AppleTeamID: get("OAUTH_APPLE_TEAM_ID", ""),
+		AppleKeyID: get("OAUTH_APPLE_KEY_ID", ""), AppleKeyFile: get("OAUTH_APPLE_PRIVATE_KEY_FILE", ""),
+	}
+	requireAll := func(provider string, settings map[string]string) bool {
+		var set, missing []string
+		for k, v := range settings {
+			if v != "" {
+				set = append(set, k)
+			} else {
+				missing = append(missing, k)
+			}
+		}
+		if len(set) > 0 && len(missing) > 0 {
+			slices.Sort(missing)
+			errs = append(errs, fmt.Errorf("%s sign-in needs %s", provider, strings.Join(missing, ", ")))
+		}
+		return len(set) > 0
+	}
+	o := cfg.OAuth
+	google := requireAll("Google", map[string]string{"OAUTH_GOOGLE_CLIENT_ID": o.GoogleClientID, "OAUTH_GOOGLE_CLIENT_SECRET": o.GoogleClientSecret})
+	facebook := requireAll("Facebook", map[string]string{"OAUTH_FACEBOOK_APP_ID": o.FacebookAppID, "OAUTH_FACEBOOK_APP_SECRET": o.FacebookAppSecret})
+	apple := requireAll("Apple", map[string]string{"OAUTH_APPLE_CLIENT_ID": o.AppleClientID, "OAUTH_APPLE_TEAM_ID": o.AppleTeamID,
+		"OAUTH_APPLE_KEY_ID": o.AppleKeyID, "OAUTH_APPLE_PRIVATE_KEY_FILE": o.AppleKeyFile})
+	if (google || facebook || apple) && cfg.PublicBaseURL == "" {
+		errs = append(errs, errors.New("PUBLIC_BASE_URL is required with social sign-in (OAUTH_*): it builds the redirect URI"))
 	}
 
 	switch cfg.LogLevel {

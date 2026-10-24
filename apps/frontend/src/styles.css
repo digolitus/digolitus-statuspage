@@ -1046,6 +1046,31 @@ main#main {
   width: 100%;
 }
 
+.social-login {
+  display: grid;
+  gap: 10px;
+}
+
+.social-login .secondary-button {
+  width: 100%;
+}
+
+.social-login-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.social-login-divider::before,
+.social-login-divider::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--line);
+}
+
 .auth-footer {
   margin: 0;
   text-align: center;

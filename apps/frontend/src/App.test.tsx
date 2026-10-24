@@ -226,6 +226,21 @@ describe("admin area", () => {
     expect(calls.filter((c) => c.path === "/api/v1/auth/login").pop()?.body).toEqual({ email: "admin@example.com", password: "senha correta e longa" });
   });
 
+  it("offers the configured social sign-in providers and explains a refused one", async () => {
+    window.history.pushState(null, "", "/admin?login_error=not_allowed");
+    mockApi({
+      "GET /api/v1/auth/me": unauthenticated,
+      "GET /api/v1/auth/setup": { body: { setup_required: false } },
+      "GET /api/v1/auth/providers": { body: { data: [{ id: "google", name: "Google" }, { id: "apple", name: "Apple" }] } },
+    });
+    render(<App />);
+    expect(await screen.findByRole("link", { name: "Entrar com Google" })).toHaveAttribute("href", "/api/v1/auth/oauth/google");
+    expect(screen.getByRole("link", { name: "Entrar com Apple" })).toHaveAttribute("href", "/api/v1/auth/oauth/apple");
+    expect(screen.getByRole("alert")).toHaveTextContent("Nenhum usuário ativo corresponde a essa conta.");
+    // The error code is removed from the address so a reload does not repeat it.
+    expect(window.location.search).toBe("");
+  });
+
   it("creates the first administrator in the initial setup", async () => {
     window.history.pushState(null, "", "/admin/setup");
     const calls = mockApi({

@@ -63,3 +63,32 @@ func TestErrorDoesNotLeakDatabaseURL(t *testing.T) {
 		t.Fatalf("error must not contain credentials: %v", err)
 	}
 }
+
+func TestOAuthProvidersNeedAllSettingsAndBaseURL(t *testing.T) {
+	_, err := FromLookup(lookup(map[string]string{
+		"DATABASE_URL":           "postgres://x",
+		"OAUTH_GOOGLE_CLIENT_ID": "id",
+		"OAUTH_APPLE_TEAM_ID":    "team",
+	}))
+	if err == nil {
+		t.Fatal("expected errors")
+	}
+	for _, want := range []string{"OAUTH_GOOGLE_CLIENT_SECRET", "OAUTH_APPLE_CLIENT_ID", "OAUTH_APPLE_KEY_ID", "OAUTH_APPLE_PRIVATE_KEY_FILE", "PUBLIC_BASE_URL"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error should mention %s: %v", want, err)
+		}
+	}
+
+	cfg, err := FromLookup(lookup(map[string]string{
+		"DATABASE_URL":              "postgres://x",
+		"PUBLIC_BASE_URL":           "https://status.example.com",
+		"OAUTH_FACEBOOK_APP_ID":     "app",
+		"OAUTH_FACEBOOK_APP_SECRET": "secret",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.OAuth.FacebookEnabled() || cfg.OAuth.GoogleEnabled() || cfg.OAuth.AppleEnabled() {
+		t.Fatalf("unexpected providers: %+v", cfg.OAuth)
+	}
+}

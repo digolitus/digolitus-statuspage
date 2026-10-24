@@ -496,6 +496,16 @@ export type LoginInput = {
   password: string;
 };
 
+export type LoginProvider = {
+  id: "google" | "apple" | "facebook";
+  /** Nome exibido no botão. */
+  name: string;
+};
+
+export type LoginProviderList = {
+  data: LoginProvider[];
+};
+
 export type Maintenance = {
   cancelled_at: NullableTimestamp;
   completed_at: NullableTimestamp;

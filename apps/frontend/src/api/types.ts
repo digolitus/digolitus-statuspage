@@ -102,3 +102,4 @@ export type UserPatch = S.UserPatch;
 export type RoleCreate = S.RoleCreate;
 export type RolePatch = S.RolePatch;
 export type SetupInput = S.SetupInput;
+export type LoginProvider = S.LoginProvider;

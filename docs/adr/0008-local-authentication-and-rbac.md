@@ -40,7 +40,7 @@ O primeiro administrador deve ser criado na primeira execução, sem credenciais
 
 ## Alternativas consideradas
 
-- **OIDC/SSO (Google, Entra ID, Keycloak):** é a escolha natural para organizações com provedor de identidade, mas depende de configuração externa e não atende uma instalação isolada. A interface `Principal` e o `Guard` permitem acrescentá-lo depois, mantendo os papéis locais.
+- **OIDC/SSO (Google, Entra ID, Keycloak):** é a escolha natural para organizações com provedor de identidade, mas depende de configuração externa e não atende uma instalação isolada. A interface `Principal` e o `Guard` permitem acrescentá-lo depois, mantendo os papéis locais. Google, Apple e Facebook foram acrescentados no [ADR 0012](0012-social-sign-in.md).
 - **JWT sem estado:** não permite revogação imediata ao desativar usuários ou mudar papéis, e exigiria guardar o token em lugar acessível a scripts ou criar outra camada de controle. Sessões no servidor são mais simples e seguras para este volume.
 - **Papéis fixos sem permissões granulares:** não atenderiam combinações como "comunica incidentes mas não comunicados".
 - **Usuário e senha padrão (admin/admin):** é uma credencial conhecida em toda instalação nova. O token de uso único no log exige acesso ao servidor.

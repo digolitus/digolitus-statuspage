@@ -2,7 +2,7 @@
 
 # Build on the native platform and cross-compile for the target one, so
 # images work on amd64 and arm64 hosts (e.g. Apple Silicon) alike.
-FROM --platform=$BUILDPLATFORM golang:1.27.2-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine AS builder
 
 ARG TARGETOS
 ARG TARGETARCH
