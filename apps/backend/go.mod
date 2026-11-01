@@ -3,7 +3,7 @@ module github.com/digolitus/digolitus-statuspage/apps/backend
 go 1.27.3
 
 require (
-	github.com/getkin/kin-openapi v0.151.0
+	github.com/getkin/kin-openapi v0.152.0
 	github.com/jackc/pgx/v5 v5.11.0
 	golang.org/x/crypto v0.58.0
 	golang.org/x/text v0.43.0
