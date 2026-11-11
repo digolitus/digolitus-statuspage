@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { PermissionKey } from "../api/types";
 import { Link, match, useLocation } from "../lib/router";
 import { AccountPage, RolesPage, UsersPage } from "./AccessPages";
@@ -69,30 +69,35 @@ const NAV_GROUPS: { id: string; label: string; items: NavItem[] }[] = [
   },
 ];
 
-const NAV_KEY = "dsp.admin.nav.open";
+/** Key used by older builds to remember open groups; cleared so menus always start collapsed. */
+const LEGACY_NAV_KEY = "dsp.admin.nav.open";
 
-function loadOpen(): string[] {
-  try {
-    const v = JSON.parse(window.localStorage.getItem(NAV_KEY) ?? "[]");
-    return Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-/** Collapsible menu groups: closed by default, the current page's group always open. */
+/**
+ * Collapsible menu groups: every group starts closed on each load (nothing is remembered),
+ * the current page's group opens by itself and can still be closed.
+ */
 function AdminNav({ isActive, can }: { isActive: (to: string) => boolean; can: (p: PermissionKey) => boolean }) {
-  const [open, setOpen] = useState<string[]>(loadOpen);
-  const toggle = (id: string) =>
-    setOpen((cur) => {
-      const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
-      try {
-        window.localStorage.setItem(NAV_KEY, JSON.stringify(next));
-      } catch {
-        // Not remembered; fine.
-      }
-      return next;
-    });
+  // Only explicit clicks are stored; a group without an entry follows "is it the current page's group?".
+  const [toggled, setToggled] = useState<Record<string, boolean>>({});
+  const currentGroup = NAV_GROUPS.find((g) => g.items.some((n) => isActive(n.to)))?.id;
+  useEffect(() => {
+    try {
+      window.localStorage.removeItem(LEGACY_NAV_KEY);
+    } catch {
+      // Storage unavailable; nothing to clean.
+    }
+  }, []);
+  // Navigating into a group reopens it, even if it was closed earlier in this visit
+  // (state adjusted during render, as React recommends, instead of in an effect).
+  const [seenGroup, setSeenGroup] = useState(currentGroup);
+  if (seenGroup !== currentGroup) {
+    setSeenGroup(currentGroup);
+    if (currentGroup && currentGroup in toggled) {
+      const next = { ...toggled };
+      delete next[currentGroup];
+      setToggled(next);
+    }
+  }
   return (
     <nav aria-label="Administração" className="admin-nav">
       <ul>
@@ -105,7 +110,7 @@ function AdminNav({ isActive, can }: { isActive: (to: string) => boolean; can: (
           const items = g.items.filter((n) => !n.need || n.need.some((p) => can(p)));
           if (!items.length) return null;
           const current = items.some((n) => isActive(n.to));
-          const expanded = current || open.includes(g.id);
+          const expanded = toggled[g.id] ?? current;
           return (
             <li key={g.id} className="nav-group">
               <button
@@ -113,9 +118,7 @@ function AdminNav({ isActive, can }: { isActive: (to: string) => boolean; can: (
                 className={current ? "nav-group-toggle nav-group-current" : "nav-group-toggle"}
                 aria-expanded={expanded}
                 aria-controls={`nav-${g.id}`}
-                onClick={() => !current && toggle(g.id)}
-                aria-disabled={current || undefined}
-                title={current ? "Grupo da página atual" : undefined}
+                onClick={() => setToggled((cur) => ({ ...cur, [g.id]: !expanded }))}
               >
                 <span>{g.label}</span>
                 <svg className="nav-chevron" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">

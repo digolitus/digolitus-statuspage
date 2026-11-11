@@ -1227,6 +1227,19 @@ main#main {
   background: var(--surface);
 }
 
+/* Desktop: the sidebar stays put while the page scrolls; only the menu scrolls if it outgrows the screen. */
+@media (min-width: 761px) {
+  .admin-sidebar {
+    position: sticky;
+    top: 0;
+    box-sizing: border-box;
+    height: 100vh;
+    height: 100dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+}
+
 .admin-sidebar ul {
   display: grid;
   gap: 2px;
@@ -1280,14 +1293,9 @@ main#main {
   background: var(--page);
 }
 
-.nav-group-current {
-  color: var(--brand-strong);
-  cursor: default;
-}
-
+.nav-group-current,
 .nav-group-current:hover {
   color: var(--brand-strong);
-  background: transparent;
 }
 
 .nav-chevron {

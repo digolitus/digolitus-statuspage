@@ -453,6 +453,22 @@ describe("admin area", () => {
     expect(within(nav).queryByRole("link", { name: "Incidentes" })).not.toBeInTheDocument();
     await user.click(operation);
     expect(within(nav).getByRole("link", { name: "Incidentes" })).toBeInTheDocument();
+    // The current page's group can be closed too.
+    await user.click(catalog);
+    expect(catalog).toHaveAttribute("aria-expanded", "false");
+    expect(within(nav).queryByRole("link", { name: "Componentes" })).not.toBeInTheDocument();
+  });
+
+  it("starts every admin menu group collapsed, ignoring groups opened in an earlier visit", async () => {
+    window.localStorage.setItem("dsp.admin.nav.open", JSON.stringify(["operation", "access"]));
+    window.history.pushState(null, "", "/admin");
+    mockApi({ ...session() });
+    render(<App />);
+    const nav = await screen.findByRole("navigation", { name: "Administração" });
+    for (const name of ["Operação", "Catálogo", "Acesso e auditoria"]) {
+      expect(within(nav).getByRole("button", { name })).toHaveAttribute("aria-expanded", "false");
+    }
+    expect(window.localStorage.getItem("dsp.admin.nav.open")).toBeNull();
   });
 
   it("schedules a maintenance sending local time plus an explicit timezone", async () => {
