@@ -2213,7 +2213,20 @@ button.tag {
   background: #d6e5f8;
 }
 
-/* ---------- component info tip (public) ---------- */
+/* ---------- info tip ("i" with explanation) ---------- */
+
+.with-info {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.field-label {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
 
 .info-tip {
   position: relative;
@@ -2265,6 +2278,24 @@ button.tag {
   background: var(--ink);
   content: "";
   transform: rotate(45deg);
+}
+
+.info-tip-bubble-end {
+  right: -8px;
+  left: auto;
+}
+
+.info-tip-bubble-end::before {
+  right: 14px;
+  left: auto;
+}
+
+h1 .info-tip-bubble,
+h2 .info-tip-bubble,
+h3 .info-tip-bubble,
+label .info-tip-bubble {
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 /* ---------- misc form pieces ---------- */

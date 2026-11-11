@@ -2,6 +2,7 @@ import { useId, useState, type ReactNode } from "react";
 import { errorMessage, ApiError } from "../api/client";
 import type { Pagination } from "../api/types";
 import { toneIcon, type Tone } from "../lib/format";
+import { InfoTip } from "./InfoTip";
 
 /** Status indicator: icon + text + colour, never colour alone. */
 export function Badge({ tone, children }: { tone: Tone; children: ReactNode }) {
@@ -156,18 +157,32 @@ export function Field({
   label,
   error,
   hint,
+  info,
   children,
 }: {
   label: string;
   error?: string;
+  /** Short, always-visible constraint (e.g. "12 a 128 caracteres"). */
   hint?: string;
+  /** Explanation shown in an "i" next to the label. */
+  info?: ReactNode;
   children: (props: { id: string; "aria-invalid"?: boolean; "aria-describedby"?: string }) => ReactNode;
 }) {
   const id = useId();
-  const describedBy = [error ? `${id}-error` : "", hint ? `${id}-hint` : ""].filter(Boolean).join(" ") || undefined;
+  const describedBy = [error ? `${id}-error` : "", hint ? `${id}-hint` : "", info ? `${id}-info` : ""].filter(Boolean).join(" ") || undefined;
   return (
     <div className={`field${error ? " field-invalid" : ""}`}>
-      <label htmlFor={id}>{label}</label>
+      {info ? (
+        <div className="field-label">
+          <label htmlFor={id}>{label}</label>
+          <InfoTip label={`Sobre ${label}`} text={info} />
+          <span id={`${id}-info`} className="visually-hidden">
+            {info}
+          </span>
+        </div>
+      ) : (
+        <label htmlFor={id}>{label}</label>
+      )}
       {children({ id, "aria-invalid": error ? true : undefined, "aria-describedby": describedBy })}
       {hint && (
         <small id={`${id}-hint`} className="field-hint">

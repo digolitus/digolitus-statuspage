@@ -5,7 +5,7 @@ import { browserTimeZone, formatRelative } from "../lib/format";
 import { tabId, usePresenceBeacon } from "../lib/presence";
 import { Link } from "../lib/router";
 import { usePolling, type PollingState } from "../lib/usePolling";
-import { InfoTip } from "../public/ComponentList";
+import { InfoTip } from "../components/InfoTip";
 import { useAuth } from "./authContext";
 
 /** Refresh of the admin panel; the server window is 2 minutes. */
@@ -189,7 +189,7 @@ export function PresencePanel() {
             <span className="presence-dot" aria-hidden="true" />
             Página pública
             <InfoTip
-              name="a contagem da página pública"
+              label="Sobre a contagem da página pública"
               text={`Contagem aproximada de abas com a página aberta e visível nos últimos ${windowMin} minutos. Robôs e leitores sem JavaScript não entram. Nenhum IP ou cookie é guardado.`}
             />
           </h3>
@@ -225,7 +225,7 @@ export function PresencePanel() {
             <span className="presence-dot" aria-hidden="true" />
             Usuários no admin
             <InfoTip
-              name="os usuários no admin"
+              label="Sobre os usuários no admin"
               text={`Quem está com o admin aberto nos últimos ${windowMin} minutos e em qual tela. Ponto cinza: aba em segundo plano.`}
             />
           </h3>

@@ -1,5 +1,6 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import type { PublicComponent, PublicComponentGroup } from "../api/types";
+import { InfoTip } from "../components/InfoTip";
 import { Badge } from "../components/ui";
 import { componentStatusLabel, plural, toneForStatus } from "../lib/format";
 import { byDisplayOrder } from "../lib/groups";
@@ -37,65 +38,13 @@ export function buildRows(components: PublicComponent[], groups: PublicComponent
   return rows.sort(byDisplayOrder);
 }
 
-/**
- * Discreet "i" next to a component name. The description opens on hover,
- * focus or tap, and closes with Escape, a second tap or a tap elsewhere.
- */
-export function InfoTip({ name, text }: { name: string; text: string }) {
-  const [pinned, setPinned] = useState(false);
-  const [hover, setHover] = useState(false);
-  const ref = useRef<HTMLSpanElement>(null);
-  const tipId = useId();
-  const open = pinned || hover;
-  useEffect(() => {
-    if (!open) return;
-    const close = () => {
-      setPinned(false);
-      setHover(false);
-    };
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
-    const onDown = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && close();
-    document.addEventListener("keydown", onKey);
-    document.addEventListener("mousedown", onDown);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.removeEventListener("mousedown", onDown);
-    };
-  }, [open]);
-  return (
-    <span className="info-tip" ref={ref} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
-      <button
-        type="button"
-        className="info-tip-button"
-        aria-label={`Sobre ${name}`}
-        aria-expanded={open}
-        aria-describedby={open ? tipId : undefined}
-        onClick={() => setPinned((p) => !p)}
-        onFocus={() => setHover(true)}
-        onBlur={() => setHover(false)}
-      >
-        <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
-          <circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" strokeWidth="1.4" />
-          <circle cx="8" cy="4.9" r="1" fill="currentColor" />
-          <path d="M8 7.3v4.4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-        </svg>
-      </button>
-      {open && (
-        <span id={tipId} role="tooltip" className="info-tip-bubble">
-          {text}
-        </span>
-      )}
-    </span>
-  );
-}
-
 function ComponentRow({ component: c }: { component: PublicComponent }) {
   return (
     <li className="component-row">
       <div>
         <span className="component-name-line">
           <span className="component-name">{c.name}</span>
-          {c.description && <InfoTip name={c.name} text={c.description} />}
+          {c.description && <InfoTip label={`Sobre ${c.name}`} text={c.description} />}
           {c.url && /^https?:\/\//i.test(c.url) && (
           <a
             className="component-link"

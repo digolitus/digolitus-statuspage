@@ -2,6 +2,7 @@ import { useId, useState, type ReactNode } from "react";
 import { ApiError, errorMessage } from "../api/client";
 import { adminApi } from "../api/endpoints";
 import type { Component, PermissionKey, Team } from "../api/types";
+import { WithInfo } from "../components/InfoTip";
 import { Field, Loading, Notice } from "../components/ui";
 import { useAuth } from "./authContext";
 import { useApi } from "../lib/useApi";
@@ -159,10 +160,14 @@ export function ReadOnlyNote({ what }: { what: string }) {
   );
 }
 
-export function PageHeader({ title, children }: { title: string; children?: ReactNode }) {
+export function PageHeader({ title, info, children }: { title: string; info?: ReactNode; children?: ReactNode }) {
   return (
     <div className="admin-page-header">
-      <h1>{title}</h1>
+      <h1>
+        <WithInfo label={`Sobre ${title}`} info={info}>
+          {title}
+        </WithInfo>
+      </h1>
       {children && <div className="admin-page-actions">{children}</div>}
     </div>
   );
