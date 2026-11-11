@@ -32,6 +32,9 @@ var adminPolicy = auth.Policy{
 	"GET /api/v1/admin/external-sources":                 anyUser,
 	"GET /api/v1/admin/external-sources/{id}":            anyUser,
 	"GET /api/v1/admin/external-sources/{id}/components": anyUser,
+	"GET /api/v1/admin/external-sources/{id}/outages":    anyUser,
+	"GET /api/v1/admin/external-sources/{id}/events":     anyUser,
+	"GET /api/v1/admin/external-sources/{id}/uptime":     anyUser,
 	"POST /api/v1/admin/external-sources":                perms(auth.PermThirdPartyManage),
 	"PATCH /api/v1/admin/external-sources/{id}":          perms(auth.PermThirdPartyManage),
 	"DELETE /api/v1/admin/external-sources/{id}":         perms(auth.PermThirdPartyManage),
@@ -97,6 +100,8 @@ var adminPolicy = auth.Policy{
 	"POST /api/v1/admin/subscriptions/{id}/test": perms(auth.PermSubscriptionsManage),
 
 	"GET /api/v1/admin/audit-events": perms(auth.PermAuditRead),
+
+	"GET /api/v1/admin/status-history": anyUser,
 
 	"GET /api/v1/admin/users":                perms(auth.PermUsersManage),
 	"GET /api/v1/admin/users/{id}":           perms(auth.PermUsersManage),

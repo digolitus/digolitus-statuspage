@@ -16,6 +16,7 @@ internal/
   app/             composição: rotas, middlewares, health; testes de contrato e integração HTTP
   statuspolicy/    política de status (pura, sem I/O)
   statuspage/      resumo público (/api/v1/status) em snapshot consistente
+  statushistory/   histórico do status efetivo (gravado em cada transação que o muda) e uptime diário
   component/       componentes: modelo, validação, SQL, casos de uso, handlers
   incident/        incidentes e linha do tempo
   maintenance/     manutenções e transições
@@ -75,6 +76,8 @@ As rotas administrativas passam por um único wrapper (`app.New`). Ele valida a 
 | `app_secrets` | Chaves geradas pela aplicação (ex.: HMAC dos links de inscrição) |
 | `sessions` | Sessões do servidor; guarda só o SHA-256 do token do cookie |
 | `setup_tokens` | Token de uso único da configuração inicial (só o hash) |
+| `component_status_changes` | Histórico do status efetivo, só com inclusões: causa (componente, incidente, manutenção, baseline), autor e instante; base do uptime diário ([ADR 0014](adr/0014-status-history.md)) |
+| `external_component_status_changes`, `external_events` | Histórico de terceiros: mudanças de status dos componentes do provedor e incidentes/manutenções vistos (com `closed_at`); sobrevive à exclusão do provedor |
 | `audit_events` | Histórico operacional com diff antes/depois, autor, origem e request ID |
 | `schema_migrations` | Versão e checksum de cada migração aplicada |
 

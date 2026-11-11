@@ -21,6 +21,7 @@ import (
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/maintenance"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/clock"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/httpx"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/statushistory"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/statuspage"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/subscription"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/templates"
@@ -85,6 +86,8 @@ func New(pool *pgxpool.Pool, opts Options) *App {
 	maintenanceHandler := maintenance.NewHandler(maintenance.NewService(pool, now), pool, now)
 
 	statuspage.NewHandler(statuspage.NewService(pool, now, externalSvc)).Register(rt)
+	historyHandler := statushistory.NewHandler(statushistory.NewService(pool, now))
+	historyHandler.RegisterPublic(rt)
 	incidentHandler.RegisterPublic(rt)
 	maintenanceHandler.RegisterPublic(rt)
 	announcementHandler := announcement.NewHandler(announcement.NewService(pool, now))
@@ -116,6 +119,7 @@ func New(pool *pgxpool.Pool, opts Options) *App {
 		maintenanceHandler.RegisterAdmin(rt, admin)
 		templates.NewHandler(templates.NewService(pool, now), pool).Register(rt, admin)
 		audit.NewHandler(audit.NewStore(pool)).Register(rt, admin)
+		historyHandler.RegisterAdmin(rt, admin)
 		external.NewHandler(externalSvc).Register(rt, admin)
 		announcementHandler.RegisterAdmin(rt, admin)
 		subscriptionHandler.RegisterAdmin(rt, admin)

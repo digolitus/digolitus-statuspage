@@ -34,6 +34,7 @@ import (
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/external"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/clock"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/database"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/statushistory"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/subscription"
 )
 
@@ -144,6 +145,11 @@ func run(args []string) error {
 		if err := database.Migrate(ctx, pool, log); err != nil {
 			return err
 		}
+	}
+	// Record the current status of components the history has not seen yet
+	// (first start after the history was introduced). Idempotent.
+	if err := statushistory.Baseline(ctx, pool, clock.System()); err != nil {
+		log.Warn("status history baseline failed", "error", err)
 	}
 
 	var mailer subscription.Mailer

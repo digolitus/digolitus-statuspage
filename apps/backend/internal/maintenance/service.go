@@ -15,6 +15,7 @@ import (
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/notify"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/clock"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/database"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/statushistory"
 )
 
 // Service implements maintenance use cases.
@@ -140,6 +141,9 @@ func (s *Service) Patch(ctx context.Context, id string, in PatchInput) (Maintena
 		if rescheduled {
 			action = "rescheduled"
 		}
+		if err := statushistory.Record(ctx, tx, statushistory.Cause{Type: statushistory.CauseMaintenance, ID: id}, now); err != nil {
+			return err
+		}
 		return audit.Record(ctx, tx, audit.ResourceMaintenance, id, action, audit.Diff(viewOf(current, beforeIDs), viewOf(saved, afterIDs)), now)
 	})
 	if err != nil {
@@ -235,6 +239,9 @@ func (s *Service) Transition(ctx context.Context, id string, t Transition, in Me
 		changes := audit.Changes{Before: map[string]any{"status": current.Status}, After: map[string]any{"status": to}}
 		if msg != nil {
 			changes.After.(map[string]any)["message"] = *msg
+		}
+		if err := statushistory.Record(ctx, tx, statushistory.Cause{Type: statushistory.CauseMaintenance, ID: id}, now); err != nil {
+			return err
 		}
 		return audit.Record(ctx, tx, audit.ResourceMaintenance, id, transitionKinds[t], changes, now)
 	})

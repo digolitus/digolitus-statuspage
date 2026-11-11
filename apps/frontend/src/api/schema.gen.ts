@@ -311,6 +311,40 @@ export type ExternalComponentList = {
 /** Status informado pelo provedor (`under_maintenance` vira `maintenance`); `unknown` quando não reconhecido ou desatualizado. */
 export type ExternalComponentStatus = "operational" | "degraded_performance" | "partial_outage" | "major_outage" | "maintenance" | "unknown";
 
+export type ExternalEvent = {
+  closed_at: NullableTimestamp;
+  component_names: string[];
+  first_seen_at: Timestamp;
+  id: string;
+  /** Impacto informado pelo provedor (none, minor, major, critical, maintenance). */
+  impact: string;
+  kind: "incident" | "maintenance";
+  last_seen_at: Timestamp;
+  name: string;
+  /** Último status informado pelo provedor. */
+  status: string;
+  url: string | null;
+};
+
+export type ExternalEventList = {
+  data: ExternalEvent[];
+  pagination: Pagination;
+};
+
+export type ExternalOutage = {
+  component_name: string;
+  duration_seconds: number;
+  ended_at: Timestamp;
+  external_component_id: string | null;
+  started_at: Timestamp;
+  worst_status: ExternalComponentStatus;
+};
+
+export type ExternalOutageList = {
+  data: ExternalOutage[];
+  pagination: Pagination;
+};
+
 export type ExternalSelection = {
   component_ids: string[];
 };
@@ -357,6 +391,19 @@ export type ExternalSourcePatch = {
   display_order?: number;
   is_active?: boolean;
   name?: string;
+};
+
+export type ExternalUptime = {
+  components: ({
+    days: UptimeDay[];
+    id: string;
+    name: string;
+    uptime_percent: number | null;
+  })[];
+  days: 30 | 60 | 90;
+  from: Timestamp;
+  timezone: string;
+  to: Timestamp;
 };
 
 export type Health = {
@@ -857,6 +904,33 @@ export type SetupStatus = {
   setup_required: boolean;
 };
 
+export type StatusChange = {
+  actor: {
+    id: string;
+    name: string;
+  } | null;
+  /** Componente, incidente ou manutenção que causou a mudança. */
+  cause_id: string | null;
+  /** Título do incidente ou da manutenção. */
+  cause_name: string | null;
+  cause_type: StatusChangeCause;
+  changed_at: Timestamp;
+  component_id: string;
+  component_name: string;
+  id: number;
+  previous_status: ComponentStatus | null;
+  /** Status efetivo; `null` quando o componente foi desativado. */
+  status: ComponentStatus | null;
+};
+
+/** `baseline`: primeiro registro de um componente que já existia; `component`: alteração do componente. */
+export type StatusChangeCause = "baseline" | "component" | "incident" | "maintenance";
+
+export type StatusChangeList = {
+  data: StatusChange[];
+  pagination: Pagination;
+};
+
 export type StatusSummary = {
   active_incidents: PublicIncident[];
   /** Todos os componentes públicos (agrupados ou não), na ordem de exibição. */
@@ -1061,6 +1135,43 @@ export type TeamRef = {
 export type Timestamp = string;
 
 export type UUIDList = string[];
+
+export type Uptime = {
+  components: ({
+    days: UptimeDay[];
+    id: string;
+    /** Uptime do período; `null` sem dados. */
+    uptime_percent: number | null;
+  })[];
+  days: 30 | 60 | 90;
+  from: Timestamp;
+  generated_at: Timestamp;
+  timezone: string;
+  to: Timestamp;
+};
+
+export type UptimeDay = {
+  /** Dia no timezone pedido. */
+  date: string;
+  /** Segundos em cada status não operacional. */
+  durations: {
+    degraded_performance: number;
+    maintenance: number;
+    major_outage: number;
+    partial_outage: number;
+  };
+  /** Incidentes que afetaram o componente no dia. */
+  incidents: {
+    id: string;
+    impact: IncidentImpact;
+    title: string;
+  }[];
+  status: UptimeDayStatus;
+  /** `null` sem dados no dia. */
+  uptime_percent: number | null;
+};
+
+export type UptimeDayStatus = "operational" | "degraded_performance" | "partial_outage" | "major_outage" | "maintenance" | "no_data";
 
 export type User = {
   created_at: Timestamp;

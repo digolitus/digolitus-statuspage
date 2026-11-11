@@ -13,6 +13,7 @@ import (
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/clock"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/database"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/httpx"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/statushistory"
 )
 
 // Service implements the component use cases.
@@ -42,6 +43,9 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (Component, error)
 		// Team-scoped managers may only create components their teams own
 		// (own team or group's team); checked on the inserted row.
 		if err := auth.RequireComponents(ctx, tx, auth.PermComponentsManage, []string{created.ID}); err != nil {
+			return err
+		}
+		if err := statushistory.Record(ctx, tx, statushistory.Cause{Type: statushistory.CauseComponent, ID: created.ID}, created.CreatedAt); err != nil {
 			return err
 		}
 		return audit.Record(ctx, tx, audit.ResourceComponent, created.ID, "created", audit.Changes{After: created}, created.CreatedAt)
@@ -85,6 +89,9 @@ func (s *Service) Update(ctx context.Context, id string, in UpdateInput) (Compon
 			action = "status_changed"
 		case !sameGroup(current.GroupID, updated.GroupID):
 			action = "group_changed"
+		}
+		if err := statushistory.Record(ctx, tx, statushistory.Cause{Type: statushistory.CauseComponent, ID: id}, updated.UpdatedAt); err != nil {
+			return err
 		}
 		return audit.Record(ctx, tx, audit.ResourceComponent, id, action, audit.Diff(current, updated), updated.UpdatedAt)
 	})

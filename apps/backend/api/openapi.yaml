@@ -161,6 +161,29 @@ paths:
               schema: { $ref: '#/components/schemas/PublicComponentList' }
         '422': { $ref: '#/components/responses/ValidationError' }
         '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/status/uptime:
+    get:
+      tags: [public]
+      operationId: getStatusUptime
+      security: []
+      summary: Histórico diário de uptime dos componentes públicos
+      description: |
+        Uma barra por componente público e ativo com os últimos `days` dias (o último é hoje, até agora), calculada
+        a partir do histórico do status efetivo. O status do dia é o mais grave registrado nele; `no_data` quando
+        não há histórico (antes do início do registro ou com o componente desativado). Uptime: interrupção grave
+        conta 100% do tempo como indisponível, interrupção parcial 30%; performance degradada e manutenção não
+        descontam. Os dias seguem `timezone`.
+      parameters:
+        - $ref: '#/components/parameters/UptimeDays'
+        - $ref: '#/components/parameters/UptimeTimezone'
+      responses:
+        '200':
+          description: Barras por componente, na ordem de exibição.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Uptime' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalError' }
   /api/v1/incidents:
     get:
       tags: [public]
@@ -925,6 +948,79 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ExternalComponentList' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/external-sources/{id}/outages:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    get:
+      tags: [admin-third-party]
+      operationId: listExternalOutages
+      summary: Indisponibilidades resolvidas dos componentes do provedor
+      description: |
+        Períodos em que um componente ficou fora de `operational` segundo o provedor, derivados das mudanças de
+        status gravadas a cada leitura. Só entram períodos encerrados (o componente voltou a `operational`);
+        `unknown` não abre nem encerra um período. Mais recentes primeiro.
+      parameters:
+        - { name: only_selected, in: query, schema: { type: boolean }, description: Somente componentes publicados atualmente. }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Lista paginada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExternalOutageList' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/external-sources/{id}/events:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    get:
+      tags: [admin-third-party]
+      operationId: listExternalEvents
+      summary: Incidentes e manutenções informados pelo provedor
+      description: |
+        Cada evento visto nas leituras, com o primeiro e o último instante em que foi visto e quando deixou de ser
+        informado (`closed_at`). Por padrão lista o histórico (`state=resolved`, pelo fim, mais recentes primeiro);
+        `state=open` lista os que estão em andamento.
+      parameters:
+        - { name: state, in: query, schema: { type: string, enum: [resolved, open], default: resolved } }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Lista paginada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExternalEventList' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/external-sources/{id}/uptime:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    get:
+      tags: [admin-third-party]
+      operationId: getExternalUptime
+      summary: Histórico diário dos componentes publicados do provedor
+      description: |
+        Mesmo cálculo de `/api/v1/status/uptime`, sobre o status informado pelo provedor. `unknown` conta como sem
+        dados; períodos em que a leitura falhou mantêm o último status conhecido. Não há incidentes por dia.
+      parameters:
+        - $ref: '#/components/parameters/UptimeDays'
+        - $ref: '#/components/parameters/UptimeTimezone'
+      responses:
+        '200':
+          description: Barras por componente publicado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExternalUptime' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
@@ -2263,6 +2359,32 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/status-history:
+    get:
+      tags: [admin-components]
+      operationId: listStatusHistory
+      summary: Histórico de status dos componentes
+      description: |
+        Cada mudança do status efetivo de um componente (status declarado combinado com incidentes ativos e
+        manutenções em andamento), gravada na transação da alteração que a causou. Mais recentes primeiro.
+        `status` `null` significa componente desativado.
+      parameters:
+        - { name: component_id, in: query, schema: { type: string, format: uuid } }
+        - name: cause_type
+          in: query
+          schema: { $ref: '#/components/schemas/StatusChangeCause' }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Lista paginada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StatusChangeList' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
 
 components:
   parameters:
@@ -2280,6 +2402,15 @@ components:
       name: offset
       in: query
       schema: { type: integer, minimum: 0, maximum: 100000, default: 0 }
+    UptimeDays:
+      name: days
+      in: query
+      schema: { type: integer, enum: [30, 60, 90], default: 90 }
+    UptimeTimezone:
+      name: timezone
+      in: query
+      description: 'Timezone IANA que define os dias (ex.: America/Sao_Paulo). Padrão: UTC.'
+      schema: { type: string, maxLength: 64, default: UTC }
     IncidentState:
       name: state
       in: query
@@ -3172,6 +3303,152 @@ components:
       required: [data, pagination]
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/AuditEvent' } }
+        pagination: { $ref: '#/components/schemas/Pagination' }
+
+    StatusChangeCause:
+      type: string
+      enum: [baseline, component, incident, maintenance]
+      description: '`baseline`: primeiro registro de um componente que já existia; `component`: alteração do componente.'
+    StatusChange:
+      type: object
+      additionalProperties: false
+      required: [id, component_id, component_name, status, previous_status, cause_type, cause_id, cause_name, actor, changed_at]
+      properties:
+        id: { type: integer, format: int64 }
+        component_id: { type: string, format: uuid }
+        component_name: { type: string }
+        status: { allOf: [ { $ref: '#/components/schemas/ComponentStatus' } ], nullable: true, description: 'Status efetivo; `null` quando o componente foi desativado.' }
+        previous_status: { allOf: [ { $ref: '#/components/schemas/ComponentStatus' } ], nullable: true }
+        cause_type: { $ref: '#/components/schemas/StatusChangeCause' }
+        cause_id: { type: string, format: uuid, nullable: true, description: 'Componente, incidente ou manutenção que causou a mudança.' }
+        cause_name: { type: string, nullable: true, description: Título do incidente ou da manutenção. }
+        actor:
+          type: object
+          nullable: true
+          additionalProperties: false
+          required: [id, name]
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string }
+        changed_at: { $ref: '#/components/schemas/Timestamp' }
+    StatusChangeList:
+      type: object
+      additionalProperties: false
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/StatusChange' } }
+        pagination: { $ref: '#/components/schemas/Pagination' }
+    UptimeDayStatus:
+      type: string
+      enum: [operational, degraded_performance, partial_outage, major_outage, maintenance, no_data]
+    UptimeDay:
+      type: object
+      additionalProperties: false
+      required: [date, status, uptime_percent, durations, incidents]
+      properties:
+        date: { type: string, format: date, description: Dia no timezone pedido. }
+        status: { $ref: '#/components/schemas/UptimeDayStatus' }
+        uptime_percent: { type: number, nullable: true, description: '`null` sem dados no dia.' }
+        durations:
+          type: object
+          additionalProperties: false
+          required: [major_outage, partial_outage, degraded_performance, maintenance]
+          description: Segundos em cada status não operacional.
+          properties:
+            major_outage: { type: integer, format: int64 }
+            partial_outage: { type: integer, format: int64 }
+            degraded_performance: { type: integer, format: int64 }
+            maintenance: { type: integer, format: int64 }
+        incidents:
+          type: array
+          description: Incidentes que afetaram o componente no dia.
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, title, impact]
+            properties:
+              id: { type: string, format: uuid }
+              title: { type: string }
+              impact: { $ref: '#/components/schemas/IncidentImpact' }
+    Uptime:
+      type: object
+      additionalProperties: false
+      required: [days, timezone, from, to, components, generated_at]
+      properties:
+        days: { type: integer, enum: [30, 60, 90] }
+        timezone: { type: string }
+        from: { $ref: '#/components/schemas/Timestamp' }
+        to: { $ref: '#/components/schemas/Timestamp' }
+        generated_at: { $ref: '#/components/schemas/Timestamp' }
+        components:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, uptime_percent, days]
+            properties:
+              id: { type: string, format: uuid }
+              uptime_percent: { type: number, nullable: true, description: 'Uptime do período; `null` sem dados.' }
+              days: { type: array, items: { $ref: '#/components/schemas/UptimeDay' } }
+    ExternalUptime:
+      type: object
+      additionalProperties: false
+      required: [days, timezone, from, to, components]
+      properties:
+        days: { type: integer, enum: [30, 60, 90] }
+        timezone: { type: string }
+        from: { $ref: '#/components/schemas/Timestamp' }
+        to: { $ref: '#/components/schemas/Timestamp' }
+        components:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, name, uptime_percent, days]
+            properties:
+              id: { type: string, format: uuid }
+              name: { type: string }
+              uptime_percent: { type: number, nullable: true }
+              days: { type: array, items: { $ref: '#/components/schemas/UptimeDay' } }
+    ExternalOutage:
+      type: object
+      additionalProperties: false
+      required: [external_component_id, component_name, worst_status, started_at, ended_at, duration_seconds]
+      properties:
+        external_component_id: { type: string, format: uuid, nullable: true }
+        component_name: { type: string }
+        worst_status: { $ref: '#/components/schemas/ExternalComponentStatus' }
+        started_at: { $ref: '#/components/schemas/Timestamp' }
+        ended_at: { $ref: '#/components/schemas/Timestamp' }
+        duration_seconds: { type: integer, format: int64 }
+    ExternalOutageList:
+      type: object
+      additionalProperties: false
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/ExternalOutage' } }
+        pagination: { $ref: '#/components/schemas/Pagination' }
+    ExternalEvent:
+      type: object
+      additionalProperties: false
+      required: [id, kind, name, status, impact, url, component_names, first_seen_at, last_seen_at, closed_at]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [incident, maintenance] }
+        name: { type: string }
+        status: { type: string, description: Último status informado pelo provedor. }
+        impact: { type: string, description: 'Impacto informado pelo provedor (none, minor, major, critical, maintenance).' }
+        url: { type: string, nullable: true }
+        component_names: { type: array, items: { type: string } }
+        first_seen_at: { $ref: '#/components/schemas/Timestamp' }
+        last_seen_at: { $ref: '#/components/schemas/Timestamp' }
+        closed_at: { $ref: '#/components/schemas/NullableTimestamp' }
+    ExternalEventList:
+      type: object
+      additionalProperties: false
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/ExternalEvent' } }
         pagination: { $ref: '#/components/schemas/Pagination' }
 
     StatusSummary:

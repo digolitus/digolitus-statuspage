@@ -41,6 +41,9 @@ type SnapshotComponent struct {
 // Event is an unresolved incident or in-progress maintenance reported by the
 // provider. ComponentIDs are provider component IDs (may be empty).
 type Event struct {
+	// ID is the provider's event id (empty for snapshots stored before it
+	// was kept); it identifies the event in external_events.
+	ID           string     `json:"id,omitempty"`
 	Kind         string     `json:"kind"`
 	Name         string     `json:"name"`
 	Status       string     `json:"status"`
@@ -139,6 +142,7 @@ type spSummary struct {
 }
 
 type spEvent struct {
+	ID         string     `json:"id"`
 	Name       string     `json:"name"`
 	Status     string     `json:"status"`
 	Impact     string     `json:"impact"`
@@ -244,7 +248,7 @@ func parseSummary(body []byte) (Snapshot, error) {
 			if len(snap.Events) >= MaxEvents || !keep(e) {
 				continue
 			}
-			ev := Event{Kind: kind, Name: clip(e.Name, 255), Status: clip(e.Status, 32), Impact: clip(e.Impact, 32), UpdatedAt: e.UpdatedAt, ComponentIDs: []string{}}
+			ev := Event{ID: clip(e.ID, 64), Kind: kind, Name: clip(e.Name, 255), Status: clip(e.Status, 32), Impact: clip(e.Impact, 32), UpdatedAt: e.UpdatedAt, ComponentIDs: []string{}}
 			if strings.HasPrefix(e.Shortlink, "https://") {
 				ev.URL = clip(e.Shortlink, 500)
 			}

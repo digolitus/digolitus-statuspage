@@ -22,6 +22,9 @@ func (h *Handler) Register(rt *httpx.Router, admin func(http.HandlerFunc) http.H
 	rt.Handle(http.MethodPost, "/api/v1/admin/external-sources/{id}/sync", admin(h.sync))
 	rt.Handle(http.MethodGet, "/api/v1/admin/external-sources/{id}/components", admin(h.components))
 	rt.Handle(http.MethodPut, "/api/v1/admin/external-sources/{id}/selection", admin(h.selection))
+	rt.Handle(http.MethodGet, "/api/v1/admin/external-sources/{id}/outages", admin(h.outages))
+	rt.Handle(http.MethodGet, "/api/v1/admin/external-sources/{id}/events", admin(h.eventHistory))
+	rt.Handle(http.MethodGet, "/api/v1/admin/external-sources/{id}/uptime", admin(h.uptime))
 }
 
 type sourceList struct {
