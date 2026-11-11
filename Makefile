@@ -4,7 +4,7 @@ COMPOSE := docker compose -f deploy/docker-compose.yml
 # Integration tests need a PostgreSQL where the user can create databases.
 TEST_DATABASE_URL ?= postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
 
-.PHONY: up down logs ps migrate db-reset test test-backend test-integration test-frontend lint build scan clean generate-types
+.PHONY: release release-dry-run up down logs ps migrate db-reset test test-backend test-integration test-frontend lint build scan clean generate-types
 
 ## Start the stack (frontend, backend, PostgreSQL) on http://localhost:8080.
 up:
@@ -62,6 +62,14 @@ scan:
 ## Regenerate frontend types (apps/frontend/src/api/schema.gen.ts) from the OpenAPI contract.
 generate-types:
 	cd apps/backend && go run ./cmd/openapi-ts
+
+## Cut a release from main without CI (scripts/release.sh; needs git-cliff and gh).
+release:
+	scripts/release.sh
+
+## Show the next version and its release notes without changing anything.
+release-dry-run:
+	scripts/release.sh --dry-run
 
 ## Remove containers and build outputs. Does not delete the database volume.
 clean:

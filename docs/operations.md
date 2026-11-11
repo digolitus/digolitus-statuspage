@@ -175,6 +175,18 @@ Em `/admin/branding` (permissão `branding.manage`) ficam título, subtítulo, t
 scripts/update-swagger-ui.sh v5.33.3   # informe a tag desejada; revise o diff e rode os testes
 ```
 
+## Releases
+
+Versões seguem SemVer e saem dos commits no padrão Conventional Commits, com as mesmas regras do semantic-release: `feat` gera versão minor, `fix` e os demais tipos geram patch, e mudança incompatível (`!` ou `BREAKING CHANGE`) gera major. Commits fora do padrão não entram nas notas.
+
+```sh
+pip install git-cliff==2.14.2   # uma vez
+make release-dry-run            # mostra a próxima versão e as notas, sem alterar nada
+make release                    # CHANGELOG.md, commit, tag vX.Y.Z e GitHub Release
+```
+
+O script roda só na `main` limpa e igual à `origin/main`. O commit da release leva `[skip ci]`, então o push da `main` e da tag não dispara CI nem publicação de imagens. Por isso, uma release feita assim não gera imagens versionadas no GHCR; para isso o CI precisa rodar num push da tag sem `[skip ci]`. A configuração fica em `cliff.toml`.
+
 ## Deploy
 
 Ainda não existe deploy automatizado. Antes de criar um, é preciso decidir:
