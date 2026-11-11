@@ -173,18 +173,20 @@ export type Component = {
   created_at: Timestamp;
   description: string;
   display_order: number;
-  /** Grupo do componente; `null` quando não agrupado. */
+  /** Grupo principal do componente (também quando está em um subgrupo); `null` quando não agrupado. */
   group_id: string | null;
   id: string;
   is_active: boolean;
   is_public: boolean;
   name: string;
-  /** Dono efetivo: `team_id` ou, se ausente, o time do grupo. Papéis de time agem sobre componentes dos seus times. */
+  /** Dono efetivo: `team_id` ou, se ausente, o time do subgrupo e depois o do grupo. Papéis de time agem sobre componentes dos seus times. */
   owner_team_id: string | null;
   /** Exibe a descrição na página pública (ícone "i" ao lado do nome). */
   show_description: boolean;
   slug: string;
   status: ComponentStatus;
+  /** Subgrupo do componente dentro de `group_id`; `null` quando está direto no grupo. */
+  subgroup_id: string | null;
   /** Time responsável pelo componente. */
   team_id: string | null;
   updated_at: Timestamp;
@@ -196,6 +198,7 @@ export type ComponentCreate = {
   name: string;
   description?: string;
   display_order?: number;
+  /** Grupo principal. Opcional quando `subgroup_id` é informado. */
   group_id?: string | null;
   is_public?: boolean;
   /** Exibe a descrição na página pública. */
@@ -203,30 +206,38 @@ export type ComponentCreate = {
   /** Único. Derivado do nome quando omitido. */
   slug?: string;
   status?: ComponentStatus;
-  /** Time responsável. `null` = herda o time do grupo. */
+  /** Subgrupo. O grupo é derivado dele; um `group_id` diferente retorna 422. */
+  subgroup_id?: string | null;
+  /** Time responsável. `null` = herda o time do subgrupo ou do grupo. */
   team_id?: string | null;
   /** Endereço http(s) completo, sem credenciais. Vazio ou `null` = sem link. */
   url?: string | null;
 };
 
 export type ComponentGroup = {
-  /** Componentes associados (inclusive ocultos e desativados). */
+  /** Componentes associados (inclusive ocultos, desativados e os dos subgrupos). */
   component_count: number;
   created_at: Timestamp;
   description: string;
   display_order: number;
   id: string;
   name: string;
+  /** Grupo principal de um subgrupo; `null` em grupos principais. */
+  parent_id: string | null;
+  /** Subgrupos do grupo (sempre 0 em subgrupos). */
+  subgroup_count: number;
   /** Time responsável; componentes sem time próprio o herdam. */
   team_id: string | null;
   updated_at: Timestamp;
 };
 
 export type ComponentGroupCreate = {
-  /** Único (sem diferenciar maiúsculas). */
+  /** Único entre grupos principais, ou entre os subgrupos do mesmo grupo (sem diferenciar maiúsculas). */
   name: string;
   description?: string;
   display_order?: number;
+  /** Grupo principal; cria um subgrupo. `null` ou ausente = grupo principal. */
+  parent_id?: string | null;
   team_id?: string | null;
 };
 
@@ -239,6 +250,11 @@ export type ComponentGroupPatch = {
   description?: string;
   display_order?: number;
   name?: string;
+  /**
+   * Move o subgrupo (com seus componentes) para outro grupo principal. Transformar grupo em subgrupo, ou o contrário,
+   * só é permitido sem componentes e sem subgrupos (409 `component_group_level_locked`).
+   */
+  parent_id?: string | null;
   /** `null` remove o time. */
   team_id?: string | null;
 };
@@ -251,7 +267,7 @@ export type ComponentList = {
 export type ComponentPatch = {
   description?: string;
   display_order?: number;
-  /** `null` remove o componente do grupo. */
+  /** `null` remove o componente do grupo. Trocar de grupo sem `subgroup_id` tira o componente do subgrupo. */
   group_id?: string | null;
   is_active?: boolean;
   is_public?: boolean;
@@ -259,7 +275,9 @@ export type ComponentPatch = {
   show_description?: boolean;
   slug?: string;
   status?: ComponentStatus;
-  /** `null` = herda o time do grupo. */
+  /** `null` deixa o componente direto no grupo; um subgrupo move o componente para o grupo dele. */
+  subgroup_id?: string | null;
+  /** `null` = herda o time do subgrupo ou do grupo. */
   team_id?: string | null;
   /** Endereço http(s) completo, sem credenciais. Vazio ou `null` = sem link. */
   url?: string | null;
@@ -758,6 +776,8 @@ export type PublicComponent = {
   name: string;
   slug: string;
   status: ComponentStatus;
+  /** Subgrupo dentro de `group_id`. */
+  subgroup_id: string | null;
   updated_at: Timestamp;
   /** Link da página do componente. */
   url: string | null;
@@ -765,13 +785,15 @@ export type PublicComponent = {
 
 export type PublicComponentGroup = {
   affected_components: number;
-  /** Componentes públicos do grupo. */
+  /** Componentes públicos do grupo (inclusive dos subgrupos) ou do subgrupo. */
   component_count: number;
   components_under_maintenance: number;
   description: string;
   display_order: number;
   id: string;
   name: string;
+  /** Preenchido em subgrupos: o grupo ao qual pertencem. */
+  parent_id: string | null;
   status: ComponentStatus;
 };
 
@@ -936,7 +958,7 @@ export type StatusSummary = {
   /** Todos os componentes públicos (agrupados ou não), na ordem de exibição. */
   components: PublicComponent[];
   generated_at: Timestamp;
-  /** Grupos com ao menos um componente público, com status derivado. */
+  /** Grupos e subgrupos (com `parent_id`) com ao menos um componente público, com status derivado. */
   groups: PublicComponentGroup[];
   maintenances: {
     in_progress: PublicMaintenance[];

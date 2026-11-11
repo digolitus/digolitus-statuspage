@@ -639,7 +639,8 @@ paths:
       parameters:
         - { name: is_active, in: query, schema: { type: boolean }, description: Filtra por ativo/desativado. }
         - { name: is_public, in: query, schema: { type: boolean }, description: Filtra por visibilidade pública. }
-        - { name: group_id, in: query, schema: { type: string, format: uuid }, description: Componentes do grupo informado. }
+        - { name: group_id, in: query, schema: { type: string, format: uuid }, description: 'Componentes do grupo informado, inclusive os dos seus subgrupos.' }
+        - { name: subgroup_id, in: query, schema: { type: string, format: uuid }, description: Componentes do subgrupo informado. }
         - { name: team_id, in: query, schema: { type: string, format: uuid }, description: 'Componentes cujo dono efetivo (time próprio ou do grupo) é o time informado.' }
         - name: sort
           in: query
@@ -747,8 +748,11 @@ paths:
     post:
       tags: [admin-components]
       operationId: createComponentGroup
-      summary: Criar grupo de componentes
-      description: Associe componentes ao grupo pelo campo `group_id` do componente.
+      summary: Criar grupo ou subgrupo de componentes
+      description: |
+        Com `parent_id`, cria um subgrupo dentro de um grupo principal (hierarquia Grupo → Subgrupo → Componente,
+        com subgrupos opcionais e sem subgrupo de subgrupo). Associe componentes pelo campo `group_id` ou
+        `subgroup_id` do componente.
       requestBody:
         required: true
         content:
@@ -813,8 +817,9 @@ paths:
       operationId: deleteComponentGroup
       summary: Excluir grupo vazio
       description: |
-        Só é possível excluir um grupo sem componentes (inclusive desativados). Mova-os antes
-        (`PATCH /api/v1/admin/components/{id}` com `group_id`); caso contrário retorna 409 `component_group_not_empty`.
+        Só é possível excluir um grupo sem componentes (inclusive desativados e os dos subgrupos) e sem subgrupos. Mova-os antes
+        (`PATCH /api/v1/admin/components/{id}` com `group_id`/`subgroup_id`); caso contrário retorna 409
+        `component_group_not_empty` ou `component_group_has_subgroups`.
       responses:
         '204': { description: Excluído. }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -2654,7 +2659,7 @@ components:
     Component:
       type: object
       additionalProperties: false
-      required: [id, name, slug, description, show_description, status, is_public, is_active, display_order, group_id, url, team_id, owner_team_id, created_at, updated_at]
+      required: [id, name, slug, description, show_description, status, is_public, is_active, display_order, group_id, subgroup_id, url, team_id, owner_team_id, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
@@ -2665,10 +2670,11 @@ components:
         is_public: { type: boolean }
         is_active: { type: boolean }
         display_order: { type: integer }
-        group_id: { type: string, format: uuid, nullable: true, description: Grupo do componente; `null` quando não agrupado. }
+        group_id: { type: string, format: uuid, nullable: true, description: 'Grupo principal do componente (também quando está em um subgrupo); `null` quando não agrupado.' }
+        subgroup_id: { type: string, format: uuid, nullable: true, description: 'Subgrupo do componente dentro de `group_id`; `null` quando está direto no grupo.' }
         url: { type: string, nullable: true, description: 'Link público da página do componente (documentação, produto, endpoint).' }
         team_id: { type: string, format: uuid, nullable: true, description: Time responsável pelo componente. }
-        owner_team_id: { type: string, format: uuid, nullable: true, description: 'Dono efetivo: `team_id` ou, se ausente, o time do grupo. Papéis de time agem sobre componentes dos seus times.' }
+        owner_team_id: { type: string, format: uuid, nullable: true, description: 'Dono efetivo: `team_id` ou, se ausente, o time do subgrupo e depois o do grupo. Papéis de time agem sobre componentes dos seus times.' }
         created_at: { $ref: '#/components/schemas/Timestamp' }
         updated_at: { $ref: '#/components/schemas/Timestamp' }
     ComponentCreate:
@@ -2683,8 +2689,9 @@ components:
         status: { $ref: '#/components/schemas/ComponentStatus' }
         is_public: { type: boolean, default: true }
         display_order: { type: integer, minimum: 0, maximum: 100000, default: 0 }
-        group_id: { type: string, format: uuid, nullable: true }
-        team_id: { type: string, format: uuid, nullable: true, description: 'Time responsável. `null` = herda o time do grupo.' }
+        group_id: { type: string, format: uuid, nullable: true, description: Grupo principal. Opcional quando `subgroup_id` é informado. }
+        subgroup_id: { type: string, format: uuid, nullable: true, description: 'Subgrupo. O grupo é derivado dele; um `group_id` diferente retorna 422.' }
+        team_id: { type: string, format: uuid, nullable: true, description: 'Time responsável. `null` = herda o time do subgrupo ou do grupo.' }
         url: &componentUrl { type: string, nullable: true, maxLength: 500, description: 'Endereço http(s) completo, sem credenciais. Vazio ou `null` = sem link.' }
     ComponentPatch:
       type: object
@@ -2699,9 +2706,10 @@ components:
         is_public: { type: boolean }
         is_active: { type: boolean }
         display_order: { type: integer, minimum: 0, maximum: 100000 }
-        group_id: { type: string, format: uuid, nullable: true, description: '`null` remove o componente do grupo.' }
+        group_id: { type: string, format: uuid, nullable: true, description: '`null` remove o componente do grupo. Trocar de grupo sem `subgroup_id` tira o componente do subgrupo.' }
+        subgroup_id: { type: string, format: uuid, nullable: true, description: '`null` deixa o componente direto no grupo; um subgrupo move o componente para o grupo dele.' }
         url: *componentUrl
-        team_id: { type: string, format: uuid, nullable: true, description: '`null` = herda o time do grupo.' }
+        team_id: { type: string, format: uuid, nullable: true, description: '`null` = herda o time do subgrupo ou do grupo.' }
     ComponentList:
       type: object
       additionalProperties: false
@@ -2712,7 +2720,7 @@ components:
     PublicComponent:
       type: object
       additionalProperties: false
-      required: [id, name, slug, description, status, group_id, url, display_order, updated_at]
+      required: [id, name, slug, description, status, group_id, subgroup_id, url, display_order, updated_at]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
@@ -2720,20 +2728,22 @@ components:
         description: { type: string, description: 'Descrição pública; vazia quando o operador não a exibe.' }
         status: { $ref: '#/components/schemas/ComponentStatus' }
         group_id: { type: string, format: uuid, nullable: true }
+        subgroup_id: { type: string, format: uuid, nullable: true, description: Subgrupo dentro de `group_id`. }
         url: { type: string, nullable: true, description: Link da página do componente. }
         display_order: { type: integer }
         updated_at: { $ref: '#/components/schemas/Timestamp' }
     PublicComponentGroup:
       type: object
       additionalProperties: false
-      required: [id, name, description, display_order, status, component_count, affected_components, components_under_maintenance]
+      required: [id, name, description, display_order, parent_id, status, component_count, affected_components, components_under_maintenance]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
         description: { type: string }
         display_order: { type: integer }
+        parent_id: { type: string, format: uuid, nullable: true, description: 'Preenchido em subgrupos: o grupo ao qual pertencem.' }
         status: { $ref: '#/components/schemas/ComponentStatus' }
-        component_count: { type: integer, description: Componentes públicos do grupo. }
+        component_count: { type: integer, description: 'Componentes públicos do grupo (inclusive dos subgrupos) ou do subgrupo.' }
         affected_components: { type: integer }
         components_under_maintenance: { type: integer }
     ExternalComponentStatus:
@@ -2847,14 +2857,16 @@ components:
     ComponentGroup:
       type: object
       additionalProperties: false
-      required: [id, name, description, display_order, team_id, component_count, created_at, updated_at]
+      required: [id, name, description, display_order, parent_id, team_id, component_count, subgroup_count, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
         description: { type: string }
         display_order: { type: integer }
+        parent_id: { type: string, format: uuid, nullable: true, description: 'Grupo principal de um subgrupo; `null` em grupos principais.' }
         team_id: { type: string, format: uuid, nullable: true, description: Time responsável; componentes sem time próprio o herdam. }
-        component_count: { type: integer, description: Componentes associados (inclusive ocultos e desativados). }
+        component_count: { type: integer, description: 'Componentes associados (inclusive ocultos, desativados e os dos subgrupos).' }
+        subgroup_count: { type: integer, description: Subgrupos do grupo (sempre 0 em subgrupos). }
         created_at: { $ref: '#/components/schemas/Timestamp' }
         updated_at: { $ref: '#/components/schemas/Timestamp' }
     ComponentGroupCreate:
@@ -2862,9 +2874,10 @@ components:
       additionalProperties: false
       required: [name]
       properties:
-        name: { type: string, minLength: 1, maxLength: 120, description: Único (sem diferenciar maiúsculas). }
+        name: { type: string, minLength: 1, maxLength: 120, description: 'Único entre grupos principais, ou entre os subgrupos do mesmo grupo (sem diferenciar maiúsculas).' }
         description: { type: string, maxLength: 1000 }
         display_order: { type: integer, minimum: 0, maximum: 100000, default: 0 }
+        parent_id: { type: string, format: uuid, nullable: true, description: 'Grupo principal; cria um subgrupo. `null` ou ausente = grupo principal.' }
         team_id: { type: string, format: uuid, nullable: true }
     ComponentGroupPatch:
       type: object
@@ -2874,6 +2887,13 @@ components:
         name: { type: string, minLength: 1, maxLength: 120 }
         description: { type: string, maxLength: 1000 }
         display_order: { type: integer, minimum: 0, maximum: 100000 }
+        parent_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: |
+            Move o subgrupo (com seus componentes) para outro grupo principal. Transformar grupo em subgrupo, ou o contrário,
+            só é permitido sem componentes e sem subgrupos (409 `component_group_level_locked`).
         team_id: { type: string, format: uuid, nullable: true, description: '`null` remove o time.' }
     ComponentGroupList:
       type: object
@@ -3474,7 +3494,7 @@ components:
           items: { $ref: '#/components/schemas/PublicComponent' }
         groups:
           type: array
-          description: Grupos com ao menos um componente público, com status derivado.
+          description: 'Grupos e subgrupos (com `parent_id`) com ao menos um componente público, com status derivado.'
           items: { $ref: '#/components/schemas/PublicComponentGroup' }
         active_incidents: { type: array, items: { $ref: '#/components/schemas/PublicIncident' } }
         maintenances:

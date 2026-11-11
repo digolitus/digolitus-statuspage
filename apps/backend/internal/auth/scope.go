@@ -48,8 +48,11 @@ func RequireComponents(ctx context.Context, q database.Querier, perm string, com
 		return scopeDenied("Seu papel vale apenas para componentes dos seus times: selecione ao menos um componente do seu time.")
 	}
 	var outside []string
-	rows, err := q.Query(ctx, `SELECT c.name FROM components c LEFT JOIN component_groups g ON g.id = c.group_id
-		WHERE c.id = ANY($1::uuid[]) AND (COALESCE(c.team_id, g.team_id) IS NULL OR NOT (COALESCE(c.team_id, g.team_id)::text = ANY($2)))
+	// Effective owner: component's team, else subgroup's, else group's.
+	rows, err := q.Query(ctx, `SELECT c.name FROM components c
+		LEFT JOIN component_groups s ON s.id = c.subgroup_id
+		LEFT JOIN component_groups g ON g.id = c.group_id
+		WHERE c.id = ANY($1::uuid[]) AND (COALESCE(c.team_id, s.team_id, g.team_id) IS NULL OR NOT (COALESCE(c.team_id, s.team_id, g.team_id)::text = ANY($2)))
 		ORDER BY c.name`, componentIDs, p.Teams)
 	if err != nil {
 		return fmt.Errorf("check component ownership: %w", err)

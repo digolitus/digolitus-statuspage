@@ -122,13 +122,22 @@ const id = (v: string) => encodeURIComponent(v);
 
 export const adminApi = {
   components: {
-    list: (query: ListQuery & { is_active?: boolean; is_public?: boolean; group_id?: string; team_id?: string }, o: Signal = {}) =>
+    list: (query: ListQuery & { is_active?: boolean; is_public?: boolean; group_id?: string; subgroup_id?: string; team_id?: string }, o: Signal = {}) =>
       request<Page<Component>>("GET", `${A}/components`, { ...o, query }),
     create: (body: ComponentCreate) => request<Component>("POST", `${A}/components`, { body }),
     update: (cid: string, body: ComponentPatch) => request<Component>("PATCH", `${A}/components/${id(cid)}`, { body }),
   },
   groups: {
     list: (query: ListQuery, o: Signal = {}) => request<Page<ComponentGroup>>("GET", `${A}/component-groups`, { ...o, query }),
+    /** Every group and subgroup, following pagination (pages hold at most 100). */
+    all: async (o: Signal = {}): Promise<ComponentGroup[]> => {
+      const out: ComponentGroup[] = [];
+      for (;;) {
+        const p = await request<Page<ComponentGroup>>("GET", `${A}/component-groups`, { ...o, query: { limit: 100, offset: out.length } });
+        out.push(...p.data);
+        if (p.data.length === 0 || out.length >= p.pagination.total) return out;
+      }
+    },
     create: (body: ComponentGroupCreate) => request<ComponentGroup>("POST", `${A}/component-groups`, { body }),
     update: (gid: string, body: ComponentGroupPatch) => request<ComponentGroup>("PATCH", `${A}/component-groups/${id(gid)}`, { body }),
     remove: (gid: string) => request<void>("DELETE", `${A}/component-groups/${id(gid)}`),

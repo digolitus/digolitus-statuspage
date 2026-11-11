@@ -56,7 +56,7 @@ As rotas administrativas passam por um único wrapper (`app.New`). Ele valida a 
 | Tabela | Papel |
 |---|---|
 | `components` | Estado atual declarado de cada componente; nunca é excluído (`is_active`); `group_id`, `team_id` e `url` opcionais; a descrição só é pública com `show_description` |
-| `component_groups` | Grupos de apresentação; status derivado dos componentes; excluível só quando vazio; `team_id` opcional (herdado pelos componentes sem time) |
+| `component_groups` | Grupos e subgrupos (`parent_id`, dois níveis, [ADR 0013](adr/0013-component-subgroups.md)); status derivado dos componentes; excluível só quando vazio; `team_id` opcional (herdado pelos componentes sem time) |
 | `incidents` | Estado atual do incidente (`status`, `resolved_at` coerentes por `CHECK`) |
 | `incident_components` | Componentes afetados atualmente |
 | `incident_updates` | Linha do tempo publicada, imutável, com snapshot dos componentes quando alterados |

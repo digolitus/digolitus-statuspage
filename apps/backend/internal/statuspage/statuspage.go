@@ -31,22 +31,26 @@ type PublicComponent struct {
 	Description  string    `json:"description"`
 	Status       string    `json:"status"`
 	GroupID      *string   `json:"group_id"`
+	SubgroupID   *string   `json:"subgroup_id"`
 	URL          *string   `json:"url"`
 	DisplayOrder int       `json:"display_order"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
-// PublicGroup is a group with at least one public component. Its status is
-// derived from its components (statuspolicy.Group).
+// PublicGroup is a group or subgroup with at least one public component.
+// Its status is derived from its components (statuspolicy.Group); a group's
+// components include those of its subgroups.
 type PublicGroup struct {
-	ID                         string `json:"id"`
-	Name                       string `json:"name"`
-	Description                string `json:"description"`
-	DisplayOrder               int    `json:"display_order"`
-	Status                     string `json:"status"`
-	ComponentCount             int    `json:"component_count"`
-	AffectedComponents         int    `json:"affected_components"`
-	ComponentsUnderMaintenance int    `json:"components_under_maintenance"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Description  string `json:"description"`
+	DisplayOrder int    `json:"display_order"`
+	// ParentID is set for subgroups: the group they belong to.
+	ParentID                   *string `json:"parent_id"`
+	Status                     string  `json:"status"`
+	ComponentCount             int     `json:"component_count"`
+	AffectedComponents         int     `json:"affected_components"`
+	ComponentsUnderMaintenance int     `json:"components_under_maintenance"`
 }
 
 // Overall is the platform-level status.
@@ -145,13 +149,17 @@ func (s *Service) Build(ctx context.Context) (Summary, error) {
 					desc = c.Description
 				}
 				sum.Components = append(sum.Components, PublicComponent{ID: c.ID, Name: c.Name, Slug: c.Slug,
-					Description: desc, Status: effective[c.ID], GroupID: c.GroupID, URL: c.URL, DisplayOrder: c.DisplayOrder, UpdatedAt: c.UpdatedAt})
+					Description: desc, Status: effective[c.ID], GroupID: c.GroupID, SubgroupID: c.SubgroupID, URL: c.URL, DisplayOrder: c.DisplayOrder, UpdatedAt: c.UpdatedAt})
 				if c.GroupID != nil {
 					byGroup[*c.GroupID] = append(byGroup[*c.GroupID], effective[c.ID])
 				}
+				if c.SubgroupID != nil {
+					byGroup[*c.SubgroupID] = append(byGroup[*c.SubgroupID], effective[c.ID])
+				}
 			}
 		}
-		// Groups without public components are omitted from the public page.
+		// Groups and subgroups without public components are omitted from
+		// the public page.
 		sum.Groups = []PublicGroup{}
 		for _, g := range groups {
 			statuses := byGroup[g.ID]
@@ -160,7 +168,7 @@ func (s *Service) Build(ctx context.Context) (Summary, error) {
 			}
 			gs := statuspolicy.Group(statuses)
 			sum.Groups = append(sum.Groups, PublicGroup{ID: g.ID, Name: g.Name, Description: g.Description, DisplayOrder: g.DisplayOrder,
-				Status: gs.Status, ComponentCount: len(statuses), AffectedComponents: gs.AffectedComponents,
+				ParentID: g.ParentID, Status: gs.Status, ComponentCount: len(statuses), AffectedComponents: gs.AffectedComponents,
 				ComponentsUnderMaintenance: gs.ComponentsUnderMaintenance})
 		}
 		sum.ActiveIncidents = make([]incident.PublicIncident, len(incs))

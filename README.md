@@ -82,8 +82,8 @@ Toda funcionalidade de negócio está disponível pela API. Resumo:
 | Saúde | `GET /healthz` (liveness), `GET /readyz` (inclui PostgreSQL) |
 | Pública | `GET /api/v1/status`, `/components`, `/incidents[/{id}]`, `/maintenances[/{id}]`, `/announcements[/{id}]`, `/announcement-categories`, `/feed.atom`, `/feed.rss` |
 | Inscrição | `GET /api/v1/subscriptions/options`, `POST /api/v1/subscriptions`, `POST .../confirm`, `POST/PUT .../manage`, `POST .../unsubscribe` (tokens dos links enviados por e-mail) |
-| Componentes | `GET/POST /api/v1/admin/components`, `GET/PATCH .../{id}` (`group_id` associa a um grupo) |
-| Grupos | `GET/POST /api/v1/admin/component-groups`, `GET/PATCH/DELETE .../{id}` (exclusão só de grupo vazio) |
+| Componentes | `GET/POST /api/v1/admin/components`, `GET/PATCH .../{id}` (`group_id` associa a um grupo, `subgroup_id` a um subgrupo) |
+| Grupos | `GET/POST /api/v1/admin/component-groups`, `GET/PATCH/DELETE .../{id}` (`parent_id` cria subgrupo; exclusão só de grupo vazio) |
 | Incidentes | `GET/POST /api/v1/admin/incidents`, `GET/PATCH .../{id}`, `GET/POST .../{id}/updates`, `POST .../{id}/resolve` |
 | Manutenções | `GET/POST /api/v1/admin/maintenances`, `GET/PATCH .../{id}`, `GET/POST .../{id}/updates`, `POST .../{id}/start\|complete\|cancel` |
 | Templates | `GET/POST /api/v1/admin/incident-templates`, `GET/PATCH .../{id}` (idem para `maintenance-templates` e `announcement-templates`) |
@@ -119,7 +119,7 @@ curl -s -X POST http://localhost:8080/api/v1/admin/maintenances \
 - **Link do componente:** campo opcional `url` (http/https). Na página pública aparece como um ícone discreto ↗ ao lado do nome, abrindo em nova aba.
 - **Descrição do componente:** interna por padrão; com `show_description`, aparece num ícone "i" discreto ao lado do nome.
 - **Período do incidente:** `started_at` e `resolved_at` registram o início e o fim reais do impacto, que podem ser anteriores à abertura e ao encerramento na ferramenta. Os dois podem ser corrigidos depois, e a linha do tempo mantém o horário de cada publicação.
-- **Grupos:** organizam componentes na página pública. Aparecem recolhidos, exibindo o status mais grave entre seus componentes; ao expandir, mostram os componentes.
+- **Grupos e subgrupos:** organizam componentes na página pública (Grupo → Subgrupo → Componente, com subgrupos opcionais, [ADR 0013](docs/adr/0013-component-subgroups.md)). Aparecem recolhidos, exibindo o status mais grave entre seus componentes; ao expandir, mostram os componentes diretos e os subgrupos.
 - **Serviços de terceiros:** em `/admin/third-party`, cadastre a URL de uma página Atlassian Statuspage (ex.: `https://www.githubstatus.com`, `https://status.veracode.com`) e escolha os componentes a exibir. O backend consulta o provedor periodicamente; o status de terceiros aparece em seção própria e **não** altera o status geral ([ADR 0006](docs/adr/0006-third-party-status.md)).
 - **Times responsáveis:** cada grupo ou componente pode ter um time (Squad, RT, Comunidade, Tribo…), com links de documentação e suporte e tags livres. Papéis com escopo "times" deixam cada time operar só os próprios componentes: status, incidentes, manutenções e comunicados ([ADR 0009](docs/adr/0009-team-ownership-and-scoped-roles.md)).
 - **Inscrições:** o botão *Inscrever-se* oferece e-mail, Slack, webhook (JSON assinado com HMAC) e RSS/Atom, com filtro por componente e confirmação por e-mail. A entrega usa um outbox transacional com retentativas ([ADR 0010](docs/adr/0010-subscriptions-and-notification-outbox.md)). Configure SMTP e `PUBLIC_BASE_URL` em `deploy/.env` (veja [operações](docs/operations.md#inscrições-notificações)).

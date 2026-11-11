@@ -2,29 +2,38 @@ import { useEffect, useId, useRef, useState } from "react";
 import type { PublicComponent, PublicComponentGroup } from "../api/types";
 import { Badge } from "../components/ui";
 import { componentStatusLabel, plural, toneForStatus } from "../lib/format";
+import { byDisplayOrder } from "../lib/groups";
 
-type Row =
-  | { kind: "component"; order: number; name: string; component: PublicComponent }
-  | { kind: "group"; order: number; name: string; group: PublicComponentGroup; components: PublicComponent[] };
+type Item =
+  | { kind: "component"; display_order: number; name: string; component: PublicComponent }
+  | { kind: "group"; display_order: number; name: string; group: PublicComponentGroup; items: Item[] };
+
+const componentItem = (c: PublicComponent): Item => ({ kind: "component", display_order: c.display_order, name: c.name, component: c });
 
 /**
- * Builds the top-level rows: groups (with their components) and ungrouped
- * components, interleaved by display order and then name.
+ * Builds the top-level rows: groups and ungrouped components, interleaved by
+ * display order and then name. Inside a group, its direct components and its
+ * subgroups (each with its components) are interleaved the same way.
+ * Components whose group or subgroup is not published fall back one level.
  */
-export function buildRows(components: PublicComponent[], groups: PublicComponentGroup[]): Row[] {
-  const byGroup = new Map<string, PublicComponent[]>();
-  const rows: Row[] = [];
+export function buildRows(components: PublicComponent[], groups: PublicComponentGroup[]): Item[] {
+  const known = new Map(groups.map((g) => [g.id, g]));
+  const children = new Map<string, Item[]>();
+  const add = (id: string, item: Item) => children.set(id, [...(children.get(id) ?? []), item]);
+  const rows: Item[] = [];
   for (const c of components) {
-    if (c.group_id && groups.some((g) => g.id === c.group_id)) {
-      byGroup.set(c.group_id, [...(byGroup.get(c.group_id) ?? []), c]);
-    } else {
-      rows.push({ kind: "component", order: c.display_order, name: c.name, component: c });
-    }
+    if (c.subgroup_id && known.get(c.subgroup_id)?.parent_id === c.group_id && c.group_id && known.has(c.group_id)) add(c.subgroup_id, componentItem(c));
+    else if (c.group_id && known.has(c.group_id)) add(c.group_id, componentItem(c));
+    else rows.push(componentItem(c));
   }
   for (const g of groups) {
-    rows.push({ kind: "group", order: g.display_order, name: g.name, group: g, components: byGroup.get(g.id) ?? [] });
+    if (!g.parent_id) continue;
+    if (known.has(g.parent_id)) add(g.parent_id, { kind: "group", display_order: g.display_order, name: g.name, group: g, items: (children.get(g.id) ?? []).sort(byDisplayOrder) });
   }
-  return rows.sort((a, b) => a.order - b.order || a.name.localeCompare(b.name, "pt-BR"));
+  for (const g of groups) {
+    if (!g.parent_id) rows.push({ kind: "group", display_order: g.display_order, name: g.name, group: g, items: (children.get(g.id) ?? []).sort(byDisplayOrder) });
+  }
+  return rows.sort(byDisplayOrder);
 }
 
 /**
@@ -112,18 +121,22 @@ function groupSummary(g: PublicComponentGroup): string {
   return parts.join(" · ");
 }
 
-/** A group, collapsed by default; its status is always visible. */
-function GroupRow({ group, components }: { group: PublicComponentGroup; components: PublicComponent[] }) {
+/** A group or subgroup, collapsed by default; its status is always visible. */
+function GroupRow({ group, items }: { group: PublicComponentGroup; items: Item[] }) {
   const [open, setOpen] = useState(false);
   const panelId = useId();
+  const sub = group.parent_id !== null;
   return (
-    <li className={`group-row${open ? " group-row-open" : ""}`}>
+    <li className={`group-row${open ? " group-row-open" : ""}${sub ? " subgroup-row" : ""}`}>
       <button type="button" className="group-toggle" aria-expanded={open} aria-controls={panelId} onClick={() => setOpen((o) => !o)}>
         <span className="group-chevron" aria-hidden="true">
           ▸
         </span>
         <span className="group-title">
-          <span className="component-name">{group.name}</span>
+          <span className="component-name">
+            {group.name}
+            {sub && <span className="subgroup-label">subgrupo</span>}
+          </span>
           <span className="component-description">{groupSummary(group)}</span>
         </span>
         <Badge tone={toneForStatus[group.status]}>{componentStatusLabel[group.status]}</Badge>
@@ -131,26 +144,23 @@ function GroupRow({ group, components }: { group: PublicComponentGroup; componen
       <div id={panelId} hidden={!open}>
         {group.description && <p className="group-description">{group.description}</p>}
         <ul className="component-rows nested" aria-label={`Componentes de ${group.name}`}>
-          {components.map((c) => (
-            <ComponentRow key={c.id} component={c} />
-          ))}
+          <Rows items={items} />
         </ul>
       </div>
     </li>
   );
 }
 
+function Rows({ items }: { items: Item[] }) {
+  return items.map((r) =>
+    r.kind === "group" ? <GroupRow key={`g-${r.group.id}`} group={r.group} items={r.items} /> : <ComponentRow key={r.component.id} component={r.component} />,
+  );
+}
+
 export function ComponentList({ components, groups }: { components: PublicComponent[]; groups: PublicComponentGroup[] }) {
-  const rows = buildRows(components, groups);
   return (
     <ul className="component-rows">
-      {rows.map((r) =>
-        r.kind === "group" ? (
-          <GroupRow key={`g-${r.group.id}`} group={r.group} components={r.components} />
-        ) : (
-          <ComponentRow key={r.component.id} component={r.component} />
-        ),
-      )}
+      <Rows items={buildRows(components, groups)} />
     </ul>
   );
 }

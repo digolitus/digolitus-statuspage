@@ -4,6 +4,7 @@ import type { Component, ComponentCreate, ComponentGroup, ComponentStatus, Team 
 import { Badge, ConfirmButton, EmptyState, ErrorPanel, Field, Loading, Pager } from "../components/ui";
 import { StatusSelect } from "../components/StatusSelect";
 import { componentStatusLabel, toneForStatus } from "../lib/format";
+import { groupPath, groupTree } from "../lib/groups";
 import { Link, useLocation } from "../lib/router";
 import { useApi } from "../lib/useApi";
 import { useAuth } from "./authContext";
@@ -20,11 +21,12 @@ type FormValues = {
   is_public: boolean;
   display_order: string;
   group_id: string;
+  subgroup_id: string;
   url: string;
   team_id: string;
 };
 
-const empty: FormValues = { name: "", slug: "", description: "", show_description: false, status: "operational", is_public: true, display_order: "0", group_id: "", url: "", team_id: "" };
+const empty: FormValues = { name: "", slug: "", description: "", show_description: false, status: "operational", is_public: true, display_order: "0", group_id: "", subgroup_id: "", url: "", team_id: "" };
 
 function toValues(c: Component): FormValues {
   return {
@@ -36,6 +38,7 @@ function toValues(c: Component): FormValues {
     is_public: c.is_public,
     display_order: String(c.display_order),
     group_id: c.group_id ?? "",
+    subgroup_id: c.subgroup_id ?? "",
     url: c.url ?? "",
     team_id: c.team_id ?? "",
   };
@@ -59,6 +62,8 @@ function ComponentForm({
   const [v, setV] = useState(initial);
   const submit = useSubmit();
   const set = <K extends keyof FormValues>(k: K, value: FormValues[K]) => setV((s) => ({ ...s, [k]: value }));
+  const tree = groupTree(groups);
+  const subgroups = tree.find((n) => n.group.id === v.group_id)?.subgroups ?? [];
 
   async function handle(e: FormEvent) {
     e.preventDefault();
@@ -79,6 +84,7 @@ function ComponentForm({
       is_public: v.is_public,
       display_order: order,
       group_id: v.group_id || null,
+      subgroup_id: v.subgroup_id || null,
       url: v.url.trim() || null,
       team_id: v.team_id || null,
     };
@@ -104,9 +110,10 @@ function ComponentForm({
         </Field>
         <Field label="Grupo" error={fe.group_id} hint="Opcional. Grupos aparecem recolhidos na página pública.">
           {(p) => (
-            <select {...p} value={v.group_id} onChange={(e) => set("group_id", e.target.value)}>
+            // A subgroup belongs to one group: changing the group clears it.
+            <select {...p} value={v.group_id} onChange={(e) => setV((s) => ({ ...s, group_id: e.target.value, subgroup_id: "" }))}>
               <option value="">Sem grupo</option>
-              {groups.map((g) => (
+              {tree.map(({ group: g }) => (
                 <option key={g.id} value={g.id}>
                   {g.name}
                 </option>
@@ -114,17 +121,33 @@ function ComponentForm({
             </select>
           )}
         </Field>
+        {subgroups.length > 0 && (
+          <Field label="Subgrupo" error={fe.subgroup_id} hint="Opcional. Lista só os subgrupos do grupo escolhido.">
+            {(p) => (
+              <select {...p} value={v.subgroup_id} onChange={(e) => set("subgroup_id", e.target.value)}>
+                <option value="">Nenhum (direto no grupo)</option>
+                {subgroups.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name}
+                  </option>
+                ))}
+              </select>
+            )}
+          </Field>
+        )}
         <TeamSelect
           teams={teams}
           value={v.team_id}
           onChange={(x) => set("team_id", x)}
           permission="components.manage"
           error={fe.team_id}
-          hint="Opcional. Sem time, vale o time do grupo."
+          hint="Opcional. Sem time, vale o time do subgrupo ou do grupo."
           emptyLabel={(() => {
+            const sub = groups.find((x) => x.id === v.subgroup_id);
             const g = groups.find((x) => x.id === v.group_id);
-            const t = g?.team_id ? teams.find((x) => x.id === g.team_id) : undefined;
-            return t ? `Herdar do grupo (${t.name})` : "Sem time responsável";
+            const from = sub?.team_id ? sub : g;
+            const t = from?.team_id ? teams.find((x) => x.id === from.team_id) : undefined;
+            return t ? `Herdar ${from === sub ? "do subgrupo" : "do grupo"} (${t.name})` : "Sem time responsável";
           })()}
         />
         <Field label="Ordem de exibição" error={fe.display_order}>
@@ -205,16 +228,24 @@ export function ComponentsPage() {
   const { state, reload } = useApi(
     (signal) =>
       adminApi.components.list(
-        { is_active: isActive, group_id: groupFilter || undefined, team_id: teamFilter || undefined, limit: 50, offset },
+        {
+          is_active: isActive,
+          // Filter values: a group id, or "sub:<id>" for a subgroup.
+          group_id: groupFilter && !groupFilter.startsWith("sub:") ? groupFilter : undefined,
+          subgroup_id: groupFilter.startsWith("sub:") ? groupFilter.slice(4) : undefined,
+          team_id: teamFilter || undefined,
+          limit: 50,
+          offset,
+        },
         { signal },
       ),
     [filter, groupFilter, teamFilter, offset],
   );
   const teams = useTeams();
   const teamName = (id: string | null) => teams.find((t) => t.id === id)?.name;
-  const groupsState = useApi((signal) => adminApi.groups.list({ limit: 100 }, { signal }), []).state;
-  const groups = groupsState.status === "success" ? groupsState.data.data : [];
-  const groupName = (id: string | null) => groups.find((g) => g.id === id)?.name;
+  const groupsState = useApi((signal) => adminApi.groups.all({ signal }), []).state;
+  const groups = groupsState.status === "success" ? groupsState.data : [];
+  const tree = groupTree(groups);
   const { me, can, canFor, teamOnly } = useAuth();
   const canManage = can("components.manage");
   const canStatus = can("components.status");
@@ -224,7 +255,7 @@ export function ComponentsPage() {
     <div className="admin-content">
       <PageHeader title="Componentes">
         <Link className="secondary-button" to="/admin/component-groups">
-          Gerenciar grupos
+          Grupos e subgrupos
         </Link>
         {canManage && (
           <button type="button" className="primary-button" onClick={() => setCreating((c) => !c)} aria-expanded={creating}>
@@ -305,11 +336,16 @@ export function ComponentsPage() {
             }}
           >
             <option value="">Todos</option>
-            {groups.map((g) => (
+            {tree.map(({ group: g, subgroups }) => [
               <option key={g.id} value={g.id}>
                 {g.name}
-              </option>
-            ))}
+              </option>,
+              ...subgroups.map((s) => (
+                <option key={s.id} value={`sub:${s.id}`}>
+                  {`\u00a0\u00a0· ${s.name}`}
+                </option>
+              )),
+            ])}
           </select>
         </label>
       )}
@@ -331,11 +367,11 @@ export function ComponentsPage() {
                     <div>
                       <strong>{c.name}</strong> <code>{c.slug}</code>
                       <div className="admin-item-tags">
-                        {c.group_id && <span className="tag">Grupo: {groupName(c.group_id) ?? "…"}</span>}
+                        {c.group_id && <span className="tag">Grupo: {groupPath(groups, c.group_id, c.subgroup_id) ?? "…"}</span>}
                         {c.owner_team_id && (
-                          <span className="tag tag-team" title={c.team_id ? "Time responsável" : "Herdado do grupo"}>
+                          <span className="tag tag-team" title={c.team_id ? "Time responsável" : c.subgroup_id ? "Herdado do subgrupo ou do grupo" : "Herdado do grupo"}>
                             Time: {teamName(c.owner_team_id) ?? "…"}
-                            {!c.team_id && " (grupo)"}
+                            {!c.team_id && (groups.find((g) => g.id === c.subgroup_id)?.team_id ? " (subgrupo)" : " (grupo)")}
                           </span>
                         )}
                         {!c.is_public && <span className="tag">Oculto</span>}

@@ -540,7 +540,7 @@ main#main {
   transition: transform 0.15s ease;
 }
 
-.group-row-open .group-chevron,
+.group-row-open > .group-toggle .group-chevron,
 .section-toggle[aria-expanded="true"] .group-chevron {
   transform: rotate(90deg);
 }
@@ -2506,4 +2506,47 @@ a.tag:hover {
     animation: none !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* Subgroups (Group -> Subgroup -> Component). */
+.subgroup-label {
+  margin-left: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.subgroup-row .group-toggle {
+  padding: 10px 18px 10px 14px;
+}
+
+.subgroup-row .group-description {
+  padding-left: 40px;
+}
+
+.subgroup-row .component-rows.nested {
+  margin-left: 24px;
+}
+
+.subgroup-list {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0 0 0 16px;
+  border-left: 2px solid var(--line);
+  list-style: none;
+}
+
+.subgroup-item {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.subgroup-direct {
+  margin: 8px 0 0 18px;
+  font-size: 13px;
 }

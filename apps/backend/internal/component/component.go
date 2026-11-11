@@ -27,17 +27,20 @@ type Component struct {
 	Slug        string `json:"slug"`
 	Description string `json:"description"`
 	// ShowDescription publishes the description (an "i" on the public page).
-	ShowDescription bool    `json:"show_description"`
-	Status          string  `json:"status"`
-	IsPublic        bool    `json:"is_public"`
-	IsActive        bool    `json:"is_active"`
-	DisplayOrder    int     `json:"display_order"`
-	GroupID         *string `json:"group_id"`
-	URL             *string `json:"url"`
+	ShowDescription bool   `json:"show_description"`
+	Status          string `json:"status"`
+	IsPublic        bool   `json:"is_public"`
+	IsActive        bool   `json:"is_active"`
+	DisplayOrder    int    `json:"display_order"`
+	// GroupID is always the top-level group (nil when ungrouped).
+	GroupID *string `json:"group_id"`
+	// SubgroupID is an optional subgroup of GroupID.
+	SubgroupID *string `json:"subgroup_id"`
+	URL        *string `json:"url"`
 	// TeamID is the team responsible for the component (optional).
 	TeamID *string `json:"team_id"`
 	// OwnerTeamID is the effective owner: TeamID or, when unset, the
-	// group's team. Team-scoped roles act on components their teams own.
+	// subgroup's team, then the group's team. Team-scoped roles act on components their teams own.
 	OwnerTeamID *string   `json:"owner_team_id"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
@@ -73,8 +76,11 @@ type CreateInput struct {
 	IsPublic        *bool   `json:"is_public"`
 	DisplayOrder    *int    `json:"display_order"`
 	GroupID         *string `json:"group_id"`
-	URL             *string `json:"url"`
-	TeamID          *string `json:"team_id"`
+	// SubgroupID places the component in a subgroup; GroupID is then
+	// derived from it (and must match it when also given).
+	SubgroupID *string `json:"subgroup_id"`
+	URL        *string `json:"url"`
+	TeamID     *string `json:"team_id"`
 }
 
 // UpdateInput is a partial update; nil fields are left unchanged.
@@ -88,7 +94,11 @@ type UpdateInput struct {
 	IsActive        *bool   `json:"is_active"`
 	DisplayOrder    *int    `json:"display_order"`
 	// GroupID: absent = unchanged, null = remove from group.
+	// Changing the group without subgroup_id leaves the subgroup.
 	GroupID optional.Nullable[string] `json:"group_id"`
+	// SubgroupID: absent = unchanged, null = directly in the group, id =
+	// that subgroup (the component moves to the subgroup's group).
+	SubgroupID optional.Nullable[string] `json:"subgroup_id"`
 	// URL: absent = unchanged, null or "" = remove the link.
 	URL optional.Nullable[string] `json:"url"`
 	// TeamID: absent = unchanged, null = no own team (inherits the group's).
@@ -98,7 +108,7 @@ type UpdateInput struct {
 // statusOnly reports whether the patch changes nothing but the status.
 func (in UpdateInput) statusOnly() bool {
 	return in.Status != nil && in.Name == nil && in.Slug == nil && in.Description == nil && in.ShowDescription == nil && in.IsPublic == nil &&
-		in.IsActive == nil && in.DisplayOrder == nil && !in.GroupID.Set && !in.URL.Set && !in.TeamID.Set
+		in.IsActive == nil && in.DisplayOrder == nil && !in.GroupID.Set && !in.SubgroupID.Set && !in.URL.Set && !in.TeamID.Set
 }
 
 var slugPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
@@ -225,6 +235,7 @@ func (in CreateInput) normalize() (Component, error) {
 		validateOrder(&v, c.DisplayOrder)
 	}
 	c.GroupID = normalizeGroupID(&v, in.GroupID)
+	c.SubgroupID = normalizeRef(&v, "subgroup_id", in.SubgroupID)
 	c.URL = NormalizeLink(&v, "url", in.URL)
 	c.TeamID = normalizeRef(&v, "team_id", in.TeamID)
 	return c, v.Err()
@@ -272,7 +283,15 @@ func (in UpdateInput) apply(c Component) (Component, error) {
 		changed = true
 	}
 	if in.GroupID.Set {
+		previous := c.GroupID
 		c.GroupID = normalizeGroupID(&v, in.GroupID.Value)
+		if !in.SubgroupID.Set && !sameGroup(previous, c.GroupID) {
+			c.SubgroupID = nil
+		}
+		changed = true
+	}
+	if in.SubgroupID.Set {
+		c.SubgroupID = normalizeRef(&v, "subgroup_id", in.SubgroupID.Value)
 		changed = true
 	}
 	if in.TeamID.Set {

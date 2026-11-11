@@ -36,12 +36,12 @@ describe("public status page", () => {
       ...emptySummary,
       overall: { status: "degraded_performance", basis: "declared", affected_components: 1, components_under_maintenance: 0 },
       components: [
-        { id: "c1", name: "API de Pagamentos", slug: "api-pag", description: "", status: "degraded_performance", group_id: "g1", url: null, display_order: 0, updated_at: "2026-03-01T11:00:00Z" },
-        { id: "c2", name: "Checkout", slug: "checkout", description: "", status: "operational", group_id: "g1", url: null, display_order: 1, updated_at: "2026-03-01T11:00:00Z" },
-        { id: "c3", name: "Portal", slug: "portal", description: "", status: "operational", group_id: null, url: null, display_order: 5, updated_at: "2026-03-01T11:00:00Z" },
+        { id: "c1", name: "API de Pagamentos", slug: "api-pag", description: "", status: "degraded_performance", group_id: "g1", subgroup_id: null, url: null, display_order: 0, updated_at: "2026-03-01T11:00:00Z" },
+        { id: "c2", name: "Checkout", slug: "checkout", description: "", status: "operational", group_id: "g1", subgroup_id: null, url: null, display_order: 1, updated_at: "2026-03-01T11:00:00Z" },
+        { id: "c3", name: "Portal", slug: "portal", description: "", status: "operational", group_id: null, subgroup_id: null, url: null, display_order: 5, updated_at: "2026-03-01T11:00:00Z" },
       ],
       groups: [
-        { id: "g1", name: "Pagamentos", description: "Cobrança", display_order: 1, status: "degraded_performance", component_count: 2, affected_components: 1, components_under_maintenance: 0 },
+        { id: "g1", name: "Pagamentos", description: "Cobrança", display_order: 1, parent_id: null, status: "degraded_performance", component_count: 2, affected_components: 1, components_under_maintenance: 0 },
       ],
     };
     mockApi({ "GET /api/v1/status": { body: summary }, ...history });
@@ -62,7 +62,7 @@ describe("public status page", () => {
     const summary: StatusSummary = {
       ...emptySummary,
       overall: { status: "partial_outage", basis: "declared", affected_components: 1, components_under_maintenance: 0 },
-      components: [{ id: "c1", name: "API", slug: "api", description: "REST", status: "partial_outage", group_id: null, url: "https://docs.example.com/api", display_order: 0, updated_at: "2026-03-01T11:00:00Z" }],
+      components: [{ id: "c1", name: "API", slug: "api", description: "REST", status: "partial_outage", group_id: null, subgroup_id: null, url: "https://docs.example.com/api", display_order: 0, updated_at: "2026-03-01T11:00:00Z" }],
       active_incidents: [incident],
       maintenances: { in_progress: [], upcoming: [maintenance] },
     };
@@ -300,7 +300,7 @@ describe("admin area", () => {
       permissions: ["incidents.manage", "components.status"] as PermissionKey[],
       user: { ...adminMe.user, name: "Operadora", roles: [{ id: "r2", name: "Operador de incidentes", is_system: false }] },
     };
-    const comp = { id: "c1", name: "API", slug: "api", description: "", status: "operational" as const, is_public: true, is_active: true, display_order: 0, group_id: null, url: null, created_at: "", updated_at: "" };
+    const comp = { id: "c1", name: "API", slug: "api", description: "", status: "operational" as const, is_public: true, is_active: true, display_order: 0, group_id: null, subgroup_id: null, url: null, created_at: "", updated_at: "" };
     const calls = mockApi({
       ...session(operator),
       "GET /api/v1/admin/components": page([comp]),
@@ -654,7 +654,7 @@ describe("team ownership", () => {
   });
   const comp = (id: string, name: string, teamId: string | null, owner: string | null) => ({
     id, name, slug: id, description: "", status: "operational" as const, is_public: true, is_active: true, display_order: 0,
-    group_id: null, url: null, team_id: teamId, owner_team_id: owner, created_at: "", updated_at: "",
+    group_id: null, subgroup_id: null, url: null, team_id: teamId, owner_team_id: owner, created_at: "", updated_at: "",
   });
 
   it("lets a team-scoped user manage only the components of their teams", async () => {
@@ -802,5 +802,55 @@ describe("announcement templates and team tags", () => {
     await user.click(screen.getByRole("button", { name: "Criar time" }));
     expect(await screen.findByText("Time criado.")).toBeInTheDocument();
     expect((calls.find((c) => c.method === "POST")?.body as { tags: string[] }).tags).toEqual(["pagamentos", "on-call"]);
+  });
+});
+
+describe("component subgroups", () => {
+  const group = (id: string, name: string, parent: string | null, components: number, subgroups = 0) => ({
+    id, name, description: "", display_order: 0, parent_id: parent, team_id: null, component_count: components, subgroup_count: subgroups, created_at: "", updated_at: "",
+  });
+  const groups = [group("g1", "Pagamentos", null, 3, 1), group("s1", "Cartões", "g1", 2), group("g2", "Plataforma", null, 0)];
+
+  it("lists subgroups under their group and creates one with the parent set", async () => {
+    window.history.pushState(null, "", "/admin/component-groups");
+    const calls = mockApi({
+      ...session(),
+      "GET /api/v1/admin/component-groups": page(groups),
+      "POST /api/v1/admin/component-groups": { status: 201, body: group("s2", "Pix", "g1", 0) },
+    });
+    render(<App />);
+    const user = userEvent.setup();
+    const subs = await screen.findByRole("list", { name: "Subgrupos de Pagamentos" });
+    expect(within(subs).getByText("Cartões")).toBeInTheDocument();
+    expect(screen.getByText("1 componente direto no grupo (sem subgrupo)")).toBeInTheDocument();
+    await user.click(screen.getAllByRole("button", { name: "+ Subgrupo" })[0]);
+    const form = screen.getByRole("region", { name: "Novo subgrupo em Pagamentos" });
+    await user.type(within(form).getByLabelText("Nome"), "Pix");
+    await user.click(within(form).getByRole("button", { name: "Criar subgrupo" }));
+    expect(await within(form).findByText("Subgrupo salvo.")).toBeInTheDocument();
+    expect(calls.find((c) => c.method === "POST")?.body).toMatchObject({ name: "Pix", parent_id: "g1" });
+  });
+
+  it("offers only the chosen group's subgroups on a component", async () => {
+    window.history.pushState(null, "", "/admin/components");
+    const calls = mockApi({
+      ...session(),
+      "GET /api/v1/admin/components": page([]),
+      "GET /api/v1/admin/component-groups": page(groups),
+      "POST /api/v1/admin/components": { status: 201, body: {} },
+    });
+    render(<App />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Novo componente" }));
+    const form = screen.getByRole("region", { name: "Novo componente" });
+    const groupSelect = within(form).getByLabelText("Grupo");
+    expect(within(groupSelect).getAllByRole("option").map((o: HTMLElement) => o.textContent)).toEqual(["Sem grupo", "Pagamentos", "Plataforma"]);
+    expect(within(form).queryByLabelText("Subgrupo")).not.toBeInTheDocument();
+    await user.selectOptions(groupSelect, "g1");
+    await user.selectOptions(within(form).getByLabelText("Subgrupo"), "s1");
+    await user.type(within(form).getByLabelText("Nome"), "API de Cartões");
+    await user.click(within(form).getByRole("button", { name: "Criar componente" }));
+    await screen.findByText("Componente salvo.");
+    expect(calls.find((c) => c.method === "POST")?.body).toMatchObject({ group_id: "g1", subgroup_id: "s1" });
   });
 });
