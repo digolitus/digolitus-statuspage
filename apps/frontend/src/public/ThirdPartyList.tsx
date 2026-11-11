@@ -99,11 +99,13 @@ export function ThirdPartyEventCard({ source, event: e }: { source: PublicThirdP
             e.name
           )}
         </h3>
-        <Badge tone="neutral">Terceiro · {source.name}</Badge>
-        <InfoTip
-          label="Detalhes do evento"
-          text={`${kind} informado por ${source.name}; não altera o status da plataforma. Status no provedor: ${e.status}${e.impact && e.impact !== "none" ? ` · impacto ${e.impact}` : ""}.`}
-        />
+        <span className="with-info">
+          <Badge tone="neutral">Terceiro · {source.name}</Badge>
+          <InfoTip
+            label="Detalhes do evento"
+            text={`${kind} informado por ${source.name}; não altera o status da plataforma. Status no provedor: ${e.status}${e.impact && e.impact !== "none" ? ` · impacto ${e.impact}` : ""}.`}
+          />
+        </span>
       </header>
       <p className="muted small">
         <a href={source.page_url} target="_blank" rel="noopener noreferrer">
