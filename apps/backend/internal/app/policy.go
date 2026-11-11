@@ -101,6 +101,10 @@ var adminPolicy = auth.Policy{
 
 	"GET /api/v1/admin/audit-events": perms(auth.PermAuditRead),
 
+	// Every signed-in tab reports itself; only presence.read sees the result.
+	"POST /api/v1/admin/presence": anyUser,
+	"GET /api/v1/admin/presence":  perms(auth.PermPresenceRead),
+
 	"GET /api/v1/admin/status-history": anyUser,
 
 	"GET /api/v1/admin/users":                perms(auth.PermUsersManage),

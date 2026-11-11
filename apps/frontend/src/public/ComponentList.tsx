@@ -41,7 +41,7 @@ export function buildRows(components: PublicComponent[], groups: PublicComponent
  * Discreet "i" next to a component name. The description opens on hover,
  * focus or tap, and closes with Escape, a second tap or a tap elsewhere.
  */
-function InfoTip({ name, text }: { name: string; text: string }) {
+export function InfoTip({ name, text }: { name: string; text: string }) {
   const [pinned, setPinned] = useState(false);
   const [hover, setHover] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);

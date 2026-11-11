@@ -14,6 +14,7 @@ import { GroupsPage } from "./GroupsPage";
 import { IncidentDetailPage, IncidentNewPage, IncidentsPage } from "./incidents";
 import { MaintenanceDetailPage, MaintenanceNewPage, MaintenancesPage } from "./maintenances";
 import { OverviewPage } from "./OverviewPage";
+import { AdminPresenceBeacon, PresenceChip, PresenceProvider } from "./presence";
 import { SubscriptionsPage } from "./SubscriptionsPage";
 import { TeamsPage } from "./TeamsPage";
 import { TemplatesPage } from "./TemplatesPage";
@@ -188,6 +189,23 @@ function Route({ pathname }: { pathname: string }) {
   );
 }
 
+/**
+ * Name of the current screen as other administrators see it in "Usuários no
+ * admin" (menu label; detail pages also show their heading).
+ */
+function currentScreen(pathname: string): { screen: string; detail: boolean } {
+  const p = pathname.replace(/\/$/, "");
+  if (p === "/admin") return { screen: "Visão geral", detail: false };
+  if (p === "/admin/account") return { screen: "Minha conta", detail: false };
+  let best: NavItem | undefined;
+  for (const g of NAV_GROUPS) {
+    for (const n of g.items) {
+      if ((p === n.to || p.startsWith(n.to + "/")) && (!best || n.to.length > best.to.length)) best = n;
+    }
+  }
+  return best ? { screen: best.label, detail: p !== best.to } : { screen: "Administração", detail: false };
+}
+
 function AdminShell() {
   const { pathname } = useLocation();
   const { me, can, logout } = useAuth();
@@ -196,8 +214,10 @@ function AdminShell() {
     const p = pathname.replace(/\/$/, "");
     return to === "/admin" ? p === "/admin" : p === to || p.startsWith(to + "/");
   };
+  const { screen, detail } = currentScreen(pathname);
   return (
     <div className="admin">
+      <AdminPresenceBeacon screen={screen} detail={detail} pathname={pathname} />
       <a className="skip-link" href="#admin-main">
         Pular para o conteúdo
       </a>
@@ -212,6 +232,7 @@ function AdminShell() {
           <div className="admin-user" aria-label="Usuário conectado">
             <strong>{me.user.name}</strong>
             <span className="muted small">{me.is_admin ? "Administrador" : me.user.roles.map((r) => r.name).join(", ") || "Somente leitura"}</span>
+            <PresenceChip />
             <span className="admin-user-actions">
               <Link to="/admin/account">Minha conta</Link>
               <button type="button" className="link-button" onClick={() => void logout()}>
@@ -236,7 +257,9 @@ function AdminShell() {
 export function AdminApp() {
   return (
     <AuthGate>
-      <AdminShell />
+      <PresenceProvider>
+        <AdminShell />
+      </PresenceProvider>
     </AuthGate>
   );
 }

@@ -19,6 +19,7 @@ const (
 	PermTeamsManage          Permission = "teams.manage"
 	PermSubscriptionsManage  Permission = "subscriptions.manage"
 	PermAuditRead            Permission = "audit.read"
+	PermPresenceRead         Permission = "presence.read"
 	PermUsersManage          Permission = "users.manage"
 	PermRolesManage          Permission = "roles.manage"
 )
@@ -50,6 +51,7 @@ var Catalogue = []PermissionInfo{
 	{PermTeamsManage, "Administração", "Gerenciar times", "Cria e edita times responsáveis (tipo, documentação, suporte).", false, false},
 	{PermSubscriptionsManage, "Administração", "Gerenciar inscrições", "Consulta e remove inscritos; cria integrações por webhook e Slack.", false, false},
 	{PermAuditRead, "Administração", "Consultar histórico operacional", "Lê o registro de alterações (auditoria).", false, false},
+	{PermPresenceRead, "Administração", "Ver acessos em tempo real", "Vê quantos visitantes estão na página pública e quais usuários estão no admin agora.", false, false},
 	{PermUsersManage, "Administração", "Gerenciar usuários", "Cria usuários, atribui papéis e times, redefine senhas e desativa contas.", true, false},
 	{PermRolesManage, "Administração", "Gerenciar papéis", "Cria e edita papéis e suas permissões.", true, false},
 }

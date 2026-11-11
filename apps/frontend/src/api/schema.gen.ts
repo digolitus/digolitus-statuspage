@@ -5,6 +5,14 @@ export type Accepted = {
   message: string;
 };
 
+export type AdminPresenceBeat = {
+  /** Rótulo da tela (ex.: Incidentes › Lentidão no checkout). */
+  area: string;
+  tab_id: string;
+  /** Aba em segundo plano. */
+  hidden?: boolean;
+};
+
 export type Announcement = {
   archived_at: NullableTimestamp;
   /** Texto com formatação leve: parágrafos, listas com `- `, `**negrito**` e links `[texto](https://...)`. */
@@ -731,10 +739,47 @@ export type PermissionInfo = {
   sensitive: boolean;
 };
 
-export type PermissionKey = "components.status" | "components.manage" | "third_party.manage" | "incidents.manage" | "maintenances.manage" | "templates.manage" | "announcements.write" | "announcements.publish" | "announcements.settings" | "teams.manage" | "subscriptions.manage" | "audit.read" | "users.manage" | "roles.manage";
+export type PermissionKey = "components.status" | "components.manage" | "third_party.manage" | "incidents.manage" | "maintenances.manage" | "templates.manage" | "announcements.write" | "announcements.publish" | "announcements.settings" | "teams.manage" | "subscriptions.manage" | "audit.read" | "presence.read" | "users.manage" | "roles.manage";
 
 export type PermissionList = {
   data: PermissionInfo[];
+};
+
+export type PresenceArea = "status" | "incident" | "maintenance" | "announcements" | "subscriptions" | "other";
+
+export type PresenceSnapshot = {
+  admin: {
+    total: number;
+    /** Um item por usuário (a aba visível mais recente); visíveis primeiro, depois por nome. */
+    users: {
+      area: string;
+      hidden: boolean;
+      id: string;
+      last_seen_at: string;
+      name: string;
+    }[];
+  };
+  generated_at: string;
+  /** Contagens por minuto dos últimos 60 minutos (minutos sem amostra são omitidos). */
+  history: {
+    admin: number;
+    minute: string;
+    public: number;
+  }[];
+  peak_today: {
+    at: string;
+    count: number;
+  } | null;
+  public: {
+    /** Todas as áreas, na ordem de exibição, inclusive com zero. */
+    areas: {
+      area: PresenceArea;
+      count: number;
+    }[];
+    total: number;
+  };
+  /** Por quanto tempo uma aba conta como presente após o último sinal. */
+  window_seconds: number;
 };
 
 export type PublicAnnouncement = {
@@ -847,6 +892,12 @@ export type PublicMaintenance = {
 export type PublicMaintenanceList = {
   data: PublicMaintenance[];
   pagination: Pagination;
+};
+
+export type PublicPresenceBeat = {
+  area: PresenceArea;
+  /** Identificador aleatório da aba (sessionStorage). */
+  tab_id: string;
 };
 
 export type PublicThirdPartySource = {

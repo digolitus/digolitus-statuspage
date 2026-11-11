@@ -66,7 +66,7 @@ export const adminMe: Me = {
   },
   permissions: [
     "components.status", "components.manage", "third_party.manage", "incidents.manage", "maintenances.manage", "templates.manage",
-    "announcements.write", "announcements.publish", "announcements.settings", "teams.manage", "subscriptions.manage", "audit.read", "users.manage", "roles.manage",
+    "announcements.write", "announcements.publish", "announcements.settings", "teams.manage", "subscriptions.manage", "audit.read", "presence.read", "users.manage", "roles.manage",
   ],
   team_permissions: [],
   is_admin: true,

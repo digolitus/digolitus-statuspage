@@ -81,6 +81,12 @@ tags:
     description: Inscritos e integrações (webhook/Slack) criadas pela administração.
   - name: admin-audit
     description: Histórico operacional (auditoria). Requer sessão e permissão.
+  - name: presence
+    description: |
+      Quem está acessando agora (ADR 0018). Cada aba aberta envia um sinal a cada minuto enquanto está visível; a
+      aba conta como presente por 2 minutos após o último sinal. Visitantes públicos são anônimos: a aba envia um
+      identificador aleatório, guardado apenas como hash SHA-256, sem IP, user agent ou cookie. Desligado com
+      `PRESENCE_ENABLED=false` (as rotas deixam de existir).
 
 paths:
   /healthz:
@@ -182,6 +188,24 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Uptime' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/presence:
+    post:
+      tags: [presence]
+      operationId: postPublicPresence
+      security: []
+      summary: Sinal de presença de um visitante anônimo
+      description: |
+        Enviado pela página pública a cada minuto enquanto a aba está visível. Sem efeito visível para o visitante.
+        Abas novas acima do limite por processo são ignoradas silenciosamente (resposta 204 mesmo assim).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PublicPresenceBeat' }
+      responses:
+        '204': { description: Sinal registrado. }
         '422': { $ref: '#/components/responses/ValidationError' }
         '500': { $ref: '#/components/responses/InternalError' }
   /api/v1/incidents:
@@ -2364,6 +2388,47 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/presence:
+    post:
+      tags: [presence]
+      operationId: postAdminPresence
+      summary: Sinal de presença de um usuário no admin
+      description: |
+        Enviado por cada aba do admin a cada minuto, inclusive em segundo plano (`hidden: true`). `area` é o rótulo da
+        tela, exibido a quem tem `presence.read`. Qualquer usuário autenticado.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminPresenceBeat' }
+      responses:
+        '204': { description: Sinal registrado. }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    get:
+      tags: [presence]
+      operationId: getPresence
+      summary: Quem está acessando agora
+      description: |
+        Visitantes da página pública por área, usuários com o admin aberto, contagens por minuto da última hora e o
+        pico de visitantes públicos do dia em `timezone`. Contagem aproximada. Requer `presence.read`.
+      parameters:
+        - name: timezone
+          in: query
+          description: 'Fuso IANA para o início do dia do pico. Padrão: UTC.'
+          schema: { type: string, maxLength: 64, example: America/Sao_Paulo }
+      responses:
+        '200':
+          description: Situação atual.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PresenceSnapshot' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
   /api/v1/admin/status-history:
     get:
       tags: [admin-components]
@@ -3317,6 +3382,85 @@ components:
           type: object
           description: Valores relevantes anteriores (`before`) e posteriores (`after`).
           additionalProperties: true
+    PublicPresenceBeat:
+      type: object
+      additionalProperties: false
+      required: [tab_id, area]
+      properties:
+        tab_id: { type: string, pattern: '^[A-Za-z0-9_-]{16,64}$', description: Identificador aleatório da aba (sessionStorage). }
+        area: { $ref: '#/components/schemas/PresenceArea' }
+    PresenceArea:
+      type: string
+      enum: [status, incident, maintenance, announcements, subscriptions, other]
+    AdminPresenceBeat:
+      type: object
+      additionalProperties: false
+      required: [tab_id, area]
+      properties:
+        tab_id: { type: string, pattern: '^[A-Za-z0-9_-]{16,64}$' }
+        area: { type: string, minLength: 1, maxLength: 120, description: 'Rótulo da tela (ex.: Incidentes › Lentidão no checkout).' }
+        hidden: { type: boolean, default: false, description: Aba em segundo plano. }
+    PresenceSnapshot:
+      type: object
+      additionalProperties: false
+      required: [window_seconds, public, admin, history, peak_today, generated_at]
+      properties:
+        window_seconds: { type: integer, description: Por quanto tempo uma aba conta como presente após o último sinal. }
+        public:
+          type: object
+          additionalProperties: false
+          required: [total, areas]
+          properties:
+            total: { type: integer, minimum: 0 }
+            areas:
+              type: array
+              description: Todas as áreas, na ordem de exibição, inclusive com zero.
+              items:
+                type: object
+                additionalProperties: false
+                required: [area, count]
+                properties:
+                  area: { $ref: '#/components/schemas/PresenceArea' }
+                  count: { type: integer, minimum: 0 }
+        admin:
+          type: object
+          additionalProperties: false
+          required: [total, users]
+          properties:
+            total: { type: integer, minimum: 0 }
+            users:
+              type: array
+              description: Um item por usuário (a aba visível mais recente); visíveis primeiro, depois por nome.
+              items:
+                type: object
+                additionalProperties: false
+                required: [id, name, area, hidden, last_seen_at]
+                properties:
+                  id: { type: string, format: uuid }
+                  name: { type: string }
+                  area: { type: string }
+                  hidden: { type: boolean }
+                  last_seen_at: { type: string, format: date-time }
+        history:
+          type: array
+          description: Contagens por minuto dos últimos 60 minutos (minutos sem amostra são omitidos).
+          items:
+            type: object
+            additionalProperties: false
+            required: [minute, public, admin]
+            properties:
+              minute: { type: string, format: date-time }
+              public: { type: integer, minimum: 0 }
+              admin: { type: integer, minimum: 0 }
+        peak_today:
+          type: object
+          nullable: true
+          additionalProperties: false
+          required: [count, at]
+          properties:
+            count: { type: integer, minimum: 0 }
+            at: { type: string, format: date-time }
+        generated_at: { type: string, format: date-time }
     AuditEventList:
       type: object
       additionalProperties: false
@@ -3723,7 +3867,7 @@ components:
 
     PermissionKey:
       type: string
-      enum: [components.status, components.manage, third_party.manage, incidents.manage, maintenances.manage, templates.manage, announcements.write, announcements.publish, announcements.settings, teams.manage, subscriptions.manage, audit.read, users.manage, roles.manage]
+      enum: [components.status, components.manage, third_party.manage, incidents.manage, maintenances.manage, templates.manage, announcements.write, announcements.publish, announcements.settings, teams.manage, subscriptions.manage, audit.read, presence.read, users.manage, roles.manage]
     RoleScope:
       type: string
       enum: [global, team]

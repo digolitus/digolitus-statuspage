@@ -42,6 +42,8 @@ type Config struct {
 	NotifyAllowPrivate bool
 	// Social sign-in for existing admin users.
 	OAuth OAuth
+	// Presence: anonymous count of who is on the public page and admin now.
+	PresenceEnabled bool
 }
 
 // OAuth configures social sign-in. Each provider is enabled when all of its
@@ -159,6 +161,7 @@ func FromLookup(lookup func(string) (string, bool)) (Config, error) {
 		errs = append(errs, errors.New("PUBLIC_BASE_URL must be an absolute http(s) URL, e.g. https://status.example.com"))
 	}
 	parseBool("NOTIFY_WORKER", "true", &cfg.NotifyWorker)
+	parseBool("PRESENCE_ENABLED", "true", &cfg.PresenceEnabled)
 	parseBool("NOTIFY_ALLOW_PRIVATE_NETWORKS", "false", &cfg.NotifyAllowPrivate)
 	notifyInterval, err := time.ParseDuration(get("NOTIFY_INTERVAL", "10s"))
 	if err != nil || notifyInterval < time.Second || notifyInterval > 5*time.Minute {

@@ -8,6 +8,8 @@ import type {
   AnnouncementPatch,
   AnnouncementState,
   AuditEvent,
+  PresenceArea,
+  PresenceSnapshot,
   LoginProvider,
   Me,
   PermissionInfo,
@@ -97,6 +99,14 @@ export const publicApi = {
     request<PublicAnnouncement>("GET", `/api/v1/announcements/${encodeURIComponent(id)}`, o),
   announcementCategories: (o: Signal = {}) =>
     request<{ data: PublicAnnouncementCategory[] }>("GET", "/api/v1/announcement-categories", o),
+};
+
+/** Heartbeats of "who is here now" (no cookie; tab_id is random per tab). */
+export const presenceApi = {
+  public: (tabId: string, area: PresenceArea) =>
+    request<void>("POST", "/api/v1/presence", { body: { tab_id: tabId, area } }),
+  admin: (tabId: string, area: string, hidden: boolean) =>
+    request<void>("POST", "/api/v1/admin/presence", { body: { tab_id: tabId, area, hidden } }),
 };
 
 const S = "/api/v1/subscriptions";
@@ -268,6 +278,8 @@ export const adminApi = {
     list: (query: ListQuery & { component_id?: string; cause_type?: StatusChangeCause }, o: Signal = {}) =>
       request<Page<StatusChange>>("GET", `${A}/status-history`, { ...o, query }),
   },
+  presence: (timezone: string, o: Signal = {}) =>
+    request<PresenceSnapshot>("GET", `${A}/presence`, { ...o, query: { timezone } }),
   audit: {
     list: (
       query: ListQuery & { resource_type?: string; resource_id?: string; action?: string },

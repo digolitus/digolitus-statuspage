@@ -4,6 +4,7 @@ import { formatDateTime, overallLabel, toneForStatus } from "../lib/format";
 import { Link } from "../lib/router";
 import { useApi } from "../lib/useApi";
 import { useAuth } from "./authContext";
+import { PresencePanel } from "./presence";
 import { PageHeader } from "./shared";
 
 export function OverviewPage() {
@@ -62,6 +63,7 @@ export function OverviewPage() {
               <strong>{state.data.totalComponents}</strong>
             </Link>
           </div>
+          <PresencePanel />
           {state.data.audit && (
             <>
           <h2>Alterações recentes</h2>

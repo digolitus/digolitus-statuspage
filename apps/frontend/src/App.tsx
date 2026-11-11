@@ -4,6 +4,8 @@ import { IncidentPage, MaintenancePage } from "./public/DetailPages";
 import { PublicLayout } from "./public/PublicLayout";
 import { StatusPage } from "./public/StatusPage";
 import { SubscriptionConfirmPage, SubscriptionManagePage } from "./public/Subscribe";
+import { presenceApi } from "./api/endpoints";
+import { publicArea, tabId, usePresenceBeacon } from "./lib/presence";
 import { match, useLocation } from "./lib/router";
 
 /**
@@ -30,5 +32,17 @@ export default function App() {
   } else if ((params = match("/announcements/:id", pathname))) {
     content = <AnnouncementDetailPage key={params.id} id={params.id} />;
   }
-  return <PublicLayout>{content}</PublicLayout>;
+  return (
+    <PublicLayout>
+      <PublicPresence pathname={pathname} />
+      {content}
+    </PublicLayout>
+  );
+}
+
+/** Anonymous "someone is looking" heartbeat; renders nothing. */
+function PublicPresence({ pathname }: { pathname: string }) {
+  const area = publicArea(pathname);
+  usePresenceBeacon(() => presenceApi.public(tabId(), area), area);
+  return null;
 }

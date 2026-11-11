@@ -176,6 +176,7 @@ func run(args []string) error {
 		Poster:           subscription.NewHTTPPoster(10*time.Second, cfg.NotifyAllowPrivate),
 		PublicBaseURL:    cfg.PublicBaseURL,
 		SiteName:         cfg.SiteName,
+		PresenceEnabled:  cfg.PresenceEnabled,
 	})
 	if !cfg.AdminAPIEnabled {
 		log.Info("admin API disabled (ADMIN_API_ENABLED=false): serving public endpoints only")
@@ -205,6 +206,10 @@ func run(args []string) error {
 	if cfg.NotifyWorker {
 		go subscription.NewWorker(application.Subscriptions, log).Run(ctx, cfg.NotifyInterval)
 		log.Info("notification worker enabled", "interval", cfg.NotifyInterval.String())
+	}
+	if application.Presence != nil {
+		go application.Presence.Run(ctx, log)
+		log.Info("presence counter enabled (PRESENCE_ENABLED=false turns it off)")
 	}
 	if cfg.ExternalSync {
 		go external.NewPoller(application.External, log).Run(ctx)

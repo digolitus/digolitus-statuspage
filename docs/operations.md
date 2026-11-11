@@ -128,6 +128,7 @@ SMTP_FROM="Status Empresa <status@empresa.com>"
 **Entrega.**
 
 - O worker (`NOTIFY_WORKER=true`, a cada `NOTIFY_INTERVAL`, padrão `10s`) envia as mensagens registradas na mesma transação de cada publicação. Ele pode rodar em várias réplicas.
+- Presença ("quem está acessando agora", [ADR 0018](adr/0018-active-visitors.md)): ligada por padrão (`PRESENCE_ENABLED`). Cada réplica grava a contagem por minuto e apaga sinais com mais de 10 min. Não guarda IP nem cookie.
 - Falhas são repetidas com backoff. Webhook ou Slack com 15 falhas seguidas é desativado, e o motivo aparece em *Inscrições*.
 - Webhooks em rede privada exigem `NOTIFY_ALLOW_PRIVATE_NETWORKS=true`.
 

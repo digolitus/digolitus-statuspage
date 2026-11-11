@@ -47,7 +47,7 @@ func TestRoutesMatchSpec(t *testing.T) {
 			documented[strings.ToUpper(method)+" "+path] = true
 		}
 	}
-	application := New(nil, Options{AdminAPIEnabled: true})
+	application := New(nil, Options{AdminAPIEnabled: true, PresenceEnabled: true})
 	implemented := map[string]bool{}
 	for _, r := range application.Router.Routes() {
 		implemented[r.Method+" "+r.Path] = true

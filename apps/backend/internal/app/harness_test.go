@@ -168,7 +168,7 @@ func newBareHarnessWith(t *testing.T, adjust func(*Options)) *harness {
 	fc := &fakeClock{now: epoch}
 	ff := &fakeFetcher{snaps: map[string]external.Snapshot{}, errs: map[string]error{}}
 	fm, fp := &fakeMailer{}, &fakePoster{}
-	opts := Options{AdminAPIEnabled: true, Clock: func() time.Time { return clock.Normalize(fc.Now()) },
+	opts := Options{AdminAPIEnabled: true, PresenceEnabled: true, Clock: func() time.Time { return clock.Normalize(fc.Now()) },
 		ExternalFetcher: ff, ExternalInterval: 2 * time.Minute, Mailer: fm, Poster: fp, PublicBaseURL: publicBaseURL, SiteName: "Status Teste", Auth: auth.Config{CookieSecure: true, SessionTTL: 72 * time.Hour, IdleTimeout: 24 * time.Hour}}
 	if adjust != nil {
 		adjust(&opts)

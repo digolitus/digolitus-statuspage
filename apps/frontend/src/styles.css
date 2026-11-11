@@ -2761,3 +2761,306 @@ button.uptime-day:focus-visible,
   margin: 8px 0 0 18px;
   font-size: 13px;
 }
+
+/* Presence: "who is here now" (overview panel and sidebar counter). */
+.presence-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 0 0 rgba(23, 120, 79, 0.45);
+  animation: presence-pulse 2s infinite;
+}
+
+@keyframes presence-pulse {
+  70% {
+    box-shadow: 0 0 0 7px rgba(23, 120, 79, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(23, 120, 79, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .presence-dot {
+    animation: none;
+  }
+}
+
+.presence-chip-wrap {
+  position: relative;
+  margin-top: 8px;
+}
+
+.presence-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  background: var(--surface);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.presence-pop {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  left: 0;
+  display: grid;
+  gap: 6px;
+  width: min(260px, 80vw);
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font-size: 14px;
+}
+
+.presence-pop p {
+  display: flex;
+  justify-content: space-between;
+  margin: 0;
+}
+
+.presence-pop strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.presence-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  margin-bottom: 28px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.presence-col {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px 18px;
+}
+
+.presence-col + .presence-col {
+  border-left: 1px solid var(--line);
+}
+
+.presence-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.presence-head h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 15px;
+}
+
+.presence-head small,
+.presence-spark-cap,
+.presence-when {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.presence-big {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+}
+
+.presence-big strong {
+  color: var(--ink);
+  font-size: 36px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.presence-big span {
+  color: var(--muted);
+}
+
+.presence-spark {
+  display: block;
+  width: 100%;
+  height: 46px;
+}
+
+.presence-spark-base {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.presence-spark-area {
+  fill: var(--brand-soft);
+}
+
+.presence-spark-line {
+  fill: none;
+  stroke: var(--brand);
+  stroke-width: 2;
+}
+
+.presence-spark-cap {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  margin: 2px 0 0;
+}
+
+.presence-areas,
+.presence-people {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.presence-areas li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+}
+
+.presence-areas strong {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.presence-area-label {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.presence-bar {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--neutral-bg);
+}
+
+.presence-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--brand);
+}
+
+.presence-people {
+  gap: 0;
+}
+
+.presence-people li {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+
+.presence-people li:first-child {
+  border-top: none;
+}
+
+.presence-avatar {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  color: var(--brand);
+  background: var(--brand-soft);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.presence-avatar::after {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--surface);
+  border-radius: 50%;
+  background: var(--ok);
+  content: "";
+}
+
+.presence-avatar.idle::after {
+  background: var(--neutral);
+}
+
+.presence-who {
+  display: grid;
+  min-width: 0;
+}
+
+.presence-who strong,
+.presence-who span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.presence-who strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.presence-who > span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.presence-you {
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  color: var(--info);
+  background: var(--info-bg);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+
+.presence-error {
+  margin-bottom: 28px;
+}
+
+@media (max-width: 760px) {
+  .presence-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .presence-col + .presence-col {
+    border-top: 1px solid var(--line);
+    border-left: none;
+  }
+}

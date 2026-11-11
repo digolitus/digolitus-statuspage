@@ -21,6 +21,7 @@ import (
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/maintenance"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/clock"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/httpx"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/presence"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/statushistory"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/statuspage"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/subscription"
@@ -44,6 +45,9 @@ type Options struct {
 	Poster        subscription.Poster
 	PublicBaseURL string
 	SiteName      string
+	// PresenceEnabled turns on the "who is here now" heartbeats and admin
+	// panel. It needs the admin API: without it nobody could read the count.
+	PresenceEnabled bool
 }
 
 // App exposes the handler, its route registry and the third-party service
@@ -54,6 +58,9 @@ type App struct {
 	External      *external.Service
 	Auth          *auth.Service
 	Subscriptions *subscription.Service
+	// Presence is nil when presence is disabled; otherwise the caller runs
+	// its sampler (Presence.Run).
+	Presence *presence.Service
 }
 
 // New builds the application.
@@ -105,6 +112,13 @@ func New(pool *pgxpool.Pool, opts Options) *App {
 	// session is required and the route's permissions come from
 	// adminPolicy (routes missing there are denied).
 	authSvc := auth.NewService(pool, now, opts.Auth)
+	var presenceSvc *presence.Service
+	var presenceHandler *presence.Handler
+	if opts.PresenceEnabled && opts.AdminAPIEnabled {
+		presenceSvc = presence.NewService(pool, now)
+		presenceHandler = presence.NewHandler(presenceSvc)
+		presenceHandler.RegisterPublic(rt)
+	}
 	if opts.AdminAPIEnabled {
 		authHandler := auth.NewHandler(authSvc)
 		authHandler.RegisterAuth(rt)
@@ -123,9 +137,12 @@ func New(pool *pgxpool.Pool, opts Options) *App {
 		external.NewHandler(externalSvc).Register(rt, admin)
 		announcementHandler.RegisterAdmin(rt, admin)
 		subscriptionHandler.RegisterAdmin(rt, admin)
+		if presenceHandler != nil {
+			presenceHandler.RegisterAdmin(rt, admin)
+		}
 	}
 
-	return &App{Router: rt, Handler: httpx.Chain(rt, opts.RequestTimeout), External: externalSvc, Auth: authSvc, Subscriptions: subscriptionSvc}
+	return &App{Router: rt, Handler: httpx.Chain(rt, opts.RequestTimeout), External: externalSvc, Auth: authSvc, Subscriptions: subscriptionSvc, Presence: presenceSvc}
 }
 
 type healthBody struct {
