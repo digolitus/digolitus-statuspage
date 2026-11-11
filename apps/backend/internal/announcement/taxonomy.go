@@ -15,6 +15,7 @@ import (
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/apperror"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/audit"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/component"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/department"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/database"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/httpx"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/optional"
@@ -59,6 +60,8 @@ type Team struct {
 	// Tags are free labels (e.g. "pagamentos", "on-call 24x7").
 	Tags     []string `json:"tags"`
 	IsActive bool     `json:"is_active"`
+	// DepartmentID places the team in the optional hierarchy (ADR 0017).
+	DepartmentID *string `json:"department_id"`
 	// Usage counts. A team in use (announcements, components, groups) is
 	// deactivated rather than deleted; members are simply removed.
 	AnnouncementCount int       `json:"announcement_count"`
@@ -84,6 +87,8 @@ type TeamInput struct {
 	// Tags replace the current list when present.
 	Tags     *[]string `json:"tags"`
 	IsActive *bool     `json:"is_active"`
+	// DepartmentID: null removes the team from its department.
+	DepartmentID optional.Nullable[string] `json:"department_id"`
 }
 
 // Tag limits.
@@ -198,6 +203,15 @@ func (in TeamInput) apply(t Team, create bool) (Team, error) {
 		t.IsActive = *in.IsActive
 		changed = true
 	}
+	if in.DepartmentID.Set {
+		t.DepartmentID = nil
+		if p := in.DepartmentID.Value; p != nil {
+			id := strings.ToLower(strings.TrimSpace(*p))
+			v.Check(httpx.IsUUID(id), "department_id", "Identificador inválido.")
+			t.DepartmentID = &id
+		}
+		changed = true
+	}
 	if !create && !changed {
 		return t, apperror.Invalid("empty_update", "Informe ao menos um campo para atualizar.")
 	}
@@ -214,7 +228,7 @@ func scanCategory(row pgx.Row) (Category, error) {
 	return c, err
 }
 
-const teamColumns = `id, name, kind, description, documentation_url, support_url, tags, is_active,
+const teamColumns = `id, name, kind, description, documentation_url, support_url, tags, is_active, department_id,
 	(SELECT count(*) FROM announcements a WHERE a.team_id = teams.id)::int,
 	(SELECT count(*) FROM components c WHERE c.team_id = teams.id)::int,
 	(SELECT count(*) FROM component_groups g WHERE g.team_id = teams.id)::int,
@@ -222,7 +236,7 @@ const teamColumns = `id, name, kind, description, documentation_url, support_url
 
 func scanTeam(row pgx.Row) (Team, error) {
 	var t Team
-	err := row.Scan(&t.ID, &t.Name, &t.Kind, &t.Description, &t.DocumentationURL, &t.SupportURL, &t.Tags, &t.IsActive,
+	err := row.Scan(&t.ID, &t.Name, &t.Kind, &t.Description, &t.DocumentationURL, &t.SupportURL, &t.Tags, &t.IsActive, &t.DepartmentID,
 		&t.AnnouncementCount, &t.ComponentCount, &t.GroupCount, &t.MemberCount, &t.CreatedAt, &t.UpdatedAt)
 	t.CreatedAt, t.UpdatedAt = t.CreatedAt.UTC(), t.UpdatedAt.UTC()
 	return t, err
@@ -276,6 +290,16 @@ func listTeams(ctx context.Context, q database.Querier, active *bool) ([]Team, e
 		return nil, fmt.Errorf("list teams: %w", err)
 	}
 	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (Team, error) { return scanTeam(r) })
+}
+
+// unknownDepartment maps a team pointing at a missing department to a
+// field error.
+func unknownDepartment(err error) error {
+	if department.IsUnknownDepartment(err) {
+		return &apperror.Error{Kind: apperror.KindInvalid, Code: "validation_failed", Message: "Os dados enviados são inválidos.",
+			Fields: []apperror.FieldError{{Field: "department_id", Message: "O departamento não existe."}}}
+	}
+	return err
 }
 
 func nameConflict(err error, constraint, code, message string) error {
@@ -378,9 +402,10 @@ func (s *Service) CreateTeam(ctx context.Context, in TeamInput) (Team, error) {
 		} else if n >= maxTaxonomy {
 			return apperror.Conflict("team_limit", "Limite de 100 times atingido. Desative ou reutilize times existentes.")
 		}
-		created, err = scanTeam(tx.QueryRow(ctx, `INSERT INTO teams (name, kind, description, documentation_url, support_url, tags, is_active, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8) RETURNING `+teamColumns, t.Name, t.Kind, t.Description, t.DocumentationURL, t.SupportURL, t.Tags, t.IsActive, now))
+		created, err = scanTeam(tx.QueryRow(ctx, `INSERT INTO teams (name, kind, description, documentation_url, support_url, tags, is_active, department_id, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $9, $8, $8) RETURNING `+teamColumns, t.Name, t.Kind, t.Description, t.DocumentationURL, t.SupportURL, t.Tags, t.IsActive, now, t.DepartmentID))
 		if err != nil {
+			err = unknownDepartment(err)
 			return nameConflict(err, "teams_name_key", "team_name_conflict", "Já existe um time com este nome.")
 		}
 		return audit.Record(ctx, tx, audit.ResourceTeam, created.ID, "created", audit.Changes{After: created}, now)
@@ -402,9 +427,10 @@ func (s *Service) UpdateTeam(ctx context.Context, id string, in TeamInput) (Team
 		}
 		now := s.now()
 		updated, err = scanTeam(tx.QueryRow(ctx, `UPDATE teams SET name = $2, kind = $3, description = $4, documentation_url = $5,
-			support_url = $6, is_active = $7, updated_at = $8, tags = $9 WHERE id = $1 RETURNING `+teamColumns,
-			id, next.Name, next.Kind, next.Description, next.DocumentationURL, next.SupportURL, next.IsActive, now, next.Tags))
+			support_url = $6, is_active = $7, updated_at = $8, tags = $9, department_id = $10 WHERE id = $1 RETURNING `+teamColumns,
+			id, next.Name, next.Kind, next.Description, next.DocumentationURL, next.SupportURL, next.IsActive, now, next.Tags, next.DepartmentID))
 		if err != nil {
+			err = unknownDepartment(err)
 			return nameConflict(err, "teams_name_key", "team_name_conflict", "Já existe um time com este nome.")
 		}
 		return audit.Record(ctx, tx, audit.ResourceTeam, id, "updated", audit.Diff(current, updated), now)

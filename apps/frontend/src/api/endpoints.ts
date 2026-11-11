@@ -74,6 +74,10 @@ import type {
   Uptime,
   TeamCreate,
   TeamPatch,
+  Department,
+  DepartmentCreate,
+  DepartmentPatch,
+  DepartmentLevels,
   SubscribeInput,
   Subscription,
   SubscriptionAdminCreate,
@@ -277,6 +281,14 @@ export const adminApi = {
     create: (body: TeamCreate) => request<Team>("POST", `${A}/teams`, { body }),
     update: (tid: string, body: TeamPatch) => request<Team>("PATCH", `${A}/teams/${id(tid)}`, { body }),
     remove: (tid: string) => request<void>("DELETE", `${A}/teams/${id(tid)}`),
+  },
+  departments: {
+    list: (o: Signal = {}) => request<{ data: Department[] }>("GET", `${A}/departments`, o),
+    create: (body: DepartmentCreate) => request<Department>("POST", `${A}/departments`, { body }),
+    update: (did: string, body: DepartmentPatch) => request<Department>("PATCH", `${A}/departments/${id(did)}`, { body }),
+    remove: (did: string) => request<void>("DELETE", `${A}/departments/${id(did)}`),
+    levels: (o: Signal = {}) => request<DepartmentLevels>("GET", `${A}/department-levels`, o),
+    setLevels: (body: DepartmentLevels) => request<DepartmentLevels>("PUT", `${A}/department-levels`, { body }),
   },
   subscriptions: {
     list: (query: ListQuery & { channel?: SubscriptionChannel; status?: SubscriptionStatus; q?: string }, o: Signal = {}) =>

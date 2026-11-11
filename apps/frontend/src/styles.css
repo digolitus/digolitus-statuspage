@@ -3212,3 +3212,121 @@ button.uptime-day:focus-visible,
   font-size: 11px;
   font-weight: 500;
 }
+
+/* Departments (ADR 0017) */
+.dept-levels {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+.dept-level {
+  font-weight: 600;
+  color: #fff;
+}
+.dept-level-1 { background: var(--brand, #197552); }
+.dept-level-2 { background: #2f6fb0; }
+.dept-level-3 { background: #8a5a00; }
+.dept-level-4 { background: #6b3fa0; }
+.dept-tree {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.dept-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid var(--line);
+}
+.dept-tools input {
+  max-width: 280px;
+  height: var(--control-h);
+  padding: 0 10px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-sm);
+  font: inherit;
+}
+.dept-rows,
+.dept-leaves {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.dept-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-top: 1px solid var(--line);
+}
+.dept-rows > li:first-child > .dept-row {
+  border-top: 0;
+}
+.dept-meta {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+.dept-toggle {
+  width: 1.2rem;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0;
+}
+.dept-toggle:disabled {
+  cursor: default;
+}
+.dept-avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 50%;
+  font-size: 0.65rem;
+  font-weight: 700;
+  background: color-mix(in srgb, #6b3fa0 15%, transparent);
+  color: #6b3fa0;
+}
+.dept-avatar-team {
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--brand, #197552) 15%, transparent);
+  color: var(--brand, #197552);
+}
+.dept-loose {
+  background: color-mix(in srgb, var(--muted) 8%, transparent);
+}
+.dept-form {
+  padding: 0.75rem;
+  border-top: 1px solid var(--line);
+}
+.dept-crumb {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  align-items: center;
+  margin: 0 0 0.2rem;
+  color: var(--muted);
+}
+.dept-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  list-style: none;
+  margin: 0 0 0.4rem;
+  padding: 0;
+}
+.dept-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.1rem 0.25rem 0.1rem 0.6rem;
+}

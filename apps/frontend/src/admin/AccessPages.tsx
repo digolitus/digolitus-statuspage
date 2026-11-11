@@ -5,6 +5,7 @@ import { Badge, ConfirmButton, EmptyState, ErrorPanel, Field, Loading } from "..
 import { formatDateTime, isFuture } from "../lib/format";
 import { useApi } from "../lib/useApi";
 import { useAuth } from "./authContext";
+import { DepartmentPicker, useDepartments } from "./departments";
 import { FormStatus, PageHeader, requireText, useSubmit, useTeams } from "./shared";
 
 const MIN_PASSWORD = 12;
@@ -189,11 +190,15 @@ function NewUserForm({ roles, teams, allowed, onCreated }: { roles: Role[]; team
   );
 }
 
-function UserItem({ u, roles, teams, allowed, onChanged }: { u: User; roles: Role[]; teams: Team[]; allowed: Set<string>; onChanged: () => void }) {
+type Depts = ReturnType<typeof useDepartments>;
+
+function UserItem({ u, roles, teams, depts, allowed, onChanged }: { u: User; roles: Role[]; teams: Team[]; depts: Depts; allowed: Set<string>; onChanged: () => void }) {
   const { me } = useAuth();
   const [editing, setEditing] = useState(false);
   const [roleIds, setRoleIds] = useState(u.roles.map((r) => r.id));
   const [teamIds, setTeamIds] = useState(u.teams.map((t) => t.id));
+  const [departmentIds, setDepartmentIds] = useState(u.departments.map((d) => d.id));
+  const [jobTitle, setJobTitle] = useState(u.job_title);
   const [password, setPassword] = useState("");
   const submit = useSubmit();
   const self = u.id === me.user.id;
@@ -202,12 +207,17 @@ function UserItem({ u, roles, teams, allowed, onChanged }: { u: User; roles: Rol
     <li className="admin-item">
       <div className="admin-item-head">
         <div>
-          <strong>{u.name}</strong> <span className="muted">{u.email}</span>
+          <strong>{u.name}</strong> {u.job_title && <span className="tag">{u.job_title}</span>} <span className="muted">{u.email}</span>
           <div className="admin-item-tags">
             {u.roles.length === 0 ? <span className="tag">Sem papel (somente leitura)</span> : u.roles.map((r) => <span key={r.id} className="tag">{r.name}</span>)}
             {u.teams.map((t) => (
               <span key={t.id} className="tag tag-team">
                 Time: {t.name}
+              </span>
+            ))}
+            {u.departments.map((d) => (
+              <span key={d.id} className="tag">
+                Depto.: {d.name}
               </span>
             ))}
             {self && <span className="tag">Você</span>}
@@ -245,14 +255,24 @@ function UserItem({ u, roles, teams, allowed, onChanged }: { u: User; roles: Rol
           <div className="picker-row">
             <RolePicker roles={roles} selected={roleIds} allowed={allowed} onChange={setRoleIds} error={submit.fieldErrors.role_ids} />
             <TeamPicker teams={teams} selected={teamIds} onChange={setTeamIds} error={submit.fieldErrors.team_ids} />
+            <DepartmentPicker
+              departments={depts.departments}
+              levels={depts.levels}
+              selected={departmentIds}
+              onChange={setDepartmentIds}
+              error={submit.fieldErrors.department_ids}
+            />
           </div>
+          <Field label="Cargo (opcional)" error={submit.fieldErrors.job_title}>
+            {(p) => <input {...p} value={jobTitle} maxLength={60} placeholder="Ex.: Gerente" onChange={(e) => setJobTitle(e.target.value)} />}
+          </Field>
           <div className="form-actions">
             <button
               type="button"
               className="primary-button"
               disabled={submit.busy}
               onClick={() =>
-                submit.run(() => adminApi.users.update(u.id, { role_ids: roleIds, team_ids: teamIds }), "Acesso atualizado.").then((r) => r && onChanged())
+                submit.run(() => adminApi.users.update(u.id, { role_ids: roleIds, team_ids: teamIds, department_ids: departmentIds, job_title: jobTitle.trim() }), "Acesso atualizado.").then((r) => r && onChanged())
               }
             >
               Salvar acesso
@@ -292,6 +312,7 @@ function UserItem({ u, roles, teams, allowed, onChanged }: { u: User; roles: Rol
 export function UsersPage() {
   const { me, can } = useAuth();
   const teams = useTeams();
+  const depts = useDepartments();
   const data = useApi(async (signal) => {
     const [users, roles] = await Promise.all([adminApi.users.list({ signal }), adminApi.roles.list({ signal })]);
     return { users: users.data, roles: roles.data };
@@ -322,6 +343,7 @@ export function UsersPage() {
                   u={u}
                   roles={data.state.data!.roles}
                   teams={teams}
+                  depts={depts}
                   allowed={grantable(data.state.data!.roles, can, me.is_admin)}
                   onChanged={data.reload}
                 />

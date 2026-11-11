@@ -115,6 +115,10 @@ export type AnnouncementCategoryCreate = S.AnnouncementCategoryCreate;
 export type AnnouncementCategoryPatch = S.AnnouncementCategoryPatch;
 export type TeamCreate = S.TeamCreate;
 export type TeamPatch = S.TeamPatch;
+export type Department = S.Department;
+export type DepartmentCreate = S.DepartmentCreate;
+export type DepartmentPatch = S.DepartmentPatch;
+export type DepartmentLevels = S.DepartmentLevels;
 
 // Authentication and access control.
 export type PermissionKey = S.PermissionKey;

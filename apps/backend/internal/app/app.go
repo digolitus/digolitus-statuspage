@@ -16,6 +16,7 @@ import (
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/audit"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/auth"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/component"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/department"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/docs"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/external"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/incident"
@@ -151,6 +152,7 @@ func New(pool *pgxpool.Pool, opts Options) *App {
 		// The webhook changes status, so a read-only public instance (admin
 		// API disabled) does not accept it either.
 		monitoringHandler.RegisterPublic(rt)
+		department.NewHandler(department.NewService(pool, now)).Register(rt, admin)
 	}
 
 	return &App{Router: rt, Handler: httpx.Chain(rt, opts.RequestTimeout), External: externalSvc, Auth: authSvc, Subscriptions: subscriptionSvc, Presence: presenceSvc}

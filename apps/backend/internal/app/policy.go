@@ -103,6 +103,13 @@ var adminPolicy = auth.Policy{
 	"POST /api/v1/admin/teams":                          perms(auth.PermTeamsManage),
 	"PATCH /api/v1/admin/teams/{id}":                    perms(auth.PermTeamsManage),
 	"DELETE /api/v1/admin/teams/{id}":                   perms(auth.PermTeamsManage),
+	"GET /api/v1/admin/department-levels":               anyUser,
+	"PUT /api/v1/admin/department-levels":               perms(auth.PermTeamsManage),
+	"GET /api/v1/admin/departments":                     anyUser,
+	"GET /api/v1/admin/departments/{id}":                anyUser,
+	"POST /api/v1/admin/departments":                    perms(auth.PermTeamsManage),
+	"PATCH /api/v1/admin/departments/{id}":              perms(auth.PermTeamsManage),
+	"DELETE /api/v1/admin/departments/{id}":             perms(auth.PermTeamsManage),
 
 	"GET /api/v1/admin/subscriptions":            perms(auth.PermSubscriptionsManage),
 	"POST /api/v1/admin/subscriptions":           perms(auth.PermSubscriptionsManage),

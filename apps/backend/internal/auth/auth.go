@@ -205,6 +205,12 @@ type TeamRef struct {
 	Name string `json:"name"`
 }
 
+// DepartmentRef is a department a user is placed in directly (ADR 0017).
+type DepartmentRef struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
 // RoleRef is a role embedded in a user.
 type RoleRef struct {
 	ID       string `json:"id"`
@@ -223,11 +229,15 @@ type User struct {
 	MustChangePassword bool      `json:"must_change_password"`
 	Roles              []RoleRef `json:"roles"`
 	// Teams the user belongs to; team-scoped roles act on their components.
-	Teams       []TeamRef  `json:"teams"`
-	LastLoginAt *time.Time `json:"last_login_at"`
-	LockedUntil *time.Time `json:"locked_until"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+	Teams []TeamRef `json:"teams"`
+	// JobTitle is a free label such as "Gerente" (organisational only).
+	JobTitle string `json:"job_title"`
+	// Departments the user is placed in directly, besides their teams'.
+	Departments []DepartmentRef `json:"departments"`
+	LastLoginAt *time.Time      `json:"last_login_at"`
+	LockedUntil *time.Time      `json:"locked_until"`
+	CreatedAt   time.Time       `json:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at"`
 }
 
 // Role groups permissions.
@@ -267,11 +277,14 @@ const userColumns = `u.id, u.email, u.name, u.is_active, u.must_change_password,
 	COALESCE((SELECT json_agg(json_build_object('id', r.id, 'name', r.name, 'is_system', r.is_system) ORDER BY r.is_system DESC, lower(r.name))
 		FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = u.id), '[]'),
 	COALESCE((SELECT json_agg(json_build_object('id', t.id, 'name', t.name) ORDER BY lower(t.name))
-		FROM user_teams ut JOIN teams t ON t.id = ut.team_id WHERE ut.user_id = u.id), '[]')`
+		FROM user_teams ut JOIN teams t ON t.id = ut.team_id WHERE ut.user_id = u.id), '[]'),
+	u.job_title,
+	COALESCE((SELECT json_agg(json_build_object('id', d.id, 'name', d.name) ORDER BY lower(d.name), d.id)
+		FROM user_departments ud JOIN departments d ON d.id = ud.department_id WHERE ud.user_id = u.id), '[]')`
 
 func scanUser(row pgx.Row) (User, error) {
 	var u User
-	err := row.Scan(&u.ID, &u.Email, &u.Name, &u.IsActive, &u.MustChangePassword, &u.LastLoginAt, &u.LockedUntil, &u.CreatedAt, &u.UpdatedAt, &u.Roles, &u.Teams)
+	err := row.Scan(&u.ID, &u.Email, &u.Name, &u.IsActive, &u.MustChangePassword, &u.LastLoginAt, &u.LockedUntil, &u.CreatedAt, &u.UpdatedAt, &u.Roles, &u.Teams, &u.JobTitle, &u.Departments)
 	u.LastLoginAt, u.LockedUntil = utcPtr(u.LastLoginAt), utcPtr(u.LockedUntil)
 	u.CreatedAt, u.UpdatedAt = u.CreatedAt.UTC(), u.UpdatedAt.UTC()
 	return u, err
@@ -820,6 +833,29 @@ func setUserTeams(ctx context.Context, tx pgx.Tx, userID string, ids []string) e
 	return nil
 }
 
+// setUserDepartments replaces the departments a user is placed in directly.
+func setUserDepartments(ctx context.Context, tx pgx.Tx, userID string, ids []string) error {
+	if _, err := tx.Exec(ctx, "DELETE FROM user_departments WHERE user_id = $1", userID); err != nil {
+		return fmt.Errorf("clear departments: %w", err)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	tag, err := tx.Exec(ctx, "INSERT INTO user_departments (user_id, department_id) SELECT $1, d.id FROM departments d WHERE d.id = ANY($2::uuid[])", userID, ids)
+	if err != nil {
+		return fmt.Errorf("set departments: %w", err)
+	}
+	if int(tag.RowsAffected()) != len(ids) {
+		return &apperror.Error{Kind: apperror.KindInvalid, Code: "validation_failed", Message: "Os dados enviados são inválidos.",
+			Fields: []apperror.FieldError{{Field: "department_ids", Message: "Um ou mais departamentos não existem."}}}
+	}
+	return nil
+}
+
+func checkJobTitle(v *apperror.Validator, t string) {
+	v.Check(utf8.RuneCountInString(t) <= 60, "job_title", "Use no máximo 60 caracteres.")
+}
+
 // ensureAnotherAdmin fails when removing admin rights from userID would
 // leave no active administrator.
 func ensureAnotherAdmin(ctx context.Context, tx pgx.Tx, userID string) error {
@@ -852,15 +888,20 @@ type UserCreate struct {
 	Password string   `json:"password"`
 	RoleIDs  []string `json:"role_ids"`
 	TeamIDs  []string `json:"team_ids"`
+	// Optional organisational data (ADR 0017).
+	JobTitle      string   `json:"job_title"`
+	DepartmentIDs []string `json:"department_ids"`
 }
 
 // UserPatch edits a user; nil fields are unchanged.
 type UserPatch struct {
-	Name     *string   `json:"name"`
-	Email    *string   `json:"email"`
-	IsActive *bool     `json:"is_active"`
-	RoleIDs  *[]string `json:"role_ids"`
-	TeamIDs  *[]string `json:"team_ids"`
+	Name          *string   `json:"name"`
+	Email         *string   `json:"email"`
+	IsActive      *bool     `json:"is_active"`
+	RoleIDs       *[]string `json:"role_ids"`
+	TeamIDs       *[]string `json:"team_ids"`
+	JobTitle      *string   `json:"job_title"`
+	DepartmentIDs *[]string `json:"department_ids"`
 	// Unlock clears a temporary lock caused by failed logins.
 	Unlock *bool `json:"unlock"`
 }
@@ -895,6 +936,9 @@ func (s *Service) CreateUser(ctx context.Context, actor *Principal, in UserCreat
 	CheckPasswordPolicy(&v, "password", in.Password, email)
 	ids := uniqueIDs(&v, "role_ids", in.RoleIDs)
 	teamIDs := uniqueIDs(&v, "team_ids", in.TeamIDs)
+	departmentIDs := uniqueIDs(&v, "department_ids", in.DepartmentIDs)
+	jobTitle := strings.TrimSpace(in.JobTitle)
+	checkJobTitle(&v, jobTitle)
 	if err := v.Err(); err != nil {
 		return User{}, err
 	}
@@ -909,14 +953,17 @@ func (s *Service) CreateUser(ctx context.Context, actor *Principal, in UserCreat
 			return err
 		}
 		var id string
-		if err := tx.QueryRow(ctx, `INSERT INTO users (email, name, password_hash, must_change_password, password_changed_at, created_at, updated_at)
-			VALUES ($1, $2, $3, true, $4, $4, $4) RETURNING id`, email, name, hash, now).Scan(&id); err != nil {
+		if err := tx.QueryRow(ctx, `INSERT INTO users (email, name, password_hash, must_change_password, password_changed_at, created_at, updated_at, job_title)
+			VALUES ($1, $2, $3, true, $4, $4, $4, $5) RETURNING id`, email, name, hash, now, jobTitle).Scan(&id); err != nil {
 			return emailConflict(err)
 		}
 		if err := setUserRoles(ctx, tx, id, ids); err != nil {
 			return err
 		}
 		if err := setUserTeams(ctx, tx, id, teamIDs); err != nil {
+			return err
+		}
+		if err := setUserDepartments(ctx, tx, id, departmentIDs); err != nil {
 			return err
 		}
 		if created, err = getUser(ctx, tx, id, false); err != nil {
@@ -961,9 +1008,17 @@ func (s *Service) UpdateUser(ctx context.Context, actor *Principal, id string, i
 			next.IsActive = *in.IsActive
 			changed = true
 		}
+		if in.JobTitle != nil {
+			next.JobTitle = strings.TrimSpace(*in.JobTitle)
+			checkJobTitle(&v, next.JobTitle)
+			changed = true
+		}
 		unlock := in.Unlock != nil && *in.Unlock
-		changed = changed || unlock || in.RoleIDs != nil || in.TeamIDs != nil
-		var ids, teamIDs []string
+		changed = changed || unlock || in.RoleIDs != nil || in.TeamIDs != nil || in.DepartmentIDs != nil
+		var ids, teamIDs, departmentIDs []string
+		if in.DepartmentIDs != nil {
+			departmentIDs = uniqueIDs(&v, "department_ids", *in.DepartmentIDs)
+		}
 		if in.RoleIDs != nil {
 			ids = uniqueIDs(&v, "role_ids", *in.RoleIDs)
 		}
@@ -992,10 +1047,10 @@ func (s *Service) UpdateUser(ctx context.Context, actor *Principal, id string, i
 				return err
 			}
 		}
-		if _, err := tx.Exec(ctx, `UPDATE users SET name = $2, email = $3, is_active = $4, updated_at = $5,
+		if _, err := tx.Exec(ctx, `UPDATE users SET name = $2, email = $3, is_active = $4, updated_at = $5, job_title = $7,
 			failed_logins = CASE WHEN $6 THEN 0 ELSE failed_logins END,
 			locked_until = CASE WHEN $6 THEN NULL ELSE locked_until END WHERE id = $1`,
-			id, next.Name, next.Email, next.IsActive, now, unlock); err != nil {
+			id, next.Name, next.Email, next.IsActive, now, unlock, next.JobTitle); err != nil {
 			return emailConflict(err)
 		}
 		// Social sign-in links were made through the old address: a new
@@ -1012,6 +1067,11 @@ func (s *Service) UpdateUser(ctx context.Context, actor *Principal, id string, i
 		}
 		if in.TeamIDs != nil {
 			if err := setUserTeams(ctx, tx, id, teamIDs); err != nil {
+				return err
+			}
+		}
+		if in.DepartmentIDs != nil {
+			if err := setUserDepartments(ctx, tx, id, departmentIDs); err != nil {
 				return err
 			}
 		}

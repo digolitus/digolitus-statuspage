@@ -2289,6 +2289,135 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/department-levels:
+    get:
+      tags: [admin-users]
+      operationId: getDepartmentLevels
+      summary: Nomes dos níveis de departamento
+      responses:
+        '200':
+          description: Sempre 4 nomes (vazio = sem nome).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DepartmentLevels' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    put:
+      tags: [admin-users]
+      operationId: setDepartmentLevels
+      summary: Definir os nomes dos níveis de departamento
+      description: Os nomes são só rótulos; a profundidade máxima é sempre 4 (ADR 0017).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DepartmentLevels' }
+            example: { names: [Diretoria, Gerência, Coordenação, ''] }
+      responses:
+        '200':
+          description: Atualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DepartmentLevels' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/departments:
+    get:
+      tags: [admin-users]
+      operationId: listDepartments
+      summary: Listar departamentos
+      responses:
+        '200':
+          description: Todos os departamentos (até 200), em ordem de árvore.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DepartmentList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [admin-users]
+      operationId: createDepartment
+      summary: Criar departamento
+      description: 'O nível vem do departamento superior. 422 em `parent_id` quando passaria de 4 níveis.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DepartmentCreate' }
+            example: { name: Tecnologia }
+      responses:
+        '201':
+          description: Criado.
+          headers: { Location: { $ref: '#/components/headers/Location' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Department' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/departments/{id}:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    get:
+      tags: [admin-users]
+      operationId: getDepartment
+      summary: Consultar departamento
+      responses:
+        '200':
+          description: Item.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Department' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    patch:
+      tags: [admin-users]
+      operationId: updateDepartment
+      summary: Atualizar ou mover departamento
+      description: 'Mover leva junto subdepartamentos, times e pessoas, desde que a árvore continue com no máximo 4 níveis.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DepartmentPatch' }
+      responses:
+        '200':
+          description: Atualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Department' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    delete:
+      tags: [admin-users]
+      operationId: deleteDepartment
+      summary: Excluir departamento
+      description: 'Somente sem subdepartamentos e sem times (409 `department_in_use`). Pessoas ligadas direto são desvinculadas.'
+      responses:
+        '204': { description: Excluído. }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
   /api/v1/admin/permissions:
     get:
       tags: [admin-users]
@@ -2621,7 +2750,7 @@ paths:
       parameters:
         - name: resource_type
           in: query
-          schema: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template, external_source, announcement, announcement_category, team, user, role, subscription, announcement_template, monitoring_integration] }
+          schema: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template, external_source, announcement, announcement_category, team, user, role, subscription, announcement_template, monitoring_integration, department] }
         - { name: resource_id, in: query, schema: { type: string, format: uuid } }
         - { name: action, in: query, schema: { type: string, maxLength: 64 }, description: 'Ex.: created, updated, resolved, started.' }
         - name: sort
@@ -3754,7 +3883,7 @@ components:
       properties:
         id: { type: integer, format: int64 }
         occurred_at: { $ref: '#/components/schemas/Timestamp' }
-        resource_type: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template, external_source, announcement, announcement_category, team, user, role, subscription, announcement_template, monitoring_integration] }
+        resource_type: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template, external_source, announcement, announcement_category, team, user, role, subscription, announcement_template, monitoring_integration, department] }
         resource_id: { type: string, format: uuid }
         action: { type: string }
         source: { type: string, description: 'Canal de origem (ex.: admin_api).' }
@@ -4179,6 +4308,7 @@ components:
         color: { $ref: '#/components/schemas/CategoryColor' }
         display_order: { type: integer }
         is_active: { type: boolean }
+        department_id: { type: string, format: uuid, nullable: true, description: Departamento do time (opcional). }
         announcement_count: { type: integer }
         created_at: { $ref: '#/components/schemas/Timestamp' }
         updated_at: { $ref: '#/components/schemas/Timestamp' }
@@ -4211,7 +4341,7 @@ components:
     Team:
       type: object
       additionalProperties: false
-      required: [id, name, kind, description, documentation_url, support_url, tags, is_active, announcement_count, component_count, group_count, member_count, created_at, updated_at]
+      required: [id, name, kind, description, documentation_url, support_url, tags, is_active, department_id, announcement_count, component_count, group_count, member_count, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
@@ -4221,6 +4351,7 @@ components:
         support_url: { type: string, nullable: true, description: Link de como obter suporte. }
         tags: { type: array, items: { type: string }, description: 'Tags livres do time (ex.: pagamentos, on-call 24x7).' }
         is_active: { type: boolean }
+        department_id: { type: string, format: uuid, nullable: true, description: Departamento do time (opcional). }
         announcement_count: { type: integer }
         component_count: { type: integer, description: Componentes com este time como responsável direto. }
         group_count: { type: integer }
@@ -4239,6 +4370,7 @@ components:
         support_url: { type: string, nullable: true, maxLength: 500, description: 'Endereço http(s). Vazio ou `null` remove.' }
         tags: { type: array, maxItems: 20, items: { type: string, maxLength: 30 }, description: 'Substitui a lista. Espaços extras e repetidas (sem diferenciar maiúsculas) são removidos.' }
         is_active: { type: boolean, default: true }
+        department_id: { type: string, format: uuid, nullable: true }
     TeamPatch:
       type: object
       additionalProperties: false
@@ -4251,6 +4383,7 @@ components:
         support_url: { type: string, nullable: true, maxLength: 500, description: 'Endereço http(s). Vazio ou `null` remove.' }
         tags: { type: array, maxItems: 20, items: { type: string, maxLength: 30 }, description: 'Substitui a lista. Espaços extras e repetidas (sem diferenciar maiúsculas) são removidos.' }
         is_active: { type: boolean }
+        department_id: { type: string, format: uuid, nullable: true, description: '`null` tira o time do departamento.' }
     TeamList:
       type: object
       additionalProperties: false
@@ -4273,6 +4406,71 @@ components:
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
+    DepartmentLevels:
+      type: object
+      additionalProperties: false
+      required: [names]
+      properties:
+        names: { type: array, maxItems: 4, items: { type: string, maxLength: 40 }, description: 'Nome de cada nível, do 1 (topo) ao 4. Vazio = sem nome.' }
+    DepartmentRef:
+      type: object
+      additionalProperties: false
+      required: [id, name]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+    DepartmentMember:
+      type: object
+      additionalProperties: false
+      required: [id, name, email, job_title, is_active]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        email: { type: string }
+        job_title: { type: string }
+        is_active: { type: boolean }
+    Department:
+      type: object
+      additionalProperties: false
+      required: [id, name, description, parent_id, level, path, members, child_count, team_count, total_team_count, total_people_count, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        parent_id: { type: string, format: uuid, nullable: true }
+        level: { type: integer, minimum: 1, maximum: 4, description: Profundidade na árvore (1 = topo). }
+        path: { type: array, items: { $ref: '#/components/schemas/DepartmentRef' }, description: Do topo até este departamento (inclusive). }
+        members: { type: array, items: { $ref: '#/components/schemas/DepartmentMember' }, description: Pessoas ligadas direto (sem ser por time). }
+        child_count: { type: integer }
+        team_count: { type: integer, description: Times ligados direto. }
+        total_team_count: { type: integer, description: Times deste e dos subdepartamentos. }
+        total_people_count: { type: integer, description: 'Pessoas distintas deste e dos subdepartamentos, direto ou por time.' }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    DepartmentCreate:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        description: { type: string, maxLength: 500 }
+        parent_id: { type: string, format: uuid, nullable: true, description: Departamento superior; vazio cria no nível 1. }
+        member_ids: { type: array, maxItems: 200, items: { type: string, format: uuid }, description: Pessoas ligadas direto. }
+    DepartmentPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        description: { type: string, maxLength: 500 }
+        parent_id: { type: string, format: uuid, nullable: true, description: '`null` leva para o nível 1.' }
+        member_ids: { type: array, maxItems: 200, items: { type: string, format: uuid }, description: Substitui as pessoas ligadas direto. }
+    DepartmentList:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Department' } }
     PermissionInfo:
       type: object
       additionalProperties: false
@@ -4301,7 +4499,7 @@ components:
     User:
       type: object
       additionalProperties: false
-      required: [id, email, name, is_active, must_change_password, roles, teams, last_login_at, locked_until, created_at, updated_at]
+      required: [id, email, name, is_active, must_change_password, roles, teams, job_title, departments, last_login_at, locked_until, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
         email: { type: string }
@@ -4310,6 +4508,8 @@ components:
         must_change_password: { type: boolean, description: 'Senha definida por um administrador (criação ou redefinição): a API administrativa responde 403 `password_change_required` até o usuário escolher a própria senha em `POST /api/v1/auth/password`.' }
         roles: { type: array, items: { $ref: '#/components/schemas/RoleRef' } }
         teams: { type: array, items: { $ref: '#/components/schemas/UserTeamRef' }, description: Times do usuário; papéis de time agem sobre os componentes deles. }
+        job_title: { type: string, description: 'Cargo livre (ex.: Gerente). Vazio quando não informado.' }
+        departments: { type: array, items: { $ref: '#/components/schemas/DepartmentRef' }, description: Departamentos em que a pessoa está ligada direto. }
         last_login_at: { $ref: '#/components/schemas/NullableTimestamp' }
         locked_until: { $ref: '#/components/schemas/NullableTimestamp' }
         created_at: { $ref: '#/components/schemas/Timestamp' }
@@ -4335,6 +4535,8 @@ components:
         password: { $ref: '#/components/schemas/Password' }
         role_ids: { type: array, maxItems: 50, items: { type: string, format: uuid } }
         team_ids: { type: array, maxItems: 50, items: { type: string, format: uuid } }
+        job_title: { type: string, maxLength: 60 }
+        department_ids: { type: array, maxItems: 50, items: { type: string, format: uuid } }
     UserPatch:
       type: object
       additionalProperties: false
@@ -4345,6 +4547,8 @@ components:
         is_active: { type: boolean }
         role_ids: { type: array, maxItems: 50, items: { type: string, format: uuid }, description: Substitui os papéis do usuário. }
         team_ids: { type: array, maxItems: 50, items: { type: string, format: uuid }, description: Substitui os times do usuário. }
+        job_title: { type: string, maxLength: 60 }
+        department_ids: { type: array, maxItems: 50, items: { type: string, format: uuid }, description: Substitui os departamentos ligados direto. }
         unlock: { type: boolean, description: '`true` remove o bloqueio por tentativas de login.' }
     PasswordReset:
       type: object

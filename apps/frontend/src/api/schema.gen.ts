@@ -40,6 +40,8 @@ export type AnnouncementCategory = {
   is_active: boolean;
   name: string;
   updated_at: Timestamp;
+  /** Departamento do time (opcional). */
+  department_id?: string | null;
 };
 
 export type AnnouncementCategoryCreate = {
@@ -165,7 +167,7 @@ export type AuditEvent = {
   occurred_at: Timestamp;
   request_id: string | null;
   resource_id: string;
-  resource_type: "component" | "component_group" | "incident" | "maintenance" | "incident_template" | "maintenance_template" | "external_source" | "announcement" | "announcement_category" | "team" | "user" | "role" | "subscription" | "announcement_template" | "monitoring_integration";
+  resource_type: "component" | "component_group" | "incident" | "maintenance" | "incident_template" | "maintenance_template" | "external_source" | "announcement" | "announcement_category" | "team" | "user" | "role" | "subscription" | "announcement_template" | "monitoring_integration" | "department";
   /** Canal de origem (ex.: admin_api). */
   source: string;
 };
@@ -299,6 +301,68 @@ export type ComponentRef = {
 
 /** Status declarado (ou efetivo, nas rotas públicas) de um componente. */
 export type ComponentStatus = "operational" | "degraded_performance" | "partial_outage" | "major_outage" | "maintenance";
+
+export type Department = {
+  child_count: number;
+  created_at: Timestamp;
+  description: string;
+  id: string;
+  /** Profundidade na árvore (1 = topo). */
+  level: number;
+  /** Pessoas ligadas direto (sem ser por time). */
+  members: DepartmentMember[];
+  name: string;
+  parent_id: string | null;
+  /** Do topo até este departamento (inclusive). */
+  path: DepartmentRef[];
+  /** Times ligados direto. */
+  team_count: number;
+  /** Pessoas distintas deste e dos subdepartamentos, direto ou por time. */
+  total_people_count: number;
+  /** Times deste e dos subdepartamentos. */
+  total_team_count: number;
+  updated_at: Timestamp;
+};
+
+export type DepartmentCreate = {
+  name: string;
+  description?: string;
+  /** Pessoas ligadas direto. */
+  member_ids?: string[];
+  /** Departamento superior; vazio cria no nível 1. */
+  parent_id?: string | null;
+};
+
+export type DepartmentLevels = {
+  /** Nome de cada nível, do 1 (topo) ao 4. Vazio = sem nome. */
+  names: string[];
+};
+
+export type DepartmentList = {
+  data: Department[];
+};
+
+export type DepartmentMember = {
+  email: string;
+  id: string;
+  is_active: boolean;
+  job_title: string;
+  name: string;
+};
+
+export type DepartmentPatch = {
+  description?: string;
+  /** Substitui as pessoas ligadas direto. */
+  member_ids?: string[];
+  name?: string;
+  /** `null` leva para o nível 1. */
+  parent_id?: string | null;
+};
+
+export type DepartmentRef = {
+  id: string;
+  name: string;
+};
 
 export type Error = {
   error: {
@@ -1275,6 +1339,8 @@ export type Team = {
   /** Componentes com este time como responsável direto. */
   component_count: number;
   created_at: Timestamp;
+  /** Departamento do time (opcional). */
+  department_id: string | null;
   description: string;
   /** Link da documentação do time. */
   documentation_url: string | null;
@@ -1295,6 +1361,7 @@ export type Team = {
 
 export type TeamCreate = {
   name: string;
+  department_id?: string | null;
   description?: string;
   /** Endereço http(s). Vazio ou `null` remove. */
   documentation_url?: string | null;
@@ -1311,6 +1378,8 @@ export type TeamList = {
 };
 
 export type TeamPatch = {
+  /** `null` tira o time do departamento. */
+  department_id?: string | null;
   description?: string;
   /** Endereço http(s). Vazio ou `null` remove. */
   documentation_url?: string | null;
@@ -1372,9 +1441,13 @@ export type UptimeDayStatus = "operational" | "degraded_performance" | "partial_
 
 export type User = {
   created_at: Timestamp;
+  /** Departamentos em que a pessoa está ligada direto. */
+  departments: DepartmentRef[];
   email: string;
   id: string;
   is_active: boolean;
+  /** Cargo livre (ex.: Gerente). Vazio quando não informado. */
+  job_title: string;
   last_login_at: NullableTimestamp;
   locked_until: NullableTimestamp;
   /** Senha definida por um administrador (criação ou redefinição): a API administrativa responde 403 `password_change_required` até o usuário escolher a própria senha em `POST /api/v1/auth/password`. */
@@ -1390,6 +1463,8 @@ export type UserCreate = {
   email: string;
   name: string;
   password: Password;
+  department_ids?: string[];
+  job_title?: string;
   role_ids?: string[];
   team_ids?: string[];
 };
@@ -1399,8 +1474,11 @@ export type UserList = {
 };
 
 export type UserPatch = {
+  /** Substitui os departamentos ligados direto. */
+  department_ids?: string[];
   email?: string;
   is_active?: boolean;
+  job_title?: string;
   name?: string;
   /** Substitui os papéis do usuário. */
   role_ids?: string[];

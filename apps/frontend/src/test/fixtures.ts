@@ -59,6 +59,8 @@ export const adminMe: Me = {
     must_change_password: false,
     roles: [{ id: "r1", name: "Administrador", is_system: true }],
     teams: [],
+    job_title: "",
+    departments: [],
     last_login_at: "2026-03-01T12:00:00Z",
     locked_until: null,
     created_at: "2026-03-01T12:00:00Z",
