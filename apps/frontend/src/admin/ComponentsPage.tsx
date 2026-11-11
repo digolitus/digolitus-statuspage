@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { adminApi } from "../api/endpoints";
-import type { Component, ComponentCreate, ComponentGroup, ComponentStatus, Team } from "../api/types";
+import type { Component, ComponentCreate, ComponentGroup, ComponentStatus, Monitor, Team } from "../api/types";
 import { Badge, ConfirmButton, EmptyState, ErrorPanel, Field, Loading, Pager } from "../components/ui";
 import { StatusSelect } from "../components/StatusSelect";
 import { componentStatusLabel, toneForStatus } from "../lib/format";
@@ -11,6 +11,24 @@ import { useAuth } from "./authContext";
 import { FormStatus, PageHeader, ReadOnlyNote, requireText, TeamSelect, useSubmit, useTeams } from "./shared";
 
 const STATUSES = Object.keys(componentStatusLabel) as ComponentStatus[];
+
+/** Tags summarising the monitors linked to a component (see MonitoringPage). */
+function MonitorTags({ monitors }: { monitors: Monitor[] }) {
+  if (monitors.length === 0) return null;
+  const down = monitors.filter((m) => m.state === "down");
+  return (
+    <>
+      <Link to="/admin/monitoring" className="tag" title={monitors.map((m) => m.name || m.external_id).join(", ")}>
+        {monitors.length === 1 ? "1 monitor" : `${monitors.length} monitores`}
+      </Link>
+      {down.map((m) => (
+        <span key={m.id} className="tag tag-warn">
+          Monitor “{m.name || m.external_id}” fora do ar: exibido como {componentStatusLabel[m.down_status].toLowerCase()}
+        </span>
+      ))}
+    </>
+  );
+}
 
 type FormValues = {
   name: string;
@@ -246,6 +264,9 @@ export function ComponentsPage() {
   const groupsState = useApi((signal) => adminApi.groups.all({ signal }), []).state;
   const groups = groupsState.status === "success" ? groupsState.data : [];
   const tree = groupTree(groups);
+  // One request for all linked monitors; reloaded with the list.
+  const monitorsState = useApi((signal) => adminApi.monitoring.monitors({}, { signal }), [state.status]).state;
+  const monitorsOf = (cid: string) => (monitorsState.status === "success" ? monitorsState.data.data.filter((m) => m.component?.id === cid) : []);
   const { me, can, canFor, teamOnly } = useAuth();
   const canManage = can("components.manage");
   const canStatus = can("components.status");
@@ -379,6 +400,7 @@ export function ComponentsPage() {
                         <span className="tag">Ordem {c.display_order}</span>
                         {c.url && <span className="tag">Com link</span>}
                         {c.description && <span className="tag">{c.show_description ? "Descrição pública" : "Descrição interna"}</span>}
+                        <MonitorTags monitors={monitorsOf(c.id)} />
                       </div>
                     </div>
                     <Badge tone={toneForStatus[c.status]}>{componentStatusLabel[c.status]}</Badge>

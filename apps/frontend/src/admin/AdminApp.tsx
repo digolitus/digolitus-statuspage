@@ -19,6 +19,7 @@ import { SubscriptionsPage } from "./SubscriptionsPage";
 import { TeamsPage } from "./TeamsPage";
 import { TemplatesPage } from "./TemplatesPage";
 import { ThirdPartyPage } from "./ThirdPartyPage";
+import { MonitoringPage } from "./MonitoringPage";
 
 type NavItem = { to: string; label: string; need?: PermissionKey[] };
 
@@ -42,6 +43,7 @@ const NAV_GROUPS: { id: string; label: string; items: NavItem[] }[] = [
       { to: "/admin/status-history", label: "Histórico de status" },
       { to: "/admin/teams", label: "Times responsáveis" },
       { to: "/admin/third-party", label: "Serviços de terceiros" },
+      { to: "/admin/monitoring", label: "Monitoramento" },
     ],
   },
   {
@@ -163,6 +165,7 @@ function Route({ pathname }: { pathname: string }) {
   if (match("/admin/component-groups", pathname)) return <GroupsPage />;
   if (match("/admin/third-party", pathname)) return <ThirdPartyPage />;
   if (match("/admin/status-history", pathname)) return <StatusHistoryPage />;
+  if (match("/admin/monitoring", pathname)) return <MonitoringPage />;
   if (match("/admin/incidents", pathname)) return <IncidentsPage />;
   if (match("/admin/incidents/new", pathname)) return allowed("incidents.manage") ? <IncidentNewPage /> : <Forbidden />;
   if ((p = match("/admin/incidents/:id", pathname))) return <IncidentDetailPage key={p.id} id={p.id} />;

@@ -12,6 +12,7 @@ const CAUSE_LABEL: Record<StatusChangeCause, string> = {
   incident: "Incidente",
   maintenance: "Manutenção",
   baseline: "Início do registro",
+  monitoring: "Monitoramento",
 };
 
 function StatusBadge({ status }: { status: ComponentStatus | null }) {
@@ -25,6 +26,9 @@ function Cause({ e }: { e: StatusChange }) {
   }
   if (e.cause_type === "maintenance" && e.cause_id) {
     return <Link to={`/admin/maintenances/${e.cause_id}`}>Manutenção: {e.cause_name ?? e.cause_id.slice(0, 8)}</Link>;
+  }
+  if (e.cause_type === "monitoring") {
+    return <Link to="/admin/monitoring">Monitor: {e.cause_name ?? "removido"}</Link>;
   }
   if (e.cause_type === "component") {
     return <>{e.actor ? `Alteração manual por ${e.actor.name}` : "Alteração do componente"}</>;

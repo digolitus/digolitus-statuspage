@@ -41,6 +41,18 @@ var adminPolicy = auth.Policy{
 	"POST /api/v1/admin/external-sources/{id}/sync":      perms(auth.PermThirdPartyManage),
 	"PUT /api/v1/admin/external-sources/{id}/selection":  perms(auth.PermThirdPartyManage),
 
+	"GET /api/v1/admin/monitoring-integrations":                anyUser,
+	"GET /api/v1/admin/monitoring-integrations/{id}":           anyUser,
+	"GET /api/v1/admin/monitoring-integrations/{id}/events":    anyUser,
+	"GET /api/v1/admin/monitors":                               anyUser,
+	"POST /api/v1/admin/monitoring-integrations":               perms(auth.PermMonitoringManage),
+	"PATCH /api/v1/admin/monitoring-integrations/{id}":         perms(auth.PermMonitoringManage),
+	"DELETE /api/v1/admin/monitoring-integrations/{id}":        perms(auth.PermMonitoringManage),
+	"POST /api/v1/admin/monitoring-integrations/{id}/token":    perms(auth.PermMonitoringManage),
+	"POST /api/v1/admin/monitoring-integrations/{id}/monitors": perms(auth.PermMonitoringManage),
+	"PATCH /api/v1/admin/monitors/{id}":                        perms(auth.PermMonitoringManage),
+	"DELETE /api/v1/admin/monitors/{id}":                       perms(auth.PermMonitoringManage),
+
 	"GET /api/v1/admin/incidents":               anyUser,
 	"GET /api/v1/admin/incidents/{id}":          anyUser,
 	"GET /api/v1/admin/incidents/{id}/updates":  anyUser,

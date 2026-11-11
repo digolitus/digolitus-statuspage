@@ -24,11 +24,11 @@ function bar(id: string, last: UptimeDay, n = 30) {
 describe("uptime bars", () => {
   const summary: StatusSummary = {
     ...emptySummary,
-    overall: { status: "operational", basis: "declared", affected_components: 0, components_under_maintenance: 0 },
+    overall: { status: "operational", basis: "declared", monitored_components: 0, affected_components: 0, components_under_maintenance: 0 },
     components: [
-      { id: "c1", name: "API", slug: "api", description: "", status: "operational", group_id: "g1", subgroup_id: null, url: null, display_order: 0, updated_at: "2026-03-01T11:00:00Z" },
-      { id: "c2", name: "Checkout", slug: "checkout", description: "", status: "operational", group_id: "g1", subgroup_id: null, url: null, display_order: 1, updated_at: "2026-03-01T11:00:00Z" },
-      { id: "c3", name: "Portal", slug: "portal", description: "", status: "operational", group_id: null, subgroup_id: null, url: null, display_order: 5, updated_at: "2026-03-01T11:00:00Z" },
+      { id: "c1", name: "API", slug: "api", description: "", status: "operational", monitored: false, group_id: "g1", subgroup_id: null, url: null, display_order: 0, updated_at: "2026-03-01T11:00:00Z" },
+      { id: "c2", name: "Checkout", slug: "checkout", description: "", status: "operational", monitored: false, group_id: "g1", subgroup_id: null, url: null, display_order: 1, updated_at: "2026-03-01T11:00:00Z" },
+      { id: "c3", name: "Portal", slug: "portal", description: "", status: "operational", monitored: false, group_id: null, subgroup_id: null, url: null, display_order: 5, updated_at: "2026-03-01T11:00:00Z" },
     ],
     groups: [
       { id: "g1", name: "Pagamentos", description: "", display_order: 1, parent_id: null, status: "operational", component_count: 2, affected_components: 0, components_under_maintenance: 0 },

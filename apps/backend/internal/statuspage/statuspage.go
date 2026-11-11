@@ -14,22 +14,29 @@ import (
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/external"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/incident"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/maintenance"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/monitoring"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/clock"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/httpx"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/statuspolicy"
 )
 
-// Basis states where the published status comes from. It is always
-// "declared" in this version: no automated checks exist.
-const Basis = "declared"
+// Basis states where the published status comes from: "declared" when no
+// public component is monitored, "monitored" when all are, "mixed" otherwise.
+const (
+	BasisDeclared  = "declared"
+	BasisMonitored = "monitored"
+	BasisMixed     = "mixed"
+)
 
 // PublicComponent is a component as shown on the public page.
 type PublicComponent struct {
-	ID           string    `json:"id"`
-	Name         string    `json:"name"`
-	Slug         string    `json:"slug"`
-	Description  string    `json:"description"`
-	Status       string    `json:"status"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Slug        string `json:"slug"`
+	Description string `json:"description"`
+	Status      string `json:"status"`
+	// Monitored is true when a monitoring tool reports on the component.
+	Monitored    bool      `json:"monitored"`
 	GroupID      *string   `json:"group_id"`
 	SubgroupID   *string   `json:"subgroup_id"`
 	URL          *string   `json:"url"`
@@ -57,6 +64,7 @@ type PublicGroup struct {
 type Overall struct {
 	Status                     string `json:"status"`
 	Basis                      string `json:"basis"`
+	MonitoredComponents        int    `json:"monitored_components"`
 	AffectedComponents         int    `json:"affected_components"`
 	ComponentsUnderMaintenance int    `json:"components_under_maintenance"`
 }
@@ -116,10 +124,14 @@ func (s *Service) Build(ctx context.Context) (Summary, error) {
 		if sum.ThirdParty, err = s.external.Public(ctx, tx); err != nil {
 			return err
 		}
+		signals, err := monitoring.ComponentSignals(ctx, tx)
+		if err != nil {
+			return err
+		}
 
 		states := make([]statuspolicy.ComponentState, len(comps))
 		for k, c := range comps {
-			states[k] = statuspolicy.ComponentState{ID: c.ID, DeclaredStatus: c.Status, Public: c.IsPublic}
+			states[k] = statuspolicy.ComponentState{ID: c.ID, DeclaredStatus: c.Status, MonitoredStatus: signals[c.ID].Status, Public: c.IsPublic}
 		}
 		active := make([]statuspolicy.ActiveIncident, len(incs))
 		for k, i := range incs {
@@ -137,7 +149,7 @@ func (s *Service) Build(ctx context.Context) (Summary, error) {
 		}
 
 		effective, overall := statuspolicy.Evaluate(states, active, running)
-		sum.Overall = Overall{Status: overall.Status, Basis: Basis, AffectedComponents: overall.AffectedComponents,
+		sum.Overall = Overall{Status: overall.Status, Basis: BasisDeclared, AffectedComponents: overall.AffectedComponents,
 			ComponentsUnderMaintenance: overall.ComponentsUnderMaintenance}
 		sum.Components = []PublicComponent{}
 		byGroup := map[string][]string{}
@@ -149,7 +161,7 @@ func (s *Service) Build(ctx context.Context) (Summary, error) {
 					desc = c.Description
 				}
 				sum.Components = append(sum.Components, PublicComponent{ID: c.ID, Name: c.Name, Slug: c.Slug,
-					Description: desc, Status: effective[c.ID], GroupID: c.GroupID, SubgroupID: c.SubgroupID, URL: c.URL, DisplayOrder: c.DisplayOrder, UpdatedAt: c.UpdatedAt})
+					Description: desc, Status: effective[c.ID], Monitored: signals[c.ID].Monitored, GroupID: c.GroupID, SubgroupID: c.SubgroupID, URL: c.URL, DisplayOrder: c.DisplayOrder, UpdatedAt: c.UpdatedAt})
 				if c.GroupID != nil {
 					byGroup[*c.GroupID] = append(byGroup[*c.GroupID], effective[c.ID])
 				}
@@ -157,6 +169,17 @@ func (s *Service) Build(ctx context.Context) (Summary, error) {
 					byGroup[*c.SubgroupID] = append(byGroup[*c.SubgroupID], effective[c.ID])
 				}
 			}
+		}
+		for _, c := range sum.Components {
+			if c.Monitored {
+				sum.Overall.MonitoredComponents++
+			}
+		}
+		switch m := sum.Overall.MonitoredComponents; {
+		case m > 0 && m == len(sum.Components):
+			sum.Overall.Basis = BasisMonitored
+		case m > 0:
+			sum.Overall.Basis = BasisMixed
 		}
 		// Groups and subgroups without public components are omitted from
 		// the public page.

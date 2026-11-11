@@ -16,6 +16,7 @@ const (
 	PermAnnouncementsPublish Permission = "announcements.publish"
 	PermAnnouncementsSetting Permission = "announcements.settings"
 	PermThirdPartyManage     Permission = "third_party.manage"
+	PermMonitoringManage     Permission = "monitoring.manage"
 	PermTeamsManage          Permission = "teams.manage"
 	PermSubscriptionsManage  Permission = "subscriptions.manage"
 	PermAuditRead            Permission = "audit.read"
@@ -42,6 +43,7 @@ var Catalogue = []PermissionInfo{
 	{PermComponentsStatus, "Componentes", "Alterar status de componentes", "Muda apenas o status declarado de componentes existentes.", false, true},
 	{PermComponentsManage, "Componentes", "Gerenciar componentes e grupos", "Cria, edita, reorganiza e desativa componentes; cria, edita e exclui grupos.", false, true},
 	{PermThirdPartyManage, "Componentes", "Gerenciar serviços de terceiros", "Cadastra provedores externos e escolhe os componentes exibidos.", false, false},
+	{PermMonitoringManage, "Componentes", "Gerenciar monitoramento", "Cadastra integrações de monitoramento (UptimeRobot, Healthchecks.io) e liga monitores a componentes, o que muda o status exibido automaticamente.", false, false},
 	{PermIncidentsManage, "Indisponibilidades", "Gerenciar incidentes", "Abre incidentes, publica atualizações e resolve.", false, true},
 	{PermMaintenancesManage, "Indisponibilidades", "Gerenciar manutenções", "Programa, inicia, conclui e cancela manutenções.", false, true},
 	{PermTemplatesManage, "Indisponibilidades", "Gerenciar templates", "Cria e edita templates de incidente e de manutenção.", false, false},

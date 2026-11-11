@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/monitoring"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/database"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/httpx"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/statuspolicy"
@@ -28,10 +29,13 @@ const (
 	CauseComponent   = "component"
 	CauseIncident    = "incident"
 	CauseMaintenance = "maintenance"
+	// CauseMonitoring: a monitor linked to the component went down or up
+	// (cause ID = monitor ID).
+	CauseMonitoring = "monitoring"
 )
 
 // CauseTypes lists every cause type, for filter validation.
-var CauseTypes = []string{CauseBaseline, CauseComponent, CauseIncident, CauseMaintenance}
+var CauseTypes = []string{CauseBaseline, CauseComponent, CauseIncident, CauseMaintenance, CauseMonitoring}
 
 // Cause identifies the change being recorded.
 type Cause struct {
@@ -97,10 +101,14 @@ func Record(ctx context.Context, q database.Querier, cause Cause, at time.Time) 
 	if err != nil {
 		return err
 	}
+	monitored, err := monitoring.ComponentStatuses(ctx, q)
+	if err != nil {
+		return err
+	}
 	states := make([]statuspolicy.ComponentState, 0, len(comps))
 	for _, c := range comps {
 		if c.active {
-			states = append(states, statuspolicy.ComponentState{ID: c.id, DeclaredStatus: c.status})
+			states = append(states, statuspolicy.ComponentState{ID: c.id, DeclaredStatus: c.status, MonitoredStatus: monitored[c.id]})
 		}
 	}
 	effective, _ := statuspolicy.Evaluate(states, incidents, maintenances)

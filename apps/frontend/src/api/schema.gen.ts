@@ -165,7 +165,7 @@ export type AuditEvent = {
   occurred_at: Timestamp;
   request_id: string | null;
   resource_id: string;
-  resource_type: "component" | "component_group" | "incident" | "maintenance" | "incident_template" | "maintenance_template" | "external_source" | "announcement" | "announcement_category" | "team" | "user" | "role" | "subscription" | "announcement_template";
+  resource_type: "component" | "component_group" | "incident" | "maintenance" | "incident_template" | "maintenance_template" | "external_source" | "announcement" | "announcement_category" | "team" | "user" | "role" | "subscription" | "announcement_template" | "monitoring_integration";
   /** Canal de origem (ex.: admin_api). */
   source: string;
 };
@@ -704,6 +704,123 @@ export type Me = {
   user: User;
 };
 
+export type Monitor = {
+  component: MonitorComponent;
+  down_status: MonitorDownStatus;
+  /** Identificador na ferramenta (monitorID do UptimeRobot, UUID do check no Healthchecks.io). */
+  external_id: string;
+  id: string;
+  integration_id: string;
+  integration_name: string;
+  last_signal_at: NullableTimestamp;
+  name: string;
+  provider: MonitoringProvider;
+  state: MonitorState;
+  state_changed_at: NullableTimestamp;
+};
+
+export type MonitorComponent = {
+  id: string;
+  name: string;
+} | null;
+
+export type MonitorCreate = {
+  external_id: string;
+  component_id?: string;
+  down_status?: MonitorDownStatus;
+  name?: string;
+};
+
+/** Status aplicado ao componente enquanto o monitor estiver fora do ar. */
+export type MonitorDownStatus = "degraded_performance" | "partial_outage" | "major_outage";
+
+export type MonitorList = {
+  data: Monitor[];
+};
+
+export type MonitorPatch = {
+  component_id?: string | null;
+  down_status?: MonitorDownStatus;
+  name?: string;
+};
+
+/** `unknown` até o primeiro alerta. */
+export type MonitorState = "unknown" | "up" | "down";
+
+export type MonitoringAccepted = {
+  status: "accepted";
+};
+
+export type MonitoringEvent = {
+  /** O alerta mudou o status de um componente ligado. */
+  applied: boolean;
+  detail: string;
+  id: number;
+  kind: "down" | "up" | "ignored" | "invalid";
+  monitor_id: string | null;
+  monitor_name: string;
+  received_at: Timestamp;
+};
+
+export type MonitoringEventList = {
+  data: MonitoringEvent[];
+};
+
+export type MonitoringIntegration = {
+  created_at: Timestamp;
+  /** Monitores fora do ar agora. */
+  down_count: number;
+  id: string;
+  /** Inativa ignora alertas e não afeta status. */
+  is_active: boolean;
+  last_received_at: NullableTimestamp;
+  /** Monitores ligados a um componente. */
+  linked_count: number;
+  monitor_count: number;
+  name: string;
+  provider: MonitoringProvider;
+  /** Últimos 4 caracteres do token. */
+  token_hint: string;
+  updated_at: Timestamp;
+};
+
+export type MonitoringIntegrationCreate = {
+  name: string;
+  provider: MonitoringProvider;
+};
+
+export type MonitoringIntegrationList = {
+  data: MonitoringIntegration[];
+};
+
+export type MonitoringIntegrationPatch = {
+  is_active?: boolean;
+  name?: string;
+};
+
+/** Integração com o token do webhook, exibido apenas uma vez. */
+export type MonitoringIntegrationWithToken = {
+  created_at: Timestamp;
+  /** Monitores fora do ar agora. */
+  down_count: number;
+  id: string;
+  /** Inativa ignora alertas e não afeta status. */
+  is_active: boolean;
+  last_received_at: NullableTimestamp;
+  /** Monitores ligados a um componente. */
+  linked_count: number;
+  monitor_count: number;
+  name: string;
+  provider: MonitoringProvider;
+  /** Últimos 4 caracteres do token. */
+  token_hint: string;
+  updated_at: Timestamp;
+  /** Token secreto; use em /api/v1/hooks/monitoring?token=…. Exibido uma única vez. */
+  webhook_token: string;
+};
+
+export type MonitoringProvider = "uptimerobot" | "healthchecks";
+
 export type NullableTimestamp = string | null;
 
 export type OpenIncidentStatus = "investigating" | "identified" | "monitoring";
@@ -739,7 +856,7 @@ export type PermissionInfo = {
   sensitive: boolean;
 };
 
-export type PermissionKey = "components.status" | "components.manage" | "third_party.manage" | "incidents.manage" | "maintenances.manage" | "templates.manage" | "announcements.write" | "announcements.publish" | "announcements.settings" | "teams.manage" | "subscriptions.manage" | "audit.read" | "presence.read" | "users.manage" | "roles.manage";
+export type PermissionKey = "components.status" | "components.manage" | "third_party.manage" | "monitoring.manage" | "incidents.manage" | "maintenances.manage" | "templates.manage" | "announcements.write" | "announcements.publish" | "announcements.settings" | "teams.manage" | "subscriptions.manage" | "audit.read" | "presence.read" | "users.manage" | "roles.manage";
 
 export type PermissionList = {
   data: PermissionInfo[];
@@ -818,6 +935,8 @@ export type PublicComponent = {
   display_order: number;
   group_id: string | null;
   id: string;
+  /** Uma ferramenta de monitoramento informa o status deste componente. */
+  monitored: boolean;
   name: string;
   slug: string;
   status: ComponentStatus;
@@ -996,8 +1115,8 @@ export type StatusChange = {
   status: ComponentStatus | null;
 };
 
-/** `baseline`: primeiro registro de um componente que já existia; `component`: alteração do componente. */
-export type StatusChangeCause = "baseline" | "component" | "incident" | "maintenance";
+/** `baseline`: primeiro registro de um componente que já existia; `component`: alteração do componente; `monitoring`: um monitor ligado ao componente caiu ou voltou (`cause_id` = monitor). */
+export type StatusChangeCause = "baseline" | "component" | "incident" | "maintenance" | "monitoring";
 
 export type StatusChangeList = {
   data: StatusChange[];
@@ -1018,9 +1137,14 @@ export type StatusSummary = {
   overall: {
     /** Componentes públicos com status pior que operational (exceto manutenção). */
     affected_components: number;
-    /** Origem do status. `declared` = informado por operadores, sem verificação automática. */
-    basis: "declared";
+    /**
+     * Origem do status. `declared` = nenhum componente público monitorado; `mixed` = parte deles é
+     * monitorada por ferramentas externas; `monitored` = todos.
+     */
+    basis: "declared" | "mixed" | "monitored";
     components_under_maintenance: number;
+    /** Componentes públicos com monitoramento ativo. */
+    monitored_components: number;
     status: OverallStatus;
   };
   /**

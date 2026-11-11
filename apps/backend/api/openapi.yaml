@@ -6,13 +6,15 @@ info:
     API do Digolitus Status Page. Toda funcionalidade de negócio está disponível por esta API;
     a interface web é apenas um cliente dela.
 
-    ## Status declarado, não monitorado
-    Os status publicados são **declarados por operadores** (status dos componentes, incidentes e
-    manutenções). Esta versão não executa verificações automáticas de disponibilidade. O campo
-    `overall.basis` em `/api/v1/status` vale sempre `declared`.
+    ## Status declarado e monitorado
+    Os status são **declarados por operadores** (status dos componentes, incidentes e manutenções) ou
+    **informados por ferramentas de monitoramento** (UptimeRobot, Healthchecks.io) ligadas a componentes.
+    O backend não executa verificações próprias. Cada componente público indica `monitored`, e
+    `overall.basis` vale `declared` (nenhum monitorado), `mixed` (alguns) ou `monitored` (todos).
 
     ## Política de status
-    - O status efetivo de um componente é o mais grave entre o status declarado, o impacto dos
+    - O status efetivo de um componente é o mais grave entre o status declarado, o status definido para
+      os monitores ligados a ele que estão fora do ar, o impacto dos
       incidentes ativos que o afetam (o impacto usa o mesmo vocabulário do status; impacto `operational`
       é informativo e não degrada componentes) e `maintenance` quando há manutenção em andamento.
     - Ordem de gravidade: `major_outage` > `partial_outage` > `degraded_performance` > `maintenance` > `operational`.
@@ -58,6 +60,10 @@ tags:
     description: Consulta pública, sem autenticação e somente leitura.
   - name: admin-components
     description: Gestão de componentes e grupos de componentes. Requer sessão e permissão.
+  - name: admin-monitoring
+    description: Integrações com ferramentas de monitoramento e ligação de monitores a componentes. Requer sessão e permissão.
+  - name: monitoring-webhook
+    description: Recebimento de alertas das ferramentas de monitoramento, autenticado pelo token da integração.
   - name: admin-third-party
     description: Status de terceiros (Atlassian Statuspage). Requer sessão e permissão.
   - name: admin-incidents
@@ -655,6 +661,48 @@ paths:
             application/rss+xml:
               schema: { type: string }
         '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/hooks/monitoring:
+    post:
+      tags: [monitoring-webhook]
+      operationId: receiveMonitoringSignal
+      security: []
+      summary: Receber alerta de uma ferramenta de monitoramento
+      description: |
+        Endereço configurado no UptimeRobot ou no Healthchecks.io. O token secreto da integração vai em `?token=`
+        (ou em `Authorization: Bearer`). O corpo pode ser JSON ou formulário; os campos aceitos dependem da
+        ferramenta:
+
+        - **UptimeRobot**: `monitorID`, `monitorFriendlyName`, `alertType` (`1` = down, `2` = up; outros são
+          ignorados), `alertDetails`.
+        - **Healthchecks.io**: `check_id` (ou `code`), `name`, `status` (`up`/`down`).
+
+        Monitores desconhecidos são criados sem componente, para serem ligados na administração. Um alerta
+        ilegível é registrado e respondido com 422, para a ferramenta mostrar a falha.
+      parameters:
+        - name: token
+          in: query
+          required: false
+          schema: { type: string, maxLength: 128 }
+          description: Token secreto da integração (exibido uma única vez).
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+            example: { monitorID: '798122451', monitorFriendlyName: Site público, alertType: '1', alertDetails: Connection Timeout }
+          application/x-www-form-urlencoded:
+            schema: { type: object, additionalProperties: { type: string } }
+      responses:
+        '202':
+          description: Alerta recebido.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MonitoringAccepted' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
   /api/v1/admin/components:
     get:
       tags: [admin-components]
@@ -1075,6 +1123,210 @@ paths:
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/admin/monitoring-integrations:
+    get:
+      tags: [admin-monitoring]
+      operationId: listMonitoringIntegrations
+      summary: Listar integrações de monitoramento
+      responses:
+        '200':
+          description: Integrações por nome.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MonitoringIntegrationList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [admin-monitoring]
+      operationId: createMonitoringIntegration
+      summary: Cadastrar integração
+      description: Gera o token do webhook, devolvido apenas nesta resposta (`webhook_token`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MonitoringIntegrationCreate' }
+            example: { name: UptimeRobot produção, provider: uptimerobot }
+      responses:
+        '201':
+          description: Cadastrada.
+          headers: { Location: { $ref: '#/components/headers/Location' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MonitoringIntegrationWithToken' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/monitoring-integrations/{id}:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    get:
+      tags: [admin-monitoring]
+      operationId: getMonitoringIntegration
+      summary: Consultar integração
+      responses:
+        '200':
+          description: Integração.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MonitoringIntegration' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    patch:
+      tags: [admin-monitoring]
+      operationId: updateMonitoringIntegration
+      summary: Renomear ou ativar/desativar
+      description: Desativada, a integração ignora alertas e seus monitores deixam de afetar o status.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MonitoringIntegrationPatch' }
+      responses:
+        '200':
+          description: Atualizada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MonitoringIntegration' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    delete:
+      tags: [admin-monitoring]
+      operationId: deleteMonitoringIntegration
+      summary: Remover integração
+      description: Remove a integração, seus monitores e alertas recebidos.
+      responses:
+        '204': { description: Removida. }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/monitoring-integrations/{id}/token:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    post:
+      tags: [admin-monitoring]
+      operationId: rotateMonitoringToken
+      summary: Trocar o endereço do webhook
+      description: Gera um token novo; o endereço anterior para de funcionar imediatamente.
+      responses:
+        '200':
+          description: Token novo (exibido apenas nesta resposta).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MonitoringIntegrationWithToken' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/monitoring-integrations/{id}/events:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    get:
+      tags: [admin-monitoring]
+      operationId: listMonitoringEvents
+      summary: Últimos alertas recebidos
+      responses:
+        '200':
+          description: Até 50 alertas, do mais recente ao mais antigo.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MonitoringEventList' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/monitoring-integrations/{id}/monitors:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    post:
+      tags: [admin-monitoring]
+      operationId: addMonitor
+      summary: Cadastrar monitor manualmente
+      description: Permite ligar um monitor a um componente antes do primeiro alerta.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MonitorCreate' }
+      responses:
+        '201':
+          description: Cadastrado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Monitor' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/monitors:
+    get:
+      tags: [admin-monitoring]
+      operationId: listMonitors
+      summary: Listar monitores
+      parameters:
+        - { name: integration_id, in: query, required: false, schema: { type: string, format: uuid } }
+        - { name: component_id, in: query, required: false, schema: { type: string, format: uuid } }
+        - { name: state, in: query, required: false, schema: { $ref: '#/components/schemas/MonitorState' } }
+      responses:
+        '200':
+          description: Monitores ligados primeiro (no máximo 1000).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MonitorList' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/monitors/{id}:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    patch:
+      tags: [admin-monitoring]
+      operationId: updateMonitor
+      summary: Ligar monitor a um componente ou mudar o efeito
+      description: '`component_id: null` desliga o monitor (ele deixa de afetar o status).'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MonitorPatch' }
+      responses:
+        '200':
+          description: Atualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Monitor' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    delete:
+      tags: [admin-monitoring]
+      operationId: deleteMonitor
+      summary: Remover monitor
+      description: Se a ferramenta continuar enviando alertas dele, o monitor é recriado sem componente.
+      responses:
+        '204': { description: Removido. }
+        '404': { $ref: '#/components/responses/NotFound' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
@@ -2369,7 +2621,7 @@ paths:
       parameters:
         - name: resource_type
           in: query
-          schema: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template, external_source, announcement, announcement_category, team, user, role, subscription, announcement_template] }
+          schema: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template, external_source, announcement, announcement_category, team, user, role, subscription, announcement_template, monitoring_integration] }
         - { name: resource_id, in: query, schema: { type: string, format: uuid } }
         - { name: action, in: query, schema: { type: string, maxLength: 64 }, description: 'Ex.: created, updated, resolved, started.' }
         - name: sort
@@ -2586,7 +2838,8 @@ components:
     Conflict:
       description: |
         Conflito com o estado atual. Códigos: `component_slug_conflict`, `component_group_name_conflict`,
-        `component_group_not_empty`, `external_source_conflict`, `external_source_limit`, `template_name_conflict`,
+        `component_group_not_empty`, `external_source_conflict`, `external_source_limit`, `monitoring_integration_limit`,
+        `monitor_conflict`, `monitor_limit`, `template_name_conflict`,
         `incident_resolved`, `incident_already_resolved`, `maintenance_closed`, `maintenance_already_started`,
         `maintenance_invalid_transition`, `invalid_announcement_transition`, `announcement_not_draft`,
         `announcement_category_name_conflict`, `announcement_category_in_use`, `announcement_category_limit`,
@@ -2785,13 +3038,14 @@ components:
     PublicComponent:
       type: object
       additionalProperties: false
-      required: [id, name, slug, description, status, group_id, subgroup_id, url, display_order, updated_at]
+      required: [id, name, slug, description, status, monitored, group_id, subgroup_id, url, display_order, updated_at]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
         slug: { type: string }
         description: { type: string, description: 'Descrição pública; vazia quando o operador não a exibe.' }
         status: { $ref: '#/components/schemas/ComponentStatus' }
+        monitored: { type: boolean, description: 'Uma ferramenta de monitoramento informa o status deste componente.' }
         group_id: { type: string, format: uuid, nullable: true }
         subgroup_id: { type: string, format: uuid, nullable: true, description: Subgrupo dentro de `group_id`. }
         url: { type: string, nullable: true, description: Link da página do componente. }
@@ -2919,6 +3173,142 @@ components:
               status: { type: string }
               impact: { type: string }
               url: { type: string, nullable: true }
+    MonitoringProvider:
+      type: string
+      enum: [uptimerobot, healthchecks]
+    MonitorState:
+      type: string
+      enum: [unknown, up, down]
+      description: '`unknown` até o primeiro alerta.'
+    MonitorDownStatus:
+      type: string
+      enum: [degraded_performance, partial_outage, major_outage]
+      description: Status aplicado ao componente enquanto o monitor estiver fora do ar.
+    MonitoringIntegration:
+      type: object
+      additionalProperties: false
+      required: [id, name, provider, is_active, token_hint, last_received_at, monitor_count, linked_count, down_count, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        provider: { $ref: '#/components/schemas/MonitoringProvider' }
+        is_active: { type: boolean, description: Inativa ignora alertas e não afeta status. }
+        token_hint: { type: string, description: Últimos 4 caracteres do token. }
+        last_received_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        monitor_count: { type: integer }
+        linked_count: { type: integer, description: Monitores ligados a um componente. }
+        down_count: { type: integer, description: Monitores fora do ar agora. }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    MonitoringIntegrationWithToken:
+      type: object
+      description: Integração com o token do webhook, exibido apenas uma vez.
+      additionalProperties: false
+      required: [id, name, provider, is_active, token_hint, last_received_at, monitor_count, linked_count, down_count, created_at, updated_at, webhook_token]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        provider: { $ref: '#/components/schemas/MonitoringProvider' }
+        is_active: { type: boolean, description: Inativa ignora alertas e não afeta status. }
+        token_hint: { type: string, description: Últimos 4 caracteres do token. }
+        last_received_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        monitor_count: { type: integer }
+        linked_count: { type: integer, description: Monitores ligados a um componente. }
+        down_count: { type: integer, description: Monitores fora do ar agora. }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+        webhook_token: { type: string, description: 'Token secreto; use em /api/v1/hooks/monitoring?token=…. Exibido uma única vez.' }
+    MonitoringIntegrationCreate:
+      type: object
+      additionalProperties: false
+      required: [name, provider]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        provider: { $ref: '#/components/schemas/MonitoringProvider' }
+    MonitoringIntegrationPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        is_active: { type: boolean }
+    MonitoringIntegrationList:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/MonitoringIntegration' } }
+    MonitorComponent:
+      type: object
+      nullable: true
+      additionalProperties: false
+      required: [id, name]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+    Monitor:
+      type: object
+      additionalProperties: false
+      required: [id, integration_id, integration_name, provider, external_id, name, component, down_status, state, state_changed_at, last_signal_at]
+      properties:
+        id: { type: string, format: uuid }
+        integration_id: { type: string, format: uuid }
+        integration_name: { type: string }
+        provider: { $ref: '#/components/schemas/MonitoringProvider' }
+        external_id: { type: string, description: 'Identificador na ferramenta (monitorID do UptimeRobot, UUID do check no Healthchecks.io).' }
+        name: { type: string }
+        component: { $ref: '#/components/schemas/MonitorComponent' }
+        down_status: { $ref: '#/components/schemas/MonitorDownStatus' }
+        state: { $ref: '#/components/schemas/MonitorState' }
+        state_changed_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        last_signal_at: { $ref: '#/components/schemas/NullableTimestamp' }
+    MonitorCreate:
+      type: object
+      additionalProperties: false
+      required: [external_id]
+      properties:
+        external_id: { type: string, minLength: 1, maxLength: 128 }
+        name: { type: string, maxLength: 255 }
+        component_id: { type: string, format: uuid }
+        down_status: { $ref: '#/components/schemas/MonitorDownStatus' }
+    MonitorPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: { type: string, maxLength: 255 }
+        component_id: { type: string, format: uuid, nullable: true }
+        down_status: { $ref: '#/components/schemas/MonitorDownStatus' }
+    MonitorList:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Monitor' } }
+    MonitoringEvent:
+      type: object
+      additionalProperties: false
+      required: [id, received_at, kind, monitor_id, monitor_name, detail, applied]
+      properties:
+        id: { type: integer, format: int64 }
+        received_at: { $ref: '#/components/schemas/Timestamp' }
+        kind: { type: string, enum: [down, up, ignored, invalid] }
+        monitor_id: { type: string, format: uuid, nullable: true }
+        monitor_name: { type: string }
+        detail: { type: string }
+        applied: { type: boolean, description: O alerta mudou o status de um componente ligado. }
+    MonitoringEventList:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/MonitoringEvent' } }
+    MonitoringAccepted:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status: { type: string, enum: [accepted] }
     ComponentGroup:
       type: object
       additionalProperties: false
@@ -3364,7 +3754,7 @@ components:
       properties:
         id: { type: integer, format: int64 }
         occurred_at: { $ref: '#/components/schemas/Timestamp' }
-        resource_type: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template, external_source, announcement, announcement_category, team, user, role, subscription, announcement_template] }
+        resource_type: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template, external_source, announcement, announcement_category, team, user, role, subscription, announcement_template, monitoring_integration] }
         resource_id: { type: string, format: uuid }
         action: { type: string }
         source: { type: string, description: 'Canal de origem (ex.: admin_api).' }
@@ -3471,8 +3861,8 @@ components:
 
     StatusChangeCause:
       type: string
-      enum: [baseline, component, incident, maintenance]
-      description: '`baseline`: primeiro registro de um componente que já existia; `component`: alteração do componente.'
+      enum: [baseline, component, incident, maintenance, monitoring]
+      description: '`baseline`: primeiro registro de um componente que já existia; `component`: alteração do componente; `monitoring`: um monitor ligado ao componente caiu ou voltou (`cause_id` = monitor).'
     StatusChange:
       type: object
       additionalProperties: false
@@ -3623,13 +4013,16 @@ components:
         overall:
           type: object
           additionalProperties: false
-          required: [status, basis, affected_components, components_under_maintenance]
+          required: [status, basis, monitored_components, affected_components, components_under_maintenance]
           properties:
             status: { $ref: '#/components/schemas/OverallStatus' }
             basis:
               type: string
-              enum: [declared]
-              description: Origem do status. `declared` = informado por operadores, sem verificação automática.
+              enum: [declared, mixed, monitored]
+              description: |
+                Origem do status. `declared` = nenhum componente público monitorado; `mixed` = parte deles é
+                monitorada por ferramentas externas; `monitored` = todos.
+            monitored_components: { type: integer, description: Componentes públicos com monitoramento ativo. }
             affected_components: { type: integer, description: Componentes públicos com status pior que operational (exceto manutenção). }
             components_under_maintenance: { type: integer }
         components:
@@ -3867,7 +4260,7 @@ components:
 
     PermissionKey:
       type: string
-      enum: [components.status, components.manage, third_party.manage, incidents.manage, maintenances.manage, templates.manage, announcements.write, announcements.publish, announcements.settings, teams.manage, subscriptions.manage, audit.read, presence.read, users.manage, roles.manage]
+      enum: [components.status, components.manage, third_party.manage, monitoring.manage, incidents.manage, maintenances.manage, templates.manage, announcements.write, announcements.publish, announcements.settings, teams.manage, subscriptions.manage, audit.read, presence.read, users.manage, roles.manage]
     RoleScope:
       type: string
       enum: [global, team]

@@ -53,6 +53,19 @@ export type ExternalUptime = S.ExternalUptime;
 export type ExternalOutage = S.ExternalOutage;
 export type ExternalEvent = S.ExternalEvent;
 
+// Monitoring integrations (UptimeRobot, Healthchecks.io).
+export type MonitoringProvider = S.MonitoringProvider;
+export type MonitoringIntegration = S.MonitoringIntegration;
+export type MonitoringIntegrationWithToken = S.MonitoringIntegrationWithToken;
+export type MonitoringIntegrationCreate = S.MonitoringIntegrationCreate;
+export type MonitoringIntegrationPatch = S.MonitoringIntegrationPatch;
+export type Monitor = S.Monitor;
+export type MonitorCreate = S.MonitorCreate;
+export type MonitorPatch = S.MonitorPatch;
+export type MonitorState = S.MonitorState;
+export type MonitorDownStatus = S.MonitorDownStatus;
+export type MonitoringEvent = S.MonitoringEvent;
+
 export type AnnouncementState = S.AnnouncementState;
 export type AnnouncementImportance = S.AnnouncementImportance;
 export type CategoryColor = S.CategoryColor;

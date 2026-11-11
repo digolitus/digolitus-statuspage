@@ -5,7 +5,7 @@ import type { PublicComponent, PublicComponentGroup } from "../api/types";
 import { buildRows, ComponentList } from "./ComponentList";
 
 const comp = (id: string, order: number, group: string | null, sub: string | null = null): PublicComponent => ({
-  id, name: id, slug: id, description: "", status: "operational", group_id: group, subgroup_id: sub, url: null, display_order: order, updated_at: "",
+  id, name: id, slug: id, description: "", status: "operational", monitored: false, group_id: group, subgroup_id: sub, url: null, display_order: order, updated_at: "",
 });
 const grp = (id: string, order: number, parent: string | null = null, status: PublicComponentGroup["status"] = "operational"): PublicComponentGroup => ({
   id, name: id, description: "", display_order: order, parent_id: parent, status, component_count: 1, affected_components: 0, components_under_maintenance: 0,

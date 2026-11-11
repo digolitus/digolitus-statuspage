@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/digolitus/digolitus-statuspage/apps/backend/api"
@@ -19,6 +20,7 @@ import (
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/external"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/incident"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/maintenance"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/monitoring"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/clock"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/httpx"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/presence"
@@ -106,6 +108,11 @@ func New(pool *pgxpool.Pool, opts Options) *App {
 		BaseURL: opts.PublicBaseURL, SiteName: opts.SiteName})
 	subscriptionHandler := subscription.NewHandler(subscriptionSvc)
 	subscriptionHandler.RegisterPublic(rt)
+	// Monitor state changes are recorded in the status history atomically.
+	monitoringHandler := monitoring.NewHandler(monitoring.NewService(pool, now,
+		func(ctx context.Context, tx pgx.Tx, monitorID string, at time.Time) error {
+			return statushistory.Record(ctx, tx, statushistory.Cause{Type: statushistory.CauseMonitoring, ID: monitorID}, at)
+		}))
 
 	// Admin routes live under /api/v1/admin/. This wrapper is the single
 	// place where authentication and authorization are enforced: a valid
@@ -140,6 +147,10 @@ func New(pool *pgxpool.Pool, opts Options) *App {
 		if presenceHandler != nil {
 			presenceHandler.RegisterAdmin(rt, admin)
 		}
+		monitoringHandler.RegisterAdmin(rt, admin)
+		// The webhook changes status, so a read-only public instance (admin
+		// API disabled) does not accept it either.
+		monitoringHandler.RegisterPublic(rt)
 	}
 
 	return &App{Router: rt, Handler: httpx.Chain(rt, opts.RequestTimeout), External: externalSvc, Auth: authSvc, Subscriptions: subscriptionSvc, Presence: presenceSvc}

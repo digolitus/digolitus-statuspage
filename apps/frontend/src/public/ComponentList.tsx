@@ -45,6 +45,14 @@ function ComponentRow({ component: c }: { component: PublicComponent }) {
         <span className="component-name-line">
           <span className="component-name">{c.name}</span>
           {c.description && <InfoTip label={`Sobre ${c.name}`} text={c.description} />}
+          {c.monitored && (
+            <span className="monitored-chip" title="Status verificado automaticamente por uma ferramenta de monitoramento.">
+              <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true">
+                <path d="M1 6h2l1.5-3 3 6L9 6h2" fill="none" stroke="currentColor" strokeWidth="1.5" />
+              </svg>
+              monitorado
+            </span>
+          )}
           {c.url && /^https?:\/\//i.test(c.url) && (
           <a
             className="component-link"

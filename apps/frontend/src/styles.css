@@ -2964,6 +2964,97 @@ button.uptime-day:focus-visible,
 .presence-people {
   display: grid;
   gap: 6px;
+}
+
+/* Monitoring integrations (admin). */
+.provider-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 0;
+  border: 0;
+}
+
+.provider-picker legend {
+  margin-bottom: 8px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.provider-option {
+  display: grid;
+  gap: 2px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.provider-option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.provider-option.selected {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 2px var(--brand-soft);
+}
+
+.provider-option:focus-within {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.copy-field {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.copy-field input,
+.copy-field textarea {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+}
+
+.token-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.steps {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 4px;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.integration-detail {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.integration-detail h3 {
+  margin: 6px 0 0;
+  font-size: 15px;
+}
+
+.integration-detail select {
+  max-width: 220px;
+}
+
+.event-log {
+  display: grid;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -3094,4 +3185,30 @@ button.uptime-day:focus-visible,
     border-top: 1px solid var(--line);
     border-left: none;
   }
+}
+
+.event-log li {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.event-log li:last-child {
+  border-bottom: 0;
+}
+
+/* "monitorado" chip on the public page. */
+.monitored-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border: 1px solid color-mix(in srgb, var(--ok) 35%, transparent);
+  border-radius: 999px;
+  color: var(--ok);
+  font-size: 11px;
+  font-weight: 500;
 }

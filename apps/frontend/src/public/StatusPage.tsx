@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
+import { InfoTip } from "../components/InfoTip";
 import { publicApi } from "../api/endpoints";
 import type { StatusSummary } from "../api/types";
 import { Badge, EmptyState, ErrorPanel, Loading, Pager } from "../components/ui";
@@ -89,8 +90,7 @@ export function StatusPage() {
           )}
           <div className="status-actions">
             <span className="last-check">
-              Atualizado em {formatDateTime(s.generated_at)} · status declarado pela equipe de operações, sem verificação
-              automática.
+              Atualizado em {formatDateTime(s.generated_at)} · {basisText(s)}
             </span>
             <button type="button" className="link-button" onClick={poll.refresh} disabled={poll.refreshing}>
               {poll.refreshing ? "Atualizando…" : "Atualizar agora"}
@@ -239,4 +239,18 @@ function HistoryContent() {
         ))}
     </>
   );
+}
+
+/** Short note on where the published status comes from; details in the tooltip. */
+function basisText(s: StatusSummary): ReactNode {
+  const n = s.overall.monitored_components;
+  const tip = (
+    <InfoTip
+      label="Origem do status"
+      text="Componentes com o selo “monitorado” têm o status verificado automaticamente por ferramentas de monitoramento. Os demais têm status declarado pela equipe de operações."
+    />
+  );
+  if (s.overall.basis === "monitored") return <>todos monitorados {tip}</>;
+  if (s.overall.basis === "mixed") return <>{n} de {s.components.length} monitorados {tip}</>;
+  return "status declarado pela equipe de operações, sem verificação automática.";
 }

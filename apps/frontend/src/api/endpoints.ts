@@ -33,6 +33,15 @@ import type {
   ExternalUptime,
   ExternalSourceCreate,
   ExternalSourcePatch,
+  Monitor,
+  MonitorCreate,
+  MonitorPatch,
+  MonitorState,
+  MonitoringEvent,
+  MonitoringIntegration,
+  MonitoringIntegrationCreate,
+  MonitoringIntegrationPatch,
+  MonitoringIntegrationWithToken,
   Incident,
   IncidentCreate,
   IncidentPatch,
@@ -224,6 +233,22 @@ export const adminApi = {
       request<Page<ExternalEvent>>("GET", `${A}/external-sources/${id(sid)}/events`, { ...o, query }),
     uptime: (sid: string, days: UptimeRange, timezone: string, o: Signal = {}) =>
       request<ExternalUptime>("GET", `${A}/external-sources/${id(sid)}/uptime`, { ...o, query: { days, timezone } }),
+  },
+  monitoring: {
+    list: (o: Signal = {}) => request<{ data: MonitoringIntegration[] }>("GET", `${A}/monitoring-integrations`, o),
+    create: (body: MonitoringIntegrationCreate) =>
+      request<MonitoringIntegrationWithToken>("POST", `${A}/monitoring-integrations`, { body }),
+    update: (mid: string, body: MonitoringIntegrationPatch) =>
+      request<MonitoringIntegration>("PATCH", `${A}/monitoring-integrations/${id(mid)}`, { body }),
+    remove: (mid: string) => request<void>("DELETE", `${A}/monitoring-integrations/${id(mid)}`),
+    rotateToken: (mid: string) => request<MonitoringIntegrationWithToken>("POST", `${A}/monitoring-integrations/${id(mid)}/token`),
+    events: (mid: string, o: Signal = {}) =>
+      request<{ data: MonitoringEvent[] }>("GET", `${A}/monitoring-integrations/${id(mid)}/events`, o),
+    addMonitor: (mid: string, body: MonitorCreate) => request<Monitor>("POST", `${A}/monitoring-integrations/${id(mid)}/monitors`, { body }),
+    monitors: (query: { integration_id?: string; component_id?: string; state?: MonitorState }, o: Signal = {}) =>
+      request<{ data: Monitor[] }>("GET", `${A}/monitors`, { ...o, query }),
+    updateMonitor: (mid: string, body: MonitorPatch) => request<Monitor>("PATCH", `${A}/monitors/${id(mid)}`, { body }),
+    removeMonitor: (mid: string) => request<void>("DELETE", `${A}/monitors/${id(mid)}`),
   },
   announcements: {
     list: (

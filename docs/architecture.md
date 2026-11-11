@@ -25,6 +25,7 @@ internal/
   announcement/    comunicados, categorias e times responsáveis
   auth/            login, sessões, configuração inicial, usuários, papéis e catálogo de permissões
   external/        serviços de terceiros: cadastro, leitura de Statuspage (anti-SSRF) e poller
+  monitoring/      integrações de monitoramento: webhook (UptimeRobot, Healthchecks.io), monitores ligados a componentes
   notify/          eventos públicos registrados na transação de cada mudança (outbox)
   subscription/    inscrições (e-mail, webhook, Slack), feeds RSS/Atom e worker de entrega
   tsgen/           gerador de tipos TypeScript a partir do OpenAPI (cmd/openapi-ts)
@@ -69,6 +70,7 @@ As rotas administrativas passam por um único wrapper (`app.New`). Ele valida a 
 | `announcement_components` | Componentes relacionados a um comunicado |
 | `external_sources` | Provedores de terceiros (URL base `https`), último resultado da leitura e eventos abertos |
 | `external_components` | Componentes importados do provedor; `is_selected` define o que é publicado; `is_present = false` quando sumiram do provedor |
+| `monitoring_integrations`, `monitoring_monitors`, `monitoring_events` | Integrações de monitoramento (só o hash do token), monitores da ferramenta ligados a componentes com o status aplicado enquanto estão fora do ar, e os últimos alertas recebidos ([ADR 0015](adr/0015-monitoring-integrations.md)) |
 | `users`, `user_roles`, `user_teams` | Contas locais (hash Argon2id, bloqueio por tentativas, senha provisória), seus papéis e seus times |
 | `roles` | Papéis com subconjunto do catálogo de permissões e escopo `global` ou `team`; o papel de sistema concede todas |
 | `subscriptions`, `subscription_components` | Inscrições por e-mail, webhook ou Slack (pendente/ativa/desativada), opcionalmente limitadas a componentes |
@@ -76,7 +78,7 @@ As rotas administrativas passam por um único wrapper (`app.New`). Ele valida a 
 | `app_secrets` | Chaves geradas pela aplicação (ex.: HMAC dos links de inscrição) |
 | `sessions` | Sessões do servidor; guarda só o SHA-256 do token do cookie |
 | `setup_tokens` | Token de uso único da configuração inicial (só o hash) |
-| `component_status_changes` | Histórico do status efetivo, só com inclusões: causa (componente, incidente, manutenção, baseline), autor e instante; base do uptime diário ([ADR 0014](adr/0014-status-history.md)) |
+| `component_status_changes` | Histórico do status efetivo, só com inclusões: causa (componente, incidente, manutenção, monitoramento, baseline), autor e instante; base do uptime diário ([ADR 0014](adr/0014-status-history.md)) |
 | `external_component_status_changes`, `external_events` | Histórico de terceiros: mudanças de status dos componentes do provedor e incidentes/manutenções vistos (com `closed_at`); sobrevive à exclusão do provedor |
 | `audit_events` | Histórico operacional com diff antes/depois, autor, origem e request ID |
 | `schema_migrations` | Versão e checksum de cada migração aplicada |

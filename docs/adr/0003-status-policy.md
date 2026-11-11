@@ -41,6 +41,10 @@ O impacto de incidentes era `minor`/`major`/`critical`, mapeado para status, e o
 - Resolver um incidente restaura automaticamente o status declarado.
 - Se o status declarado de um componente for pior que o dos incidentes, ele prevalece até que um operador o altere.
 
+### Revisão (2026-11-11): monitores
+
+Monitores de ferramentas externas ligados a um componente passaram a ser mais uma entrada da regra 1: enquanto um monitor está fora do ar, o componente fica no mínimo com o status escolhido para ele. A ordem de gravidade não muda e `overall.basis` passa a distinguir `declared`, `mixed` e `monitored` ([ADR 0015](0015-monitoring-integrations.md)).
+
 ## Reavaliar quando
 
 - Houver verificações automáticas. A política precisará distinguir fontes (`basis`), definir a idade máxima de resultados e o tratamento de falhas transitórias.

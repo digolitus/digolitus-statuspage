@@ -34,11 +34,11 @@ describe("public status page", () => {
   it("puts components first when nothing is happening, with groups collapsed", async () => {
     const summary: StatusSummary = {
       ...emptySummary,
-      overall: { status: "degraded_performance", basis: "declared", affected_components: 1, components_under_maintenance: 0 },
+      overall: { status: "degraded_performance", basis: "declared", monitored_components: 0, affected_components: 1, components_under_maintenance: 0 },
       components: [
-        { id: "c1", name: "API de Pagamentos", slug: "api-pag", description: "", status: "degraded_performance", group_id: "g1", subgroup_id: null, url: null, display_order: 0, updated_at: "2026-03-01T11:00:00Z" },
-        { id: "c2", name: "Checkout", slug: "checkout", description: "", status: "operational", group_id: "g1", subgroup_id: null, url: null, display_order: 1, updated_at: "2026-03-01T11:00:00Z" },
-        { id: "c3", name: "Portal", slug: "portal", description: "", status: "operational", group_id: null, subgroup_id: null, url: null, display_order: 5, updated_at: "2026-03-01T11:00:00Z" },
+        { id: "c1", name: "API de Pagamentos", slug: "api-pag", description: "", status: "degraded_performance", monitored: false, group_id: "g1", subgroup_id: null, url: null, display_order: 0, updated_at: "2026-03-01T11:00:00Z" },
+        { id: "c2", name: "Checkout", slug: "checkout", description: "", status: "operational", monitored: false, group_id: "g1", subgroup_id: null, url: null, display_order: 1, updated_at: "2026-03-01T11:00:00Z" },
+        { id: "c3", name: "Portal", slug: "portal", description: "", status: "operational", monitored: false, group_id: null, subgroup_id: null, url: null, display_order: 5, updated_at: "2026-03-01T11:00:00Z" },
       ],
       groups: [
         { id: "g1", name: "Pagamentos", description: "Cobrança", display_order: 1, parent_id: null, status: "degraded_performance", component_count: 2, affected_components: 1, components_under_maintenance: 0 },
@@ -61,8 +61,8 @@ describe("public status page", () => {
   it("renders components, active incidents with timeline and maintenances", async () => {
     const summary: StatusSummary = {
       ...emptySummary,
-      overall: { status: "partial_outage", basis: "declared", affected_components: 1, components_under_maintenance: 0 },
-      components: [{ id: "c1", name: "API", slug: "api", description: "REST", status: "partial_outage", group_id: null, subgroup_id: null, url: "https://docs.example.com/api", display_order: 0, updated_at: "2026-03-01T11:00:00Z" }],
+      overall: { status: "partial_outage", basis: "declared", monitored_components: 0, affected_components: 1, components_under_maintenance: 0 },
+      components: [{ id: "c1", name: "API", slug: "api", description: "REST", status: "partial_outage", monitored: false, group_id: null, subgroup_id: null, url: "https://docs.example.com/api", display_order: 0, updated_at: "2026-03-01T11:00:00Z" }],
       active_incidents: [incident],
       maintenances: { in_progress: [], upcoming: [maintenance] },
     };
@@ -198,6 +198,74 @@ describe("third-party services", () => {
     await user.click(screen.getByRole("button", { name: "Salvar seleção (1)" }));
     expect(await screen.findByText("Seleção salva.")).toBeInTheDocument();
     expect(calls.find((c) => c.method === "PUT")?.body).toEqual({ component_ids: ["e1"] });
+  });
+});
+
+describe("monitoring integrations", () => {
+  const integration = {
+    id: "m1", name: "UptimeRobot produção", provider: "uptimerobot" as const, is_active: true, token_hint: "f2Za",
+    last_received_at: "2026-03-01T12:00:00Z", monitor_count: 1, linked_count: 0, down_count: 0,
+    created_at: "2026-03-01T12:00:00Z", updated_at: "2026-03-01T12:00:00Z",
+  };
+  const monitor = {
+    id: "mon1", integration_id: "m1", integration_name: "UptimeRobot produção", provider: "uptimerobot" as const,
+    external_id: "798122451", name: "Site público", component: null, down_status: "major_outage" as const, state: "down" as const,
+    state_changed_at: "2026-03-01T12:00:00Z", last_signal_at: "2026-03-01T12:00:00Z",
+  };
+  const component = {
+    id: "c1", name: "Portal", slug: "portal", description: "", show_description: false, status: "operational" as const,
+    is_public: true, is_active: true, display_order: 0, group_id: null, url: null, team_id: null, owner_team_id: null,
+    created_at: "2026-03-01T12:00:00Z", updated_at: "2026-03-01T12:00:00Z",
+  };
+
+  it("shows the webhook address once after creating an integration", async () => {
+    window.history.pushState(null, "", "/admin/monitoring");
+    const calls = mockApi({ ...session(),
+      "GET /api/v1/admin/monitoring-integrations": { body: { data: [] } },
+      "GET /api/v1/admin/monitors": { body: { data: [] } },
+      "POST /api/v1/admin/monitoring-integrations": { status: 201, body: { ...integration, last_received_at: null, monitor_count: 0, webhook_token: "tok-123" } },
+    });
+    render(<App />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("radio", { name: /Healthchecks.io/ }));
+    await user.type(screen.getByLabelText("Nome"), "Jobs noturnos");
+    await user.click(screen.getByRole("button", { name: "Criar integração" }));
+    expect(await screen.findByDisplayValue(/\/api\/v1\/hooks\/monitoring\?token=tok-123$/)).toBeInTheDocument();
+    expect(screen.getByText(/Exibido só agora/)).toBeInTheDocument();
+    expect(calls.find((c) => c.method === "POST")?.body).toEqual({ name: "Jobs noturnos", provider: "healthchecks" });
+  });
+
+  it("links a monitor to a component", async () => {
+    window.history.pushState(null, "", "/admin/monitoring");
+    const calls = mockApi({ ...session(),
+      "GET /api/v1/admin/monitoring-integrations": { body: { data: [integration] } },
+      "GET /api/v1/admin/monitors": { body: { data: [monitor] } },
+      "GET /api/v1/admin/monitoring-integrations/m1/events": { body: { data: [] } },
+      "GET /api/v1/admin/components": page([component]),
+      "PATCH /api/v1/admin/monitors/mon1": { body: { ...monitor, component: { id: "c1", name: "Portal" } } },
+    });
+    render(<App />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Monitores e alertas" }));
+    const select = await screen.findByRole("combobox", { name: "Componente de Site público" });
+    await screen.findByRole("option", { name: "Portal" });
+    await user.selectOptions(select, "c1");
+    await vi.waitFor(() => expect(calls.find((c) => c.method === "PATCH")?.body).toEqual({ component_id: "c1" }));
+  });
+
+  it("marks monitored components on the public page", async () => {
+    const summary: StatusSummary = {
+      ...emptySummary,
+      overall: { status: "operational", basis: "mixed", monitored_components: 1, affected_components: 0, components_under_maintenance: 0 },
+      components: [
+        { id: "a", name: "Portal", slug: "portal", description: "", status: "operational", monitored: true, group_id: null, subgroup_id: null, url: null, display_order: 0, updated_at: "2026-03-01T12:00:00Z" },
+        { id: "b", name: "Relatórios", slug: "relatorios", description: "", status: "operational", monitored: false, group_id: null, subgroup_id: null, url: null, display_order: 1, updated_at: "2026-03-01T12:00:00Z" },
+      ],
+    };
+    mockApi({ "GET /api/v1/status": { body: summary }, ...history });
+    render(<App />);
+    expect(await screen.findByText("monitorado")).toBeInTheDocument();
+    expect(screen.getByText(/1 de 2 monitorados/)).toBeInTheDocument();
   });
 });
 

@@ -41,7 +41,7 @@ type Entry struct {
 	PreviousStatus *string `json:"previous_status"`
 	CauseType      string  `json:"cause_type"`
 	CauseID        *string `json:"cause_id"`
-	// CauseName is the incident or maintenance title, when the cause has one.
+	// CauseName is the incident or maintenance title, or the monitor name.
 	CauseName *string   `json:"cause_name"`
 	Actor     *Actor    `json:"actor"`
 	ChangedAt time.Time `json:"changed_at"`
@@ -168,7 +168,8 @@ func (s *Service) List(ctx context.Context, f Filter, page httpx.Page) ([]Entry,
 	}
 	rows, err := s.pool.Query(ctx, `SELECT h.id, h.component_id, c.name, h.status, h.previous_status, h.cause_type, h.cause_id,
 			CASE h.cause_type WHEN 'incident' THEN (SELECT title FROM incidents WHERE id = h.cause_id)
-				WHEN 'maintenance' THEN (SELECT title FROM maintenances WHERE id = h.cause_id) END,
+				WHEN 'maintenance' THEN (SELECT title FROM maintenances WHERE id = h.cause_id)
+				WHEN 'monitoring' THEN (SELECT NULLIF(name, '') FROM monitoring_monitors WHERE id = h.cause_id) END,
 			h.actor_id, h.actor_name, h.changed_at
 		FROM component_status_changes h JOIN components c ON c.id = h.component_id `+where+`
 		ORDER BY h.changed_at DESC, h.id DESC LIMIT $3 OFFSET $4`, f.ComponentID, f.CauseType, page.Limit, page.Offset)
