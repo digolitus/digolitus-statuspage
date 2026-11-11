@@ -19,7 +19,7 @@ function summary(s: PublicThirdPartySource): string {
     parts.push(`atualizado ${formatRelative(s.last_success_at)}`);
   }
   if (s.events.length > 0) {
-    parts.push(plural(s.events.length, "evento em aberto", "eventos em aberto"));
+    parts.push(plural(s.events.length, "evento em andamento", "eventos em andamento"));
   }
   return parts.join(" · ");
 }
@@ -48,21 +48,10 @@ function SourceRow({ source: s }: { source: PublicThirdPartySource }) {
           </p>
         )}
         {s.events.length > 0 && (
-          <ul className="third-party-events" aria-label={`Eventos em aberto em ${s.name}`}>
-            {s.events.map((e, i) => (
-              <li key={`${e.name}-${i}`}>
-                <span className="tag">{e.kind === "maintenance" ? "Manutenção" : "Incidente"}</span>{" "}
-                {e.url ? (
-                  <a href={e.url} target="_blank" rel="noopener noreferrer">
-                    {e.name}
-                  </a>
-                ) : (
-                  e.name
-                )}{" "}
-                <span className="muted">({e.status})</span>
-              </li>
-            ))}
-          </ul>
+          <p className="muted small">
+            {plural(s.events.length, "evento em andamento aparece", "eventos em andamento aparecem")} em "Acontecendo agora", no
+            topo da página.
+          </p>
         )}
         <ul className="component-rows nested" aria-label={`Componentes de ${s.name}`}>
           {s.components.map((c) => (
@@ -92,5 +81,33 @@ export function ThirdPartyList({ sources }: { sources: PublicThirdPartySource[] 
         <SourceRow key={s.id} source={s} />
       ))}
     </ul>
+  );
+}
+
+/** A provider's incident or maintenance in progress, linking to its page. */
+export function ThirdPartyEventCard({ source, event: e }: { source: PublicThirdPartySource; event: PublicThirdPartySource["events"][number] }) {
+  const kind = e.kind === "maintenance" ? "Manutenção" : "Incidente";
+  return (
+    <article className="event-card third-party-event-card">
+      <header className="event-head">
+        <h3>
+          {e.url ? (
+            <a href={e.url} target="_blank" rel="noopener noreferrer">
+              {e.name}
+            </a>
+          ) : (
+            e.name
+          )}
+        </h3>
+        <Badge tone="neutral">Terceiro · {source.name}</Badge>
+      </header>
+      <p className="muted small">
+        {kind} informado por {source.name} · status no provedor: {e.status}
+        {e.impact && e.impact !== "none" ? ` · impacto ${e.impact}` : ""} · não altera o status da plataforma.{" "}
+        <a href={source.page_url} target="_blank" rel="noopener noreferrer">
+          Ver em {hostOf(source.page_url)} ↗
+        </a>
+      </p>
+    </article>
   );
 }

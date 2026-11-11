@@ -6,6 +6,7 @@ import { Badge, ConfirmButton, EmptyState, ErrorPanel, Field, Loading } from "..
 import { externalStatusLabel, formatDateTime, toneForStatus } from "../lib/format";
 import { useApi } from "../lib/useApi";
 import { useAuth } from "./authContext";
+import { SourceHistory } from "./SourceHistory";
 import { FormStatus, PageHeader, ReadOnlyNote, useSubmit } from "./shared";
 
 const EXAMPLES = ["https://www.githubstatus.com", "https://status.veracode.com"];
@@ -126,6 +127,7 @@ function SelectionEditor({ source, onSaved }: { source: ExternalSource; onSaved:
 function SourceItem({ source: s, onChanged, startOpen }: { source: ExternalSource; onChanged: () => void; startOpen: boolean }) {
   const canManage = useAuth().can("third_party.manage");
   const [open, setOpen] = useState(startOpen);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   return (
@@ -154,6 +156,11 @@ function SourceItem({ source: s, onChanged, startOpen }: { source: ExternalSourc
             )}
           </p>
         </div>
+      </div>
+      <div className="form-actions">
+        <button type="button" className="secondary-button" aria-expanded={historyOpen} onClick={() => setHistoryOpen((o) => !o)}>
+          Histórico
+        </button>
       </div>
       {canManage && <div className="form-actions">
         <button type="button" className="secondary-button" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
@@ -205,6 +212,7 @@ function SourceItem({ source: s, onChanged, startOpen }: { source: ExternalSourc
         </p>
       )}
       {open && <SelectionEditor source={s} onSaved={onChanged} />}
+      {historyOpen && <SourceHistory source={s} />}
     </li>
   );
 }

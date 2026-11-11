@@ -1,8 +1,9 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { PublicComponent, PublicComponentGroup } from "../api/types";
 import { Badge } from "../components/ui";
 import { componentStatusLabel, plural, toneForStatus } from "../lib/format";
 import { byDisplayOrder } from "../lib/groups";
+import { ComponentUptime, GroupUptime } from "./uptime";
 
 type Item =
   | { kind: "component"; display_order: number; name: string; component: PublicComponent }
@@ -110,8 +111,16 @@ function ComponentRow({ component: c }: { component: PublicComponent }) {
         </span>
       </div>
       <Badge tone={toneForStatus[c.status]}>{componentStatusLabel[c.status]}</Badge>
+      <div className="component-uptime">
+        <ComponentUptime id={c.id} name={c.name} />
+      </div>
     </li>
   );
+}
+
+/** Ids of every component inside a group, subgroups included. */
+function componentIds(items: Item[]): string[] {
+  return items.flatMap((i) => (i.kind === "component" ? [i.component.id] : componentIds(i.items)));
 }
 
 function groupSummary(g: PublicComponentGroup): string {
@@ -126,6 +135,7 @@ function GroupRow({ group, items }: { group: PublicComponentGroup; items: Item[]
   const [open, setOpen] = useState(false);
   const panelId = useId();
   const sub = group.parent_id !== null;
+  const ids = useMemo(() => componentIds(items), [items]);
   return (
     <li className={`group-row${open ? " group-row-open" : ""}${sub ? " subgroup-row" : ""}`}>
       <button type="button" className="group-toggle" aria-expanded={open} aria-controls={panelId} onClick={() => setOpen((o) => !o)}>
@@ -141,6 +151,9 @@ function GroupRow({ group, items }: { group: PublicComponentGroup; items: Item[]
         </span>
         <Badge tone={toneForStatus[group.status]}>{componentStatusLabel[group.status]}</Badge>
       </button>
+      <div className="group-uptime">
+        <GroupUptime ids={ids} name={group.name} size={sub ? "sm" : "md"} />
+      </div>
       <div id={panelId} hidden={!open}>
         {group.description && <p className="group-description">{group.description}</p>}
         <ul className="component-rows nested" aria-label={`Componentes de ${group.name}`}>

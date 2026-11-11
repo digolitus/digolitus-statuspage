@@ -25,7 +25,10 @@ import type {
   ComponentGroupPatch,
   ComponentPatch,
   ExternalComponent,
+  ExternalEvent,
+  ExternalOutage,
   ExternalSource,
+  ExternalUptime,
   ExternalSourceCreate,
   ExternalSourcePatch,
   Incident,
@@ -53,8 +56,11 @@ import type {
   PublicComponent,
   PublicIncident,
   PublicMaintenance,
+  StatusChange,
+  StatusChangeCause,
   StatusSummary,
   Team,
+  Uptime,
   TeamCreate,
   TeamPatch,
   SubscribeInput,
@@ -71,9 +77,12 @@ import type {
 
 type Signal = { signal?: AbortSignal };
 type ListQuery = { limit?: number; offset?: number; sort?: string };
+export type UptimeRange = 30 | 60 | 90;
 
 export const publicApi = {
   status: (o: Signal = {}) => request<StatusSummary>("GET", "/api/v1/status", o),
+  uptime: (days: UptimeRange, timezone: string, o: Signal = {}) =>
+    request<Uptime>("GET", "/api/v1/status/uptime", { ...o, query: { days, timezone } }),
   components: (o: Signal = {}) => request<Page<PublicComponent>>("GET", "/api/v1/components", { ...o, query: { limit: 100 } }),
   incidents: (query: ListQuery & { state?: "active" | "resolved" }, o: Signal = {}) =>
     request<Page<PublicIncident>>("GET", "/api/v1/incidents", { ...o, query }),
@@ -199,6 +208,12 @@ export const adminApi = {
       request<{ data: ExternalComponent[] }>("GET", `${A}/external-sources/${id(sid)}/components`, o),
     setSelection: (sid: string, componentIds: string[]) =>
       request<{ data: ExternalComponent[] }>("PUT", `${A}/external-sources/${id(sid)}/selection`, { body: { component_ids: componentIds } }),
+    outages: (sid: string, query: ListQuery & { only_selected?: boolean }, o: Signal = {}) =>
+      request<Page<ExternalOutage>>("GET", `${A}/external-sources/${id(sid)}/outages`, { ...o, query }),
+    events: (sid: string, query: ListQuery & { state?: "resolved" | "open" }, o: Signal = {}) =>
+      request<Page<ExternalEvent>>("GET", `${A}/external-sources/${id(sid)}/events`, { ...o, query }),
+    uptime: (sid: string, days: UptimeRange, timezone: string, o: Signal = {}) =>
+      request<ExternalUptime>("GET", `${A}/external-sources/${id(sid)}/uptime`, { ...o, query: { days, timezone } }),
   },
   announcements: {
     list: (
@@ -248,6 +263,10 @@ export const adminApi = {
     create: (body: RoleCreate) => request<Role>("POST", `${A}/roles`, { body }),
     update: (rid: string, body: RolePatch) => request<Role>("PATCH", `${A}/roles/${id(rid)}`, { body }),
     remove: (rid: string) => request<void>("DELETE", `${A}/roles/${id(rid)}`),
+  },
+  statusHistory: {
+    list: (query: ListQuery & { component_id?: string; cause_type?: StatusChangeCause }, o: Signal = {}) =>
+      request<Page<StatusChange>>("GET", `${A}/status-history`, { ...o, query }),
   },
   audit: {
     list: (

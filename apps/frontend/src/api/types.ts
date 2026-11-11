@@ -41,6 +41,16 @@ export type ExternalSource = S.ExternalSource;
 export type ExternalComponent = S.ExternalComponent;
 export type ExternalComponentStatus = S.ExternalComponentStatus;
 
+// Status history and daily uptime.
+export type Uptime = S.Uptime;
+export type UptimeDay = S.UptimeDay;
+export type UptimeDayStatus = S.UptimeDayStatus;
+export type StatusChange = S.StatusChange;
+export type StatusChangeCause = S.StatusChangeCause;
+export type ExternalUptime = S.ExternalUptime;
+export type ExternalOutage = S.ExternalOutage;
+export type ExternalEvent = S.ExternalEvent;
+
 export type AnnouncementState = S.AnnouncementState;
 export type AnnouncementImportance = S.AnnouncementImportance;
 export type CategoryColor = S.CategoryColor;

@@ -6,7 +6,10 @@ import { formatDateTime, overallLabel, plural, toneForStatus } from "../lib/form
 import { useApi } from "../lib/useApi";
 import { usePolling } from "../lib/usePolling";
 import { ComponentList } from "./ComponentList";
-import { ThirdPartyList } from "./ThirdPartyList";
+import { openThirdPartyEvents } from "../lib/thirdParty";
+import { ThirdPartyEventCard, ThirdPartyList } from "./ThirdPartyList";
+import { RangePicker, UptimeProvider } from "./uptime";
+import { useUptime } from "./useUptime";
 import { IncidentCard, MaintenanceCard, MaintenanceRow } from "./views";
 
 /** Public refresh policy: every 60 s, backing off up to 5 min on failures. */
@@ -47,6 +50,7 @@ export function StatusPage() {
     intervalMs: POLL_INTERVAL_MS,
     maxBackoffMs: POLL_MAX_BACKOFF_MS,
   });
+  const uptime = useUptime();
 
   if (!poll.data) {
     return (
@@ -62,7 +66,10 @@ export function StatusPage() {
 
   const s = poll.data;
   const tone = toneForStatus[s.overall.status];
-  const happeningNow = s.active_incidents.length + s.maintenances.in_progress.length;
+  // Third-party problems in progress are shown here; they enter the provider's
+  // history (admin) once resolved.
+  const thirdPartyNow = openThirdPartyEvents(s.third_party);
+  const happeningNow = s.active_incidents.length + s.maintenances.in_progress.length + thirdPartyNow.length;
 
   return (
     <>
@@ -104,18 +111,33 @@ export function StatusPage() {
             {s.maintenances.in_progress.map((m) => (
               <MaintenanceCard key={m.id} maintenance={m} linkTo={`/maintenances/${m.id}`} />
             ))}
+            {thirdPartyNow.map((e) => (
+              <ThirdPartyEventCard key={e.key} source={e.source} event={e.event} />
+            ))}
           </div>
         </section>
       )}
 
       <section className="container page-section" id="components" aria-labelledby="components-title">
-        <h2 id="components-title" className="section-title">
-          Componentes
-        </h2>
+        <div className="section-head">
+          <h2 id="components-title" className="section-title">
+            Componentes
+          </h2>
+          {s.components.length > 0 && uptime.bars && <RangePicker days={uptime.days} onChange={uptime.setDays} />}
+        </div>
         {s.components.length === 0 ? (
           <EmptyState title="Nenhum componente publicado" />
         ) : (
-          <ComponentList components={s.components} groups={s.groups} />
+          <UptimeProvider bars={uptime.bars}>
+            <ComponentList components={s.components} groups={s.groups} />
+            {uptime.bars && (
+              <p className="section-note uptime-note">
+                Clique em um dia para ver o que aconteceu. Uptime calculado sobre o status declarado: interrupção grave conta
+                100% do tempo, interrupção parcial 30%; performance degradada e manutenção não descontam. Dias em cinza não
+                têm histórico registrado.
+              </p>
+            )}
+          </UptimeProvider>
         )}
       </section>
 

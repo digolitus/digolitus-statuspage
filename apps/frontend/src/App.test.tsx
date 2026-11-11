@@ -141,17 +141,22 @@ describe("third-party services", () => {
     render(<App />);
     const toggle = await screen.findByRole("button", { name: /GitHub/ });
     expect(screen.getByRole("heading", { name: "Serviços de terceiros" })).toBeInTheDocument();
-    expect(screen.getByText(/não altera o status da plataforma/)).toBeInTheDocument();
+    expect(screen.getByText(/Status informado por cada provedor/)).toBeInTheDocument();
     // Overall stays as declared by the platform itself.
     expect(screen.getByText("Status não informado")).toBeInTheDocument();
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(screen.getByText("API Requests")).not.toBeVisible();
 
-    await userEvent.click(toggle);
-    expect(screen.getByText("API Requests")).toBeVisible();
-    const event = screen.getByRole("link", { name: "API degraded" });
+    // A provider problem in progress is shown at the top, linking to the provider.
+    const now = screen.getByRole("heading", { name: "Acontecendo agora" }).closest("section") as HTMLElement;
+    const event = within(now).getByRole("link", { name: "API degraded" });
     expect(event).toHaveAttribute("href", "https://stspg.io/a");
     expect(event).toHaveAttribute("rel", "noopener noreferrer");
+    expect(within(now).getByText("Terceiro · GitHub")).toBeInTheDocument();
+
+    await userEvent.click(toggle);
+    expect(screen.getByText("API Requests")).toBeVisible();
+    expect(screen.getAllByRole("link", { name: "API degraded" })).toHaveLength(1);
     expect(screen.getByRole("link", { name: /Ver status em www.githubstatus.com/ })).toBeInTheDocument();
   });
 

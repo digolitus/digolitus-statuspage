@@ -6,6 +6,7 @@ import { AnnouncementDetailPage, AnnouncementNewPage, AnnouncementsPage } from "
 import { AnnouncementSettingsPage } from "./AnnouncementSettingsPage";
 import { AnnouncementTemplatesPage } from "./AnnouncementTemplatesPage";
 import { AuditPage } from "./AuditPage";
+import { StatusHistoryPage } from "./StatusHistoryPage";
 import { AuthGate } from "./AuthGate";
 import { useAuth } from "./authContext";
 import { ComponentsPage } from "./ComponentsPage";
@@ -37,6 +38,7 @@ const NAV_GROUPS: { id: string; label: string; items: NavItem[] }[] = [
     items: [
       { to: "/admin/components", label: "Componentes" },
       { to: "/admin/component-groups", label: "Grupos de componentes" },
+      { to: "/admin/status-history", label: "Histórico de status" },
       { to: "/admin/teams", label: "Times responsáveis" },
       { to: "/admin/third-party", label: "Serviços de terceiros" },
     ],
@@ -156,6 +158,7 @@ function Route({ pathname }: { pathname: string }) {
   if (match("/admin/components", pathname)) return <ComponentsPage />;
   if (match("/admin/component-groups", pathname)) return <GroupsPage />;
   if (match("/admin/third-party", pathname)) return <ThirdPartyPage />;
+  if (match("/admin/status-history", pathname)) return <StatusHistoryPage />;
   if (match("/admin/incidents", pathname)) return <IncidentsPage />;
   if (match("/admin/incidents/new", pathname)) return allowed("incidents.manage") ? <IncidentNewPage /> : <Forbidden />;
   if ((p = match("/admin/incidents/:id", pathname))) return <IncidentDetailPage key={p.id} id={p.id} />;
