@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { adminApi } from "../api/endpoints";
 import type { ExternalSource } from "../api/types";
 import { UptimeBar } from "../components/UptimeBar";
+import { WithInfo } from "../components/InfoTip";
 import { Badge, EmptyState, ErrorPanel, Loading, Pager } from "../components/ui";
 import { externalStatusLabel, formatDateTime, formatDuration, formatRelative, toneForStatus } from "../lib/format";
 import { useApi } from "../lib/useApi";
@@ -55,7 +56,9 @@ export function SourceHistory({ source }: { source: ExternalSource }) {
       )}
 
       <section>
-        <h3 className="subheading">Últimos 90 dias dos componentes publicados</h3>
+        <WithInfo block label="Sobre os últimos 90 dias" info="Conforme informado pelo provedor. Períodos sem leitura mantêm o último status conhecido.">
+          <h3 className="subheading">Últimos 90 dias dos componentes publicados</h3>
+        </WithInfo>
         {uptime.state.status === "loading" && <Loading />}
         {uptime.state.status === "error" && <ErrorPanel error={uptime.state.error} onRetry={uptime.reload} />}
         {uptime.state.status === "success" &&
@@ -69,11 +72,16 @@ export function SourceHistory({ source }: { source: ExternalSource }) {
               </div>
             ))
           ))}
-        <p className="muted small">Conforme informado pelo provedor. Períodos sem leitura mantêm o último status conhecido.</p>
       </section>
 
       <section>
-        <h3 className="subheading">Incidentes e manutenções resolvidos</h3>
+        <WithInfo
+          block
+          label="Sobre incidentes e manutenções resolvidos"
+          info="Início e fim são os momentos em que as leituras do provedor viram o evento aberto e encerrado."
+        >
+          <h3 className="subheading">Incidentes e manutenções resolvidos</h3>
+        </WithInfo>
         {events.state.status === "loading" && <Loading />}
         {events.state.status === "error" && <ErrorPanel error={events.state.error} onRetry={events.reload} />}
         {events.state.status === "success" &&
@@ -120,7 +128,6 @@ export function SourceHistory({ source }: { source: ExternalSource }) {
               <Pager pagination={events.state.data.pagination} onChange={setEventsOffset} />
             </>
           ))}
-        <p className="muted small">Início e fim são os momentos em que as leituras do provedor viram o evento aberto e encerrado.</p>
       </section>
 
       <section>

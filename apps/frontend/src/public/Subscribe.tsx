@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { ApiError, errorMessage } from "../api/client";
 import { publicApi, subscriptionApi } from "../api/endpoints";
 import type { PublicComponent, SubscriptionChannel, SubscriptionManageView } from "../api/types";
+import { InfoTip, WithInfo } from "../components/InfoTip";
 import { Loading, Notice } from "../components/ui";
 import { Link } from "../lib/router";
 import { useApi } from "../lib/useApi";
@@ -31,7 +32,11 @@ function ComponentChoice({
   const name = useId();
   return (
     <fieldset className="sub-components">
-      <legend>O que acompanhar</legend>
+      <legend>
+        <WithInfo label="Sobre o que acompanhar" info="Avisos gerais (sem componente) chegam sempre.">
+          O que acompanhar
+        </WithInfo>
+      </legend>
       <label className="checkbox">
         <input type="radio" name={name} checked={all} onChange={() => onChange(null)} />
         <span>Todas as atualizações</span>
@@ -54,7 +59,6 @@ function ComponentChoice({
           ))}
         </div>
       )}
-      {!all && <small className="field-hint">Avisos gerais (sem componente) chegam sempre.</small>}
     </fieldset>
   );
 }
@@ -100,7 +104,10 @@ function SubscribeForm({ channel, components }: { channel: SubscriptionChannel; 
     <form className="sub-form" onSubmit={handle} noValidate>
       {channel !== "email" && (
         <div className="field">
-          <label htmlFor={urlId}>{channel === "slack" ? "URL do incoming webhook do Slack" : "URL do webhook"}</label>
+          <div className="field-label">
+            <label htmlFor={urlId}>{channel === "slack" ? "URL do incoming webhook do Slack" : "URL do webhook"}</label>
+            {channel === "webhook" && <InfoTip label="Sobre o webhook" text="Enviamos um POST JSON assinado (HMAC-SHA256) a cada atualização." />}
+          </div>
           <input
             id={urlId}
             type="url"
@@ -110,11 +117,13 @@ function SubscribeForm({ channel, components }: { channel: SubscriptionChannel; 
             value={url}
             onChange={(e) => setUrl(e.target.value)}
           />
-          {channel === "webhook" && <small className="field-hint">Enviamos um POST JSON assinado (HMAC-SHA256) a cada atualização.</small>}
         </div>
       )}
       <div className="field">
-        <label htmlFor={emailId}>{channel === "email" ? "E-mail" : "E-mail para confirmação"}</label>
+        <div className="field-label">
+          <label htmlFor={emailId}>{channel === "email" ? "E-mail" : "E-mail para confirmação"}</label>
+          <InfoTip label="Sobre a confirmação" text="Enviaremos um link de confirmação. Você pode cancelar a qualquer momento." />
+        </div>
         <input id={emailId} type="email" autoComplete="email" maxLength={254} placeholder="voce@exemplo.com" value={email} onChange={(e) => setEmail(e.target.value)} />
       </div>
       {components.length > 0 && <ComponentChoice components={components} selected={selected} onChange={setSelected} />}
@@ -126,7 +135,6 @@ function SubscribeForm({ channel, components }: { channel: SubscriptionChannel; 
       <button type="submit" className="primary-button" disabled={busy}>
         {busy ? "Enviando…" : "Inscrever-se"}
       </button>
-      <small className="muted">Enviaremos um link de confirmação. Você pode cancelar a qualquer momento.</small>
     </form>
   );
 }

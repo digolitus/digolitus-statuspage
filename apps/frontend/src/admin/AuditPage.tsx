@@ -42,11 +42,8 @@ export function AuditPage() {
 
   return (
     <div className="admin-content">
-      <PageHeader title="Histórico operacional" />
-      <p className="muted">
-        Cada alteração é registrada na mesma transação da operação, com o usuário que a fez. Registros anteriores à
-        autenticação aparecem sem autor.
-      </p>
+      <PageHeader title="Histórico operacional"
+        info="Cada alteração é registrada na mesma transação da operação, com quem a fez. Registros anteriores à autenticação aparecem sem autor." />
       <label className="inline-filter">
         Tipo de recurso{" "}
         <select

@@ -99,10 +99,10 @@ function TemplateForm({
           )}
         </Field>
       </div>
-      <Field label="Descrição" error={fe.description} hint="Quando usar este template.">
+      <Field label="Descrição" error={fe.description} info="Quando usar este template.">
         {(p) => <input {...p} value={v.description} maxLength={1000} onChange={(e) => set("description", e.target.value)} />}
       </Field>
-      <Field label="Título sugerido" error={fe.title} hint="Use [colchetes] para o que deve ser trocado.">
+      <Field label="Título sugerido" error={fe.title} info="Use [colchetes] para o que deve ser trocado.">
         {(p) => <input {...p} value={v.title} maxLength={200} onChange={(e) => set("title", e.target.value)} />}
       </Field>
       <div className={`field${fe.body ? " field-invalid" : ""}`}>
@@ -145,7 +145,8 @@ export function AnnouncementTemplatesPage() {
 
   return (
     <div className="admin-content">
-      <PageHeader title="Templates de comunicado">
+      <PageHeader title="Templates de comunicado"
+        info="Templates preenchem o editor com título, texto, destaque e categoria para revisão. Editar ou desativar um template não altera comunicados já publicados.">
         {canManage && (
           <button type="button" className="primary-button" aria-expanded={creating} onClick={() => setCreating((c) => !c)}>
             Novo template
@@ -153,10 +154,6 @@ export function AnnouncementTemplatesPage() {
         )}
       </PageHeader>
       {!canManage && <ReadOnlyNote what="criar ou editar templates" />}
-      <p className="muted">
-        Templates preenchem o editor de comunicados com título, texto, destaque e categoria para revisão. Editar ou desativar um
-        template não altera comunicados já publicados.
-      </p>
       {creating && (
         <section className="panel" aria-label="Novo template">
           <TemplateForm

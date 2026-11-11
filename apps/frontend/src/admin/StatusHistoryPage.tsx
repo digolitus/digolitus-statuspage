@@ -50,11 +50,8 @@ export function StatusHistoryPage() {
 
   return (
     <div className="admin-content">
-      <PageHeader title="Histórico de status" />
-      <p className="muted">
-        Cada mudança do status efetivo dos componentes (status declarado combinado com incidentes e manutenções), com a origem.
-        Os registros são gravados junto com a alteração e não podem ser editados.
-      </p>
+      <PageHeader title="Histórico de status"
+        info="Cada mudança do status efetivo dos componentes (declarado combinado com incidentes e manutenções), com a origem. Os registros não podem ser editados." />
       <div className="form-actions">
         <label className="inline-filter">
           Componente{" "}

@@ -2,6 +2,7 @@ import { useMemo, useState, type FormEvent } from "react";
 import { adminApi } from "../api/endpoints";
 import type { ExpectedImpact, Maintenance, MaintenanceCreate, MaintenancePatch, MaintenanceStatus, MaintenanceTemplate } from "../api/types";
 import { StatusSelect } from "../components/StatusSelect";
+import { WithInfo } from "../components/InfoTip";
 import { Badge, ConfirmButton, EmptyState, ErrorPanel, Field, Loading, Pager, Timeline } from "../components/ui";
 import {
   browserTimeZone,
@@ -194,7 +195,7 @@ export function MaintenanceNewPage() {
           {(p) => <textarea {...p} rows={3} maxLength={5000} value={v.message} onChange={(e) => set("message", e.target.value)} />}
         </Field>
         <div className="form-grid">
-          <Field label="Timezone da janela" error={fe.timezone} hint="Os horários abaixo são interpretados neste timezone.">
+          <Field label="Timezone da janela" error={fe.timezone} info="Os horários abaixo são interpretados neste timezone.">
             {(p) => <TimeZoneSelect {...p} value={v.timezone} onChange={(z) => set("timezone", z)} />}
           </Field>
           <Field label="Início previsto" error={fe.scheduled_start}>
@@ -443,12 +444,13 @@ export function MaintenanceDetailPage({ id }: { id: string }) {
 
       {editable ? (
         <section className="panel" aria-labelledby="edit-title">
-          <h2 id="edit-title">Editar ou reprogramar</h2>
-          <p className="muted">Reprogramações ficam no histórico operacional. Para explicá-las publicamente, publique uma mensagem.</p>
+          <WithInfo block label="Sobre reprogramar" info="Reprogramações ficam no histórico operacional. Para explicá-las publicamente, publique uma mensagem.">
+            <h2 id="edit-title">Editar ou reprogramar</h2>
+          </WithInfo>
           <EditForm key={m.updated_at} m={m} onSaved={setData} />
         </section>
       ) : (
-        !open && <p className="muted">Manutenção encerrada; o histórico é preservado e não aceita alterações.</p>
+        !open && <p className="muted">Manutenção encerrada; o histórico não aceita alterações.</p>
       )}
 
       <section aria-labelledby="timeline-title">

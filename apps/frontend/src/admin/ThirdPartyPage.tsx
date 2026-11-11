@@ -31,10 +31,10 @@ function AddSourceForm({ onCreated }: { onCreated: (s: ExternalSource) => void }
   return (
     <form className="form" onSubmit={handle} noValidate aria-label="Cadastrar provedor">
       <div className="form-grid">
-        <Field label="URL da página de status" error={submit.fieldErrors.url} hint={`Páginas Atlassian Statuspage, ex.: ${EXAMPLES.join(" ou ")}`}>
+        <Field label="URL da página de status" error={submit.fieldErrors.url} info={`Páginas Atlassian Statuspage, ex.: ${EXAMPLES.join(" ou ")}`}>
           {(p) => <input {...p} type="url" inputMode="url" placeholder="https://www.githubstatus.com" value={url} maxLength={500} onChange={(e) => setUrl(e.target.value)} />}
         </Field>
-        <Field label="Nome (opcional)" error={submit.fieldErrors.name} hint="Padrão: nome informado pelo provedor.">
+        <Field label="Nome (opcional)" error={submit.fieldErrors.name} info="Padrão: nome informado pelo provedor.">
           {(p) => <input {...p} value={name} maxLength={120} onChange={(e) => setName(e.target.value)} />}
         </Field>
       </div>
@@ -223,11 +223,8 @@ export function ThirdPartyPage() {
   const canManage = useAuth().can("third_party.manage");
   return (
     <div className="admin-content">
-      <PageHeader title="Serviços de terceiros" />
-      <p className="muted">
-        Incorpore o status de serviços de que a plataforma depende (GitHub, Veracode e outras páginas Atlassian Statuspage). O
-        status é lido periodicamente da página de cada provedor, exibido em seção própria e não altera o status geral.
-      </p>
+      <PageHeader title="Serviços de terceiros"
+        info="Status de serviços de que a plataforma depende (páginas Atlassian Statuspage, como GitHub e Veracode). Lido periodicamente de cada provedor, exibido em seção própria e não altera o status geral." />
       {canManage ? (
         <section className="panel" aria-label="Novo provedor">
           <AddSourceForm

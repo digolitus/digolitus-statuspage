@@ -2280,6 +2280,17 @@ button.tag {
   transform: rotate(45deg);
 }
 
+.info-tip-bubble code {
+  color: inherit;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.with-info > h1,
+.with-info > h2,
+.with-info > h3 {
+  margin: 0;
+}
+
 .info-tip-bubble-end {
   right: -8px;
   left: auto;

@@ -1,6 +1,7 @@
 import { useId, useState, type FormEvent } from "react";
 import { authApi, adminApi } from "../api/endpoints";
 import type { PermissionInfo, PermissionKey, Role, RoleScope, Team, User } from "../api/types";
+import { WithInfo } from "../components/InfoTip";
 import { Badge, ConfirmButton, EmptyState, ErrorPanel, Field, Loading } from "../components/ui";
 import { formatDateTime, isFuture } from "../lib/format";
 import { useApi } from "../lib/useApi";
@@ -119,7 +120,11 @@ function TeamPicker({ teams, selected, onChange, error }: { teams: Team[]; selec
   const options = teams.filter((t) => t.is_active || selected.includes(t.id));
   return (
     <fieldset className={`field picker${error ? " field-invalid" : ""}`}>
-      <legend>Times</legend>
+      <legend>
+        <WithInfo label="Sobre Times" info="Papéis com escopo “times” valem só para os componentes destes times.">
+          Times
+        </WithInfo>
+      </legend>
       {options.length === 0 ? (
         <small className="field-hint">Nenhum time cadastrado.</small>
       ) : (
@@ -137,7 +142,6 @@ function TeamPicker({ teams, selected, onChange, error }: { teams: Team[]; selec
           ))}
         </div>
       )}
-      <small className="field-hint">Papéis com escopo “times” valem só para os componentes destes times.</small>
       {error && <small className="field-error">{error}</small>}
     </fieldset>
   );
@@ -280,7 +284,7 @@ function UserItem({ u, roles, teams, depts, allowed, onChanged }: { u: User; rol
           </div>
           {!self && (
             <div className="inline-form">
-              <Field label="Nova senha" error={submit.fieldErrors.password} hint="Redefine a senha e encerra as sessões do usuário.">
+              <Field label="Nova senha" error={submit.fieldErrors.password} info="Redefine a senha e encerra as sessões do usuário.">
                 {(p) => <input {...p} type="password" autoComplete="new-password" value={password} maxLength={128} onChange={(e) => setPassword(e.target.value)} />}
               </Field>
               <button
@@ -319,12 +323,8 @@ export function UsersPage() {
   }, []);
   return (
     <div className="admin-content">
-      <PageHeader title="Usuários" />
-      <p className="muted">
-        Cada usuário recebe um ou mais papéis; as permissões são a soma deles. Sem papel, o usuário só consulta os dados.
-        Você só pode conceder papéis cujas permissões também possui. Papéis com escopo “times” valem apenas para os
-        componentes dos times do usuário.
-      </p>
+      <PageHeader title="Usuários"
+        info="Cada usuário recebe um ou mais papéis; as permissões são a soma deles. Sem papel, só consulta os dados. Você só concede papéis cujas permissões também possui. Papéis com escopo “times” valem só para os componentes dos times do usuário." />
       {data.state.status === "loading" && <Loading />}
       {data.state.status === "error" && <ErrorPanel error={data.state.error} onRetry={data.reload} />}
       {data.state.status === "success" && (
@@ -436,7 +436,18 @@ function RoleForm({ catalogue, role, onSaved }: { catalogue: PermissionInfo[]; r
         </Field>
       </div>
       <fieldset className="field segmented-field">
-        <legend>Escopo</legend>
+        <legend>
+          <WithInfo
+            label="Sobre Escopo"
+            info={
+              v.scope === "team"
+                ? "Cada usuário age só nos componentes dos próprios times (e nos incidentes, manutenções e comunicados deles)."
+                : "As permissões valem para tudo."
+            }
+          >
+            Escopo
+          </WithInfo>
+        </legend>
         <div className="segmented" role="radiogroup" aria-label="Escopo">
           {(
             [
@@ -450,11 +461,6 @@ function RoleForm({ catalogue, role, onSaved }: { catalogue: PermissionInfo[]; r
             </label>
           ))}
         </div>
-        <small className="field-hint">
-          {v.scope === "team"
-            ? "Cada usuário age só nos componentes dos próprios times (e nos incidentes, manutenções e comunicados deles)."
-            : "As permissões valem para tudo."}
-        </small>
       </fieldset>
       <PermissionPicker scope={v.scope} catalogue={catalogue} selected={v.permissions} onChange={(permissions) => setV({ ...v, permissions })} disabled={(p) => !can(p)} />
       {fe.permissions && <p className="field-error">{fe.permissions}</p>}
@@ -483,11 +489,8 @@ export function RolesPage() {
   };
   return (
     <div className="admin-content">
-      <PageHeader title="Papéis e permissões" />
-      <p className="muted">
-        Papéis agrupam permissões. Mudanças valem imediatamente para os usuários que têm o papel. O papel Administrador é
-        fixo e tem acesso total. Permissões marcadas como sensíveis permitem mudar quem pode fazer o quê.
-      </p>
+      <PageHeader title="Papéis e permissões"
+        info="Papéis agrupam permissões e mudanças valem na hora para quem tem o papel. O papel Administrador é fixo e tem acesso total. Permissões sensíveis permitem mudar quem pode fazer o quê." />
       {data.state.status === "loading" && <Loading />}
       {data.state.status === "error" && <ErrorPanel error={data.state.error} onRetry={data.reload} />}
       {data.state.status === "success" && (

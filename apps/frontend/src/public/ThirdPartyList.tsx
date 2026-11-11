@@ -1,5 +1,6 @@
 import { useId, useState } from "react";
 import type { PublicThirdPartySource } from "../api/types";
+import { InfoTip } from "../components/InfoTip";
 import { Badge } from "../components/ui";
 import { externalStatusLabel, formatDateTime, formatRelative, plural, toneForStatus } from "../lib/format";
 
@@ -49,8 +50,7 @@ function SourceRow({ source: s }: { source: PublicThirdPartySource }) {
         )}
         {s.events.length > 0 && (
           <p className="muted small">
-            {plural(s.events.length, "evento em andamento aparece", "eventos em andamento aparecem")} em "Acontecendo agora", no
-            topo da página.
+            <a href="#now">{plural(s.events.length, "evento em andamento", "eventos em andamento")} ↑</a>
           </p>
         )}
         <ul className="component-rows nested" aria-label={`Componentes de ${s.name}`}>
@@ -100,10 +100,12 @@ export function ThirdPartyEventCard({ source, event: e }: { source: PublicThirdP
           )}
         </h3>
         <Badge tone="neutral">Terceiro · {source.name}</Badge>
+        <InfoTip
+          label="Detalhes do evento"
+          text={`${kind} informado por ${source.name}; não altera o status da plataforma. Status no provedor: ${e.status}${e.impact && e.impact !== "none" ? ` · impacto ${e.impact}` : ""}.`}
+        />
       </header>
       <p className="muted small">
-        {kind} informado por {source.name} · status no provedor: {e.status}
-        {e.impact && e.impact !== "none" ? ` · impacto ${e.impact}` : ""} · não altera o status da plataforma.{" "}
         <a href={source.page_url} target="_blank" rel="noopener noreferrer">
           Ver em {hostOf(source.page_url)} ↗
         </a>

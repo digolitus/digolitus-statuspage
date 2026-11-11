@@ -64,9 +64,9 @@ function GroupForm({
         </Field>
         {canChangeParent && (
           <Field
-            label="Grupo pai"
+            label={initial.parent_id ? "Grupo pai" : "Grupo pai (opcional)"}
             error={fe.parent_id}
-            hint={initial.parent_id ? "Ao mover, os componentes do subgrupo vão junto." : "Opcional. Escolha um grupo para transformar este em subgrupo."}
+            info={initial.parent_id ? "Ao mover, os componentes do subgrupo vão junto." : "Escolha um grupo para transformar este em subgrupo."}
           >
             {(p) => (
               <select {...p} value={v.parent_id} onChange={(e) => setV({ ...v, parent_id: e.target.value })}>
@@ -91,11 +91,11 @@ function GroupForm({
           onChange={(team_id) => setV({ ...v, team_id })}
           permission="components.manage"
           error={fe.team_id}
-          hint={isSub ? "Opcional. Vale para os componentes do subgrupo sem time próprio." : "Opcional. Vale para os componentes do grupo sem time próprio."}
+          info={isSub ? "Vale para os componentes do subgrupo sem time próprio." : "Vale para os componentes do grupo sem time próprio."}
           emptyLabel={isSub && parentTeam ? `Herdar do grupo (${parentTeam.name})` : undefined}
         />
       </div>
-      <Field label="Descrição" error={fe.description} hint={isSub ? "Exibida ao expandir o subgrupo na página pública." : "Exibida ao expandir o grupo na página pública."}>
+      <Field label="Descrição" error={fe.description} info={isSub ? "Exibida ao expandir o subgrupo na página pública." : "Exibida ao expandir o grupo na página pública."}>
         {(p) => <textarea {...p} rows={2} maxLength={1000} value={v.description} onChange={(e) => setV({ ...v, description: e.target.value })} />}
       </Field>
       <FormStatus error={submit.formError} success={submit.success} />
@@ -181,7 +181,8 @@ export function GroupsPage() {
       <p>
         <Link to="/admin/components">← Componentes</Link>
       </p>
-      <PageHeader title="Grupos de componentes">
+      <PageHeader title="Grupos de componentes"
+        info="Grupos aparecem recolhidos na página pública, com o status mais grave entre seus componentes. Subgrupos são opcionais e só há dois níveis. Para incluir um componente, edite-o em Componentes. Só dá para excluir um grupo vazio (sem componentes e subgrupos) e só um grupo vazio vira subgrupo, ou o contrário.">
         {canManage && (
           <button type="button" className="primary-button" aria-expanded={creating} onClick={() => setCreating((c) => !c)}>
             Novo grupo
@@ -189,11 +190,6 @@ export function GroupsPage() {
         )}
       </PageHeader>
       {!canManage && <ReadOnlyNote what="criar, editar ou excluir grupos" />}
-      <p className="muted">
-        Grupos organizam componentes na página pública, onde aparecem recolhidos com o status mais grave entre seus componentes. Cada grupo
-        pode ter subgrupos (opcionais); componentes podem ficar direto no grupo ou em um subgrupo. Para incluir um componente, edite-o em
-        Componentes e escolha o grupo e, se quiser, o subgrupo.
-      </p>
       {creating && (
         <section className="panel" aria-label="Novo grupo">
           <GroupForm
@@ -287,10 +283,6 @@ export function GroupsPage() {
             })}
           </ul>
         ))}
-      <p className="muted">
-        Só existem dois níveis (não há subgrupo de subgrupo). Um grupo só pode ser excluído sem componentes e sem subgrupos. Transformar um grupo
-        em subgrupo, ou o contrário, só é permitido quando ele está vazio.
-      </p>
     </div>
   );
 }

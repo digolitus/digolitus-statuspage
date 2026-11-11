@@ -184,7 +184,8 @@ export function TemplatesPage({ kind }: { kind: Kind }) {
 
   return (
     <div className="admin-content">
-      <PageHeader title={title}>
+      <PageHeader title={title}
+        info="Templates só preenchem formulários para revisão. Editar ou desativar um template não altera eventos já publicados.">
         {canManage && (
           <button type="button" className="primary-button" aria-expanded={creating} onClick={() => setCreating((c) => !c)}>
             Novo template
@@ -192,9 +193,6 @@ export function TemplatesPage({ kind }: { kind: Kind }) {
         )}
       </PageHeader>
       {!canManage && <ReadOnlyNote what="criar ou editar templates" />}
-      <p className="muted">
-        Templates apenas preenchem formulários para revisão. Editar ou desativar um template não altera eventos já publicados.
-      </p>
       {creating && (
         <section className="panel" aria-label="Novo template">
           <TemplateForm

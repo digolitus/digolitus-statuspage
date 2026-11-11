@@ -1,4 +1,5 @@
-import { useId, useState, type KeyboardEvent } from "react";
+import { useId, useState, type KeyboardEvent, type ReactNode } from "react";
+import { InfoTip } from "./InfoTip";
 
 /**
  * Free-form tags as removable chips. Enter, comma or Tab adds the typed
@@ -11,7 +12,7 @@ export function TagInput({
   onChange,
   max = 20,
   maxLength = 30,
-  hint,
+  info,
   error,
   suggestions = [],
 }: {
@@ -20,7 +21,8 @@ export function TagInput({
   onChange: (tags: string[]) => void;
   max?: number;
   maxLength?: number;
-  hint?: string;
+  /** Explanation shown in an "i" next to the label. */
+  info?: ReactNode;
   error?: string;
   suggestions?: string[];
 }) {
@@ -44,7 +46,15 @@ export function TagInput({
   const free = suggestions.filter((s) => !value.some((v) => v.toLowerCase() === s.toLowerCase()));
   return (
     <div className={`field${error ? " field-invalid" : ""}`}>
-      <label htmlFor={id}>{label}</label>
+      <div className="field-label">
+        <label htmlFor={id}>{label}</label>
+        {info && <InfoTip label={`Sobre ${label}`} text={info} />}
+        {info && (
+          <span id={`${id}-info`} className="visually-hidden">
+            {info}
+          </span>
+        )}
+      </div>
       <div className="tag-input" onClick={() => document.getElementById(id)?.focus()}>
         <ul className="tag-input-list" aria-label={`${label} adicionadas`}>
           {value.map((t) => (
@@ -63,7 +73,7 @@ export function TagInput({
           maxLength={maxLength}
           disabled={value.length >= max}
           placeholder={value.length ? "" : "Digite e tecle Enter"}
-          aria-describedby={hint ? `${id}-hint` : undefined}
+          aria-describedby={info ? `${id}-hint ${id}-info` : `${id}-hint`}
           onChange={(e) => {
             const v = e.target.value;
             if (v.includes(",")) {
@@ -88,7 +98,7 @@ export function TagInput({
         )}
       </div>
       <small id={`${id}-hint`} className="field-hint">
-        {hint ?? "Enter ou vírgula para adicionar."} {value.length}/{max}
+        Enter ou vírgula para adicionar. {value.length}/{max}
       </small>
       {error && <small className="field-error">{error}</small>}
     </div>

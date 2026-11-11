@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { adminApi } from "../api/endpoints";
 import type { Component, ComponentCreate, ComponentGroup, ComponentStatus, Monitor, Team } from "../api/types";
+import { InfoTip } from "../components/InfoTip";
 import { Badge, ConfirmButton, EmptyState, ErrorPanel, Field, Loading, Pager } from "../components/ui";
 import { StatusSelect } from "../components/StatusSelect";
 import { componentStatusLabel, toneForStatus } from "../lib/format";
@@ -118,7 +119,7 @@ function ComponentForm({
         <Field label="Nome" error={fe.name}>
           {(p) => <input {...p} value={v.name} maxLength={120} onChange={(e) => set("name", e.target.value)} />}
         </Field>
-        <Field label="Slug" error={fe.slug} hint="Opcional na criação; derivado do nome.">
+        <Field label="Slug" error={fe.slug} info="Opcional na criação; derivado do nome.">
           {(p) => <input {...p} value={v.slug} maxLength={80} onChange={(e) => set("slug", e.target.value)} />}
         </Field>
         <Field label="Status declarado" error={fe.status}>
@@ -126,7 +127,7 @@ function ComponentForm({
             <StatusSelect {...p} value={v.status} options={STATUSES} labels={componentStatusLabel} onChange={(x) => set("status", x as ComponentStatus)} />
           )}
         </Field>
-        <Field label="Grupo" error={fe.group_id} hint="Opcional. Grupos aparecem recolhidos na página pública.">
+        <Field label="Grupo (opcional)" error={fe.group_id} info="Grupos aparecem recolhidos na página pública.">
           {(p) => (
             // A subgroup belongs to one group: changing the group clears it.
             <select {...p} value={v.group_id} onChange={(e) => setV((s) => ({ ...s, group_id: e.target.value, subgroup_id: "" }))}>
@@ -140,7 +141,7 @@ function ComponentForm({
           )}
         </Field>
         {subgroups.length > 0 && (
-          <Field label="Subgrupo" error={fe.subgroup_id} hint="Opcional. Lista só os subgrupos do grupo escolhido.">
+          <Field label="Subgrupo (opcional)" error={fe.subgroup_id} info="Lista só os subgrupos do grupo escolhido.">
             {(p) => (
               <select {...p} value={v.subgroup_id} onChange={(e) => set("subgroup_id", e.target.value)}>
                 <option value="">Nenhum (direto no grupo)</option>
@@ -159,7 +160,7 @@ function ComponentForm({
           onChange={(x) => set("team_id", x)}
           permission="components.manage"
           error={fe.team_id}
-          hint="Opcional. Sem time, vale o time do subgrupo ou do grupo."
+          info="Sem time, vale o time do subgrupo ou do grupo."
           emptyLabel={(() => {
             const sub = groups.find((x) => x.id === v.subgroup_id);
             const g = groups.find((x) => x.id === v.group_id);
@@ -173,9 +174,9 @@ function ComponentForm({
         </Field>
       </div>
       <Field
-        label="Link do componente"
+        label="Link do componente (opcional)"
         error={fe.url}
-        hint="Opcional. Página, documentação ou endpoint público; aparece como um link discreto na página pública."
+        info="Página, documentação ou endpoint público. Aparece como um link discreto na página pública."
       >
         {(p) => (
           <input {...p} type="url" inputMode="url" placeholder="https://docs.exemplo.com/api" maxLength={500} value={v.url} onChange={(e) => set("url", e.target.value)} />
@@ -185,11 +186,13 @@ function ComponentForm({
         <Field label="Descrição" error={fe.description}>
           {(p) => <textarea {...p} rows={2} maxLength={1000} value={v.description} onChange={(e) => set("description", e.target.value)} />}
         </Field>
-        <label className="checkbox">
-          <input type="checkbox" checked={v.show_description} onChange={(e) => set("show_description", e.target.checked)} />
-          <span>Exibir a descrição na página pública</span>
-        </label>
-        <small className="field-hint">Fica num ícone “i” discreto ao lado do componente. Desmarcada, a descrição é só interna.</small>
+        <div className="field-label">
+          <label className="checkbox">
+            <input type="checkbox" checked={v.show_description} onChange={(e) => set("show_description", e.target.checked)} />
+            <span>Exibir a descrição na página pública</span>
+          </label>
+          <InfoTip label="Sobre exibir a descrição" text="Fica num ícone “i” discreto ao lado do componente. Desmarcada, a descrição é só interna." />
+        </div>
       </div>
       <label className="checkbox">
         <input type="checkbox" checked={v.is_public} onChange={(e) => set("is_public", e.target.checked)} />
@@ -274,7 +277,8 @@ export function ComponentsPage() {
 
   return (
     <div className="admin-content">
-      <PageHeader title="Componentes">
+      <PageHeader title="Componentes"
+        info="O status de um componente é declarado manualmente. Incidentes ativos e manutenções em andamento podem agravar o status exibido publicamente.">
         <Link className="secondary-button" to="/admin/component-groups">
           Grupos e subgrupos
         </Link>
@@ -290,10 +294,6 @@ export function ComponentsPage() {
           Seu papel vale só para os componentes dos seus times ({me.user.teams.map((t) => t.name).join(", ") || "nenhum time"}).
         </p>
       )}
-      <p className="muted">
-        O status de um componente é declarado manualmente. Incidentes ativos e manutenções em andamento podem agravar o status
-        exibido publicamente, conforme a política documentada na API.
-      </p>
       {creating && (
         <section className="panel" aria-label="Novo componente">
           <ComponentForm

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNo
 import { ApiError, isAbort, SESSION_EXPIRED_EVENT } from "../api/client";
 import { authApi, socialLoginUrl } from "../api/endpoints";
 import type { LoginProvider, Me, PermissionKey } from "../api/types";
+import { InfoTip } from "../components/InfoTip";
 import { ErrorPanel, Field, Loading, Notice } from "../components/ui";
 import { navigate } from "../lib/router";
 import { AuthContext, useCan } from "./authContext";
@@ -196,14 +197,16 @@ function LoginPage({ expired, onDone }: { expired: boolean; onDone: (me: Me) => 
       {providers.length > 0 && (
         <div className="social-login" role="group" aria-label="Outras formas de entrar">
           <p className="social-login-divider">
-            <span>ou</span>
+            <span className="with-info">
+              ou
+              <InfoTip label="Sobre outras formas de entrar" text="Só para quem já tem usuário: use a conta com o mesmo e-mail cadastrado." />
+            </span>
           </p>
           {providers.map((p) => (
             <a key={p.id} className="secondary-button" href={socialLoginUrl(p.id)}>
               Entrar com {p.name}
             </a>
           ))}
-          <p className="muted small">Só para quem já tem usuário: use a conta com o mesmo e-mail cadastrado.</p>
         </div>
       )}
     </AuthShell>
@@ -237,7 +240,7 @@ function RequiredPasswordChange({ me, onDone, onLogout }: { me: Me; onDone: () =
         <Field label="Senha recebida" error={fe.current_password}>
           {(p) => <input {...p} type="password" autoComplete="current-password" value={v.current} maxLength={128} onChange={(e) => setV({ ...v, current: e.target.value })} />}
         </Field>
-        <Field label="Nova senha" error={fe.new_password} hint="12 a 128 caracteres. Prefira uma frase longa.">
+        <Field label="Nova senha" error={fe.new_password} hint="12 a 128 caracteres." info="Prefira uma frase longa.">
           {(p) => <input {...p} type="password" autoComplete="new-password" value={v.next} maxLength={128} onChange={(e) => setV({ ...v, next: e.target.value })} />}
         </Field>
         <Field label="Confirmar nova senha" error={fe.confirm}>
@@ -276,15 +279,18 @@ function SetupPage({ onDone }: { onDone: (me: Me) => void }) {
   const fe = submit.fieldErrors;
   return (
     <AuthShell title="Configuração inicial">
-      <p>
-        Crie o primeiro administrador. Ele terá acesso total, inclusive para cadastrar outros usuários e definir papéis.
-      </p>
-      <p className="muted small">
-        O token de configuração aparece no log do backend na inicialização (mensagem <code>initial setup required</code>,
-        campo <code>setup_token</code>). Com Docker Compose: <code>docker compose -f deploy/docker-compose.yml logs backend</code>.
-      </p>
+      <p>Crie o primeiro administrador, com acesso total.</p>
       <form className="form" onSubmit={handle} noValidate aria-label="Configuração inicial">
-        <Field label="Token de configuração" error={fe.setup_token}>
+        <Field
+          label="Token de configuração"
+          error={fe.setup_token}
+          info={
+            <>
+              Aparece no log do backend na inicialização (mensagem <code>initial setup required</code>, campo <code>setup_token</code>). Com
+              Docker Compose: <code>docker compose -f deploy/docker-compose.yml logs backend</code>.
+            </>
+          }
+        >
           {(p) => <input {...p} value={v.setup_token} autoComplete="off" spellCheck={false} maxLength={200} onChange={(e) => set("setup_token", e.target.value)} />}
         </Field>
         <Field label="Nome" error={fe.name}>
@@ -293,7 +299,7 @@ function SetupPage({ onDone }: { onDone: (me: Me) => void }) {
         <Field label="E-mail" error={fe.email}>
           {(p) => <input {...p} type="email" autoComplete="username" value={v.email} maxLength={254} onChange={(e) => set("email", e.target.value)} />}
         </Field>
-        <Field label="Senha" error={fe.password} hint="12 a 128 caracteres. Prefira uma frase longa.">
+        <Field label="Senha" error={fe.password} hint="12 a 128 caracteres." info="Prefira uma frase longa.">
           {(p) => <input {...p} type="password" autoComplete="new-password" value={v.password} maxLength={128} onChange={(e) => set("password", e.target.value)} />}
         </Field>
         <Field label="Confirmar senha" error={fe.confirm}>

@@ -88,14 +88,15 @@ export function ComponentPicker({
   const toggle = (id: string) => onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
   return (
     <fieldset className={`field picker${error ? " field-invalid" : ""}`}>
-      <legend>{legend}</legend>
+      <legend>
+        <WithInfo label={`Sobre ${legend}`} info={permission && teamOnly(permission) ? "Seu papel vale só para os componentes dos seus times." : undefined}>
+          {legend}
+        </WithInfo>
+      </legend>
       {state.status === "loading" && <Loading label="Carregando componentes…" />}
       {state.status === "error" && <small className="field-error">{errorMessage(state.error)}</small>}
       {state.status === "success" && options.length === 0 && (
         <small className="field-hint">{permission && teamOnly(permission) ? "Nenhum componente dos seus times." : "Nenhum componente ativo cadastrado."}</small>
-      )}
-      {permission && teamOnly(permission) && options.length > 0 && (
-        <small className="field-hint">Seu papel vale só para os componentes dos seus times.</small>
       )}
       <div className="picker-options">
         {options.map((o) => (
@@ -163,11 +164,9 @@ export function ReadOnlyNote({ what }: { what: string }) {
 export function PageHeader({ title, info, children }: { title: string; info?: ReactNode; children?: ReactNode }) {
   return (
     <div className="admin-page-header">
-      <h1>
-        <WithInfo label={`Sobre ${title}`} info={info}>
-          {title}
-        </WithInfo>
-      </h1>
+      <WithInfo block label={`Sobre ${title}`} info={info}>
+        <h1>{title}</h1>
+      </WithInfo>
       {children && <div className="admin-page-actions">{children}</div>}
     </div>
   );
@@ -196,7 +195,7 @@ export function TeamSelect({
   onChange,
   permission,
   error,
-  hint,
+  info,
   emptyLabel = "Sem time responsável",
 }: {
   teams: Team[];
@@ -204,7 +203,7 @@ export function TeamSelect({
   onChange: (id: string) => void;
   permission: Parameters<ReturnType<typeof useAuth>["can"]>[0];
   error?: string;
-  hint?: string;
+  info?: string;
   emptyLabel?: string;
 }) {
   const { me, teamOnly } = useAuth();
@@ -212,7 +211,7 @@ export function TeamSelect({
   const scoped = teamOnly(permission);
   const options = teams.filter((t) => t.id === value || (t.is_active && (!scoped || mine.has(t.id))));
   return (
-    <Field label="Time responsável" error={error} hint={hint ?? (scoped ? "Seu papel vale só para os seus times." : "Opcional.")}>
+    <Field label={scoped ? "Time responsável" : "Time responsável (opcional)"} error={error} info={scoped ? "Seu papel vale só para os seus times." : info}>
       {(p) => (
         <select {...p} value={value} onChange={(e) => onChange(e.target.value)}>
           <option value="">{emptyLabel}</option>

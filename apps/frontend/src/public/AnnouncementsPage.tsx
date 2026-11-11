@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { publicApi } from "../api/endpoints";
 import type { PublicAnnouncement } from "../api/types";
 import { excerpt, RichText } from "../components/RichText";
+import { WithInfo } from "../components/InfoTip";
 import { EmptyState, ErrorPanel, Loading, Pager } from "../components/ui";
 import { markSeen } from "../lib/announcementsSeen";
 import { dayKey, dayLabel, formatDateTime } from "../lib/format";
@@ -116,10 +117,15 @@ export function AnnouncementsPage() {
   const pinnedItems = pinned.state.data?.data ?? [];
   return (
     <section className="container page-section" aria-labelledby="announcements-title">
-      <h1 id="announcements-title" className="page-title">
-        Comunicados
-      </h1>
-      <p className="section-note">Avisos gerais da equipe: novidades, mudanças e lembretes. Incidentes e manutenções ficam na página de status.</p>
+      <WithInfo
+        block
+        label="Sobre comunicados"
+        info="Avisos gerais da equipe: novidades, mudanças e lembretes. Incidentes e manutenções ficam na página de status."
+      >
+        <h1 id="announcements-title" className="page-title">
+          Comunicados
+        </h1>
+      </WithInfo>
       <CategoryFilter
         value={category}
         onChange={(id) => {

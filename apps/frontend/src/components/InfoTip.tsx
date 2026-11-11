@@ -76,13 +76,18 @@ export function InfoTip({ label, text, className }: { label: string; text: React
   );
 }
 
-/** Heading text followed by an InfoTip, kept on one line. */
-export function WithInfo({ children, label, info }: { children: ReactNode; label: string; info?: ReactNode }) {
+/**
+ * Content followed by an InfoTip on the same line. Wrap a whole heading
+ * with `block` (the tip stays outside the heading, so its accessible name
+ * is just the title); wrap inline text such as a legend without it.
+ */
+export function WithInfo({ children, label, info, block }: { children: ReactNode; label: string; info?: ReactNode; block?: boolean }) {
   if (!info) return <>{children}</>;
+  const Tag = block ? "div" : "span";
   return (
-    <span className="with-info">
+    <Tag className="with-info">
       {children}
       <InfoTip label={label} text={info} />
-    </span>
+    </Tag>
   );
 }

@@ -83,7 +83,7 @@ function TeamForm({
         <Field label="Nome do time" error={fe.name}>
           {(p) => <input {...p} value={v.name} maxLength={80} placeholder="Ex.: Squad Pagamentos" onChange={(e) => set("name", e.target.value)} />}
         </Field>
-        <Field label="Tipo" error={fe.kind} hint="Squad, RT, Comunidade, Tribo… ou outro rótulo.">
+        <Field label="Tipo" error={fe.kind} info="Squad, RT, Comunidade, Tribo… ou outro rótulo.">
           {(p) => (
             <>
               <input {...p} list={kindsId} value={v.kind} maxLength={40} placeholder="Ex.: Squad" onChange={(e) => set("kind", e.target.value)} />
@@ -95,7 +95,7 @@ function TeamForm({
             </>
           )}
         </Field>
-        <Field label="Documentação" error={fe.documentation_url} hint="Link da documentação do time ou dos serviços.">
+        <Field label="Documentação" error={fe.documentation_url} info="Link da documentação do time ou dos serviços.">
           {(p) => (
             <input
               {...p}
@@ -108,7 +108,7 @@ function TeamForm({
             />
           )}
         </Field>
-        <Field label="Suporte" error={fe.support_url} hint="Como obter suporte (canal, formulário, plantão).">
+        <Field label="Suporte" error={fe.support_url} info="Como obter suporte (canal, formulário, plantão).">
           {(p) => (
             <input
               {...p}
@@ -139,7 +139,7 @@ function TeamForm({
         onChange={(tags) => setV((s) => ({ ...s, tags }))}
         error={fe.tags}
         suggestions={tagSuggestions}
-        hint="Rótulos livres (ex.: pagamentos, on-call 24x7). Enter ou vírgula para adicionar."
+        info="Rótulos livres, ex.: pagamentos, on-call 24x7."
       />
       <FormStatus error={submit.formError} success={submit.success} />
       <div className="form-actions">

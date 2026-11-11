@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { InfoTip } from "../components/InfoTip";
 import { publicApi } from "../api/endpoints";
 import type { StatusSummary } from "../api/types";
+import { WithInfo } from "../components/InfoTip";
 import { Badge, EmptyState, ErrorPanel, Loading, Pager } from "../components/ui";
 import { formatDateTime, overallLabel, plural, toneForStatus } from "../lib/format";
 import { useApi } from "../lib/useApi";
@@ -120,9 +121,19 @@ export function StatusPage() {
 
       <section className="container page-section" id="components" aria-labelledby="components-title">
         <div className="section-head">
-          <h2 id="components-title" className="section-title">
-            Componentes
-          </h2>
+          <WithInfo
+            block
+            label="Sobre o uptime"
+            info={
+              s.components.length > 0 && uptime.bars
+                ? "Clique em um dia para ver o que aconteceu. Uptime calculado sobre o status declarado: interrupção grave conta 100% do tempo, interrupção parcial 30%; performance degradada e manutenção não descontam. Dias em cinza não têm histórico registrado."
+                : undefined
+            }
+          >
+            <h2 id="components-title" className="section-title">
+              Componentes
+            </h2>
+          </WithInfo>
           {s.components.length > 0 && uptime.bars && <RangePicker days={uptime.days} onChange={uptime.setDays} />}
         </div>
         {s.components.length === 0 ? (
@@ -130,25 +141,21 @@ export function StatusPage() {
         ) : (
           <UptimeProvider bars={uptime.bars}>
             <ComponentList components={s.components} groups={s.groups} />
-            {uptime.bars && (
-              <p className="section-note uptime-note">
-                Clique em um dia para ver o que aconteceu. Uptime calculado sobre o status declarado: interrupção grave conta
-                100% do tempo, interrupção parcial 30%; performance degradada e manutenção não descontam. Dias em cinza não
-                têm histórico registrado.
-              </p>
-            )}
           </UptimeProvider>
         )}
       </section>
 
       {s.third_party.length > 0 && (
         <section className="container page-section" id="third-party" aria-labelledby="third-party-title">
-          <h2 id="third-party-title" className="section-title">
-            Serviços de terceiros
-          </h2>
-          <p className="section-note">
-            Status informado por cada provedor em sua própria página; não altera o status da plataforma acima.
-          </p>
+          <WithInfo
+            block
+            label="Sobre serviços de terceiros"
+            info="Status informado por cada provedor em sua própria página. Não altera o status da plataforma."
+          >
+            <h2 id="third-party-title" className="section-title">
+              Serviços de terceiros
+            </h2>
+          </WithInfo>
           <ThirdPartyList sources={s.third_party} />
         </section>
       )}

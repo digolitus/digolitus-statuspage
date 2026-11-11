@@ -141,7 +141,9 @@ describe("third-party services", () => {
     render(<App />);
     const toggle = await screen.findByRole("button", { name: /GitHub/ });
     expect(screen.getByRole("heading", { name: "Serviços de terceiros" })).toBeInTheDocument();
-    expect(screen.getByText(/Status informado por cada provedor/)).toBeInTheDocument();
+    // The explanation lives in the "i" next to the heading.
+    await userEvent.hover(screen.getByRole("button", { name: "Sobre serviços de terceiros" }));
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/Status informado por cada provedor/);
     // Overall stays as declared by the platform itself.
     expect(screen.getByText("Status não informado")).toBeInTheDocument();
     expect(toggle).toHaveAttribute("aria-expanded", "false");
@@ -479,7 +481,7 @@ describe("admin area", () => {
     await user.click(await screen.findByRole("button", { name: "Resolver incidente" }));
     expect(calls.some((c) => c.path.endsWith("/resolve"))).toBe(false);
     await user.click(screen.getByRole("button", { name: "Confirmar resolução" }));
-    expect(await screen.findByText(/Incidente resolvido. A linha do tempo é preservada/)).toBeInTheDocument();
+    expect(await screen.findByText(/Incidente resolvido; a linha do tempo não aceita/)).toBeInTheDocument();
     expect(calls.find((c) => c.path.endsWith("/resolve"))?.body).toEqual({ message: expect.stringContaining("resolvido") });
   });
 
@@ -932,11 +934,11 @@ describe("component subgroups", () => {
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Novo componente" }));
     const form = screen.getByRole("region", { name: "Novo componente" });
-    const groupSelect = within(form).getByLabelText("Grupo");
+    const groupSelect = within(form).getByLabelText("Grupo (opcional)");
     expect(within(groupSelect).getAllByRole("option").map((o: HTMLElement) => o.textContent)).toEqual(["Sem grupo", "Pagamentos", "Plataforma"]);
-    expect(within(form).queryByLabelText("Subgrupo")).not.toBeInTheDocument();
+    expect(within(form).queryByLabelText("Subgrupo (opcional)")).not.toBeInTheDocument();
     await user.selectOptions(groupSelect, "g1");
-    await user.selectOptions(within(form).getByLabelText("Subgrupo"), "s1");
+    await user.selectOptions(within(form).getByLabelText("Subgrupo (opcional)"), "s1");
     await user.type(within(form).getByLabelText("Nome"), "API de Cartões");
     await user.click(within(form).getByRole("button", { name: "Criar componente" }));
     await screen.findByText("Componente salvo.");

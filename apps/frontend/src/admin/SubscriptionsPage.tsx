@@ -65,7 +65,7 @@ function NewIntegration({ onCreated }: { onCreated: () => void }) {
             />
           )}
         </Field>
-        <Field label="Contato (opcional)" error={fe.email} hint="E-mail de quem responde pela integração.">
+        <Field label="Contato (opcional)" error={fe.email} info="E-mail de quem responde pela integração.">
           {(p) => <input {...p} type="email" maxLength={254} value={contact} onChange={(e) => setContact(e.target.value)} />}
         </Field>
       </div>
@@ -165,16 +165,12 @@ export function SubscriptionsPage() {
 
   return (
     <div className="admin-content">
-      <PageHeader title="Inscrições">
+      <PageHeader title="Inscrições"
+        info="Pessoas se inscrevem pela página pública (e-mail, webhook ou Slack, com confirmação por e-mail). Integrações internas de webhook ou Slack criadas aqui já nascem ativas. Entregas que falham são repetidas; após 15 falhas seguidas a inscrição é desativada.">
         <button type="button" className="primary-button" aria-expanded={creating} onClick={() => setCreating((c) => !c)}>
           Nova integração
         </button>
       </PageHeader>
-      <p className="muted">
-        Pessoas se inscrevem pela página pública (e-mail, webhook ou Slack, com confirmação por e-mail). Aqui você acompanha as
-        inscrições e cria integrações internas de webhook ou Slack, ativas sem confirmação. Entregas que falham são repetidas; após
-        15 falhas seguidas a inscrição é desativada.
-      </p>
       {creating && (
         <section className="panel" aria-label="Nova integração">
           <NewIntegration onCreated={reload} />
