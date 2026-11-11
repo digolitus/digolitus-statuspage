@@ -34,11 +34,12 @@ const (
 	ResourceAnnouncementTemplate  = "announcement_template"
 	ResourceMonitoringIntegration = "monitoring_integration"
 	ResourceDepartment            = "department"
+	ResourceBranding              = "branding"
 )
 
 // ResourceTypes lists every resource type, for filter validation.
 var ResourceTypes = []string{ResourceComponent, ResourceComponentGroup, ResourceIncident, ResourceMaintenance, ResourceIncidentTemplate, ResourceMaintenanceTemplate, ResourceExternalSource,
-	ResourceAnnouncement, ResourceAnnouncementCategory, ResourceTeam, ResourceUser, ResourceRole, ResourceSubscription, ResourceAnnouncementTemplate, ResourceMonitoringIntegration, ResourceDepartment}
+	ResourceAnnouncement, ResourceAnnouncementCategory, ResourceTeam, ResourceUser, ResourceRole, ResourceSubscription, ResourceAnnouncementTemplate, ResourceMonitoringIntegration, ResourceDepartment, ResourceBranding}
 
 // Changes holds the relevant before/after values of an operation.
 type Changes struct {

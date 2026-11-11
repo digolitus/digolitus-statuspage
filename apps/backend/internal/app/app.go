@@ -15,6 +15,7 @@ import (
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/apperror"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/audit"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/auth"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/branding"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/component"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/department"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/docs"
@@ -51,6 +52,9 @@ type Options struct {
 	// PresenceEnabled turns on the "who is here now" heartbeats and admin
 	// panel. It needs the admin API: without it nobody could read the count.
 	PresenceEnabled bool
+	// BrandingImageHosts are the hosts accepted for logo/favicon URLs; the
+	// frontend's CSP must allow the same hosts.
+	BrandingImageHosts []string
 }
 
 // App exposes the handler, its route registry and the third-party service
@@ -102,11 +106,14 @@ func New(pool *pgxpool.Pool, opts Options) *App {
 	maintenanceHandler.RegisterPublic(rt)
 	announcementHandler := announcement.NewHandler(announcement.NewService(pool, now))
 	announcementHandler.RegisterPublic(rt)
+	brandingSvc := branding.NewService(pool, now, opts.SiteName, opts.BrandingImageHosts)
+	brandingHandler := branding.NewHandler(brandingSvc)
+	brandingHandler.RegisterPublic(rt)
 	if opts.Poster == nil {
 		opts.Poster = subscription.NewHTTPPoster(10*time.Second, false)
 	}
 	subscriptionSvc := subscription.NewService(pool, now, subscription.Options{Mailer: opts.Mailer, Poster: opts.Poster,
-		BaseURL: opts.PublicBaseURL, SiteName: opts.SiteName})
+		BaseURL: opts.PublicBaseURL, SiteName: opts.SiteName, SiteNameFunc: brandingSvc.SiteName})
 	subscriptionHandler := subscription.NewHandler(subscriptionSvc)
 	subscriptionHandler.RegisterPublic(rt)
 	// Monitor state changes are recorded in the status history atomically.
@@ -153,6 +160,7 @@ func New(pool *pgxpool.Pool, opts Options) *App {
 		// API disabled) does not accept it either.
 		monitoringHandler.RegisterPublic(rt)
 		department.NewHandler(department.NewService(pool, now)).Register(rt, admin)
+		brandingHandler.RegisterAdmin(rt, admin)
 	}
 
 	return &App{Router: rt, Handler: httpx.Chain(rt, opts.RequestTimeout), External: externalSvc, Auth: authSvc, Subscriptions: subscriptionSvc, Presence: presenceSvc}

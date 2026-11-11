@@ -19,6 +19,11 @@ func perms(p ...string) []string { return p }
 var adminPolicy = auth.Policy{
 	"GET /api/v1/admin/permissions": anyUser,
 
+	"GET /api/v1/admin/branding":                  anyUser,
+	"PUT /api/v1/admin/branding":                  perms(auth.PermBrandingManage),
+	"PUT /api/v1/admin/branding/images/{kind}":    perms(auth.PermBrandingManage),
+	"DELETE /api/v1/admin/branding/images/{kind}": perms(auth.PermBrandingManage),
+
 	"GET /api/v1/admin/components":               anyUser,
 	"GET /api/v1/admin/components/{id}":          anyUser,
 	"POST /api/v1/admin/components":              perms(auth.PermComponentsManage),

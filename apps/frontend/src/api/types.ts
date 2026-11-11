@@ -132,3 +132,13 @@ export type RoleCreate = S.RoleCreate;
 export type RolePatch = S.RolePatch;
 export type SetupInput = S.SetupInput;
 export type LoginProvider = S.LoginProvider;
+
+// Visual identity.
+export type PublicBranding = S.PublicBranding;
+export type AdminBranding = S.AdminBranding;
+export type BrandingSettings = S.BrandingSettings;
+export type BrandingColors = S.BrandingColors;
+export type BrandingFont = S.BrandingFont;
+export type BrandingImageChoice = S.BrandingImageChoice;
+export type BrandingUpload = S.BrandingUpload;
+export type BrandingImageKind = "logo" | "favicon";

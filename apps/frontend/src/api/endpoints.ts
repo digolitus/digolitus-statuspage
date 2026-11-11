@@ -1,5 +1,9 @@
 import { request } from "./client";
 import type {
+  AdminBranding,
+  BrandingImageKind,
+  BrandingSettings,
+  PublicBranding,
   Announcement,
   AnnouncementCategory,
   AnnouncementCategoryCreate,
@@ -112,6 +116,7 @@ export const publicApi = {
     request<PublicAnnouncement>("GET", `/api/v1/announcements/${encodeURIComponent(id)}`, o),
   announcementCategories: (o: Signal = {}) =>
     request<{ data: PublicAnnouncementCategory[] }>("GET", "/api/v1/announcement-categories", o),
+  branding: (o: Signal = {}) => request<PublicBranding>("GET", "/api/v1/branding", o),
 };
 
 /** Heartbeats of "who is here now" (no cookie; tab_id is random per tab). */
@@ -153,6 +158,13 @@ const A = "/api/v1/admin";
 const id = (v: string) => encodeURIComponent(v);
 
 export const adminApi = {
+  branding: {
+    get: (o: Signal = {}) => request<AdminBranding>("GET", "/api/v1/admin/branding", o),
+    update: (body: BrandingSettings) => request<AdminBranding>("PUT", "/api/v1/admin/branding", { body }),
+    uploadImage: (kind: BrandingImageKind, file: Blob) =>
+      request<AdminBranding>("PUT", `/api/v1/admin/branding/images/${kind}`, { rawBody: file, timeoutMs: 30_000 }),
+    deleteImage: (kind: BrandingImageKind) => request<AdminBranding>("DELETE", `/api/v1/admin/branding/images/${kind}`),
+  },
   components: {
     list: (query: ListQuery & { is_active?: boolean; is_public?: boolean; group_id?: string; subgroup_id?: string; team_id?: string }, o: Signal = {}) =>
       request<Page<Component>>("GET", `${A}/components`, { ...o, query }),

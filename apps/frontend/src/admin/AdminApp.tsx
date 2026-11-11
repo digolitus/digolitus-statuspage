@@ -4,6 +4,7 @@ import { Link, match, useLocation } from "../lib/router";
 import { AccountPage, RolesPage, UsersPage } from "./AccessPages";
 import { AnnouncementDetailPage, AnnouncementNewPage, AnnouncementsPage } from "./announcements";
 import { AnnouncementSettingsPage } from "./AnnouncementSettingsPage";
+import { BrandingPage } from "./BrandingPage";
 import { AnnouncementTemplatesPage } from "./AnnouncementTemplatesPage";
 import { AuditPage } from "./AuditPage";
 import { StatusHistoryPage } from "./StatusHistoryPage";
@@ -60,6 +61,11 @@ const NAV_GROUPS: { id: string; label: string; items: NavItem[] }[] = [
     id: "notifications",
     label: "Notificações",
     items: [{ to: "/admin/subscriptions", label: "Inscrições", need: ["subscriptions.manage"] }],
+  },
+  {
+    id: "settings",
+    label: "Configurações",
+    items: [{ to: "/admin/branding", label: "Identidade visual" }],
   },
   {
     id: "access",
@@ -180,6 +186,7 @@ function Route({ pathname }: { pathname: string }) {
   if ((p = match("/admin/announcements/:id", pathname))) return <AnnouncementDetailPage key={p.id} id={p.id} />;
   if (match("/admin/announcement-settings", pathname)) return <AnnouncementSettingsPage />;
   if (match("/admin/teams", pathname)) return <TeamsPage />;
+  if (match("/admin/branding", pathname)) return <BrandingPage />;
   if (match("/admin/subscriptions", pathname)) return allowed("subscriptions.manage") ? <SubscriptionsPage /> : <Forbidden />;
   if (match("/admin/audit", pathname)) return allowed("audit.read") ? <AuditPage /> : <Forbidden />;
   if (match("/admin/users", pathname)) return allowed("users.manage") ? <UsersPage /> : <Forbidden />;

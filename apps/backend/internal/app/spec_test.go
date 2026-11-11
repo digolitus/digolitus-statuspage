@@ -17,6 +17,10 @@ func init() {
 	// Feeds are XML documents; the contract only checks status and media type.
 	openapi3filter.RegisterBodyDecoder("application/atom+xml", openapi3filter.PlainBodyDecoder)
 	openapi3filter.RegisterBodyDecoder("application/rss+xml", openapi3filter.PlainBodyDecoder)
+	// Branding images are opaque bytes.
+	for _, ct := range []string{"image/png", "image/jpeg", "image/webp", "image/x-icon"} {
+		openapi3filter.RegisterBodyDecoder(ct, openapi3filter.FileBodyDecoder)
+	}
 }
 
 func loadSpec(t *testing.T) *openapi3.T {

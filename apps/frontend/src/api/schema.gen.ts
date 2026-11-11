@@ -5,6 +5,16 @@ export type Accepted = {
   message: string;
 };
 
+export type AdminBranding = BrandingSettings & ({
+  /** BRANDING_IMAGE_HOSTS. */
+  allowed_image_hosts: string[];
+  defaults: BrandingSettings;
+  favicon_upload: BrandingUpload | null;
+  logo_upload: BrandingUpload | null;
+  /** Nulo enquanto nada foi salvo. */
+  updated_at: string | null;
+});
+
 export type AdminPresenceBeat = {
   /** Rótulo da tela (ex.: Incidentes › Lentidão no checkout). */
   area: string;
@@ -167,7 +177,7 @@ export type AuditEvent = {
   occurred_at: Timestamp;
   request_id: string | null;
   resource_id: string;
-  resource_type: "component" | "component_group" | "incident" | "maintenance" | "incident_template" | "maintenance_template" | "external_source" | "announcement" | "announcement_category" | "team" | "user" | "role" | "subscription" | "announcement_template" | "monitoring_integration" | "department";
+  resource_type: "component" | "component_group" | "incident" | "maintenance" | "incident_template" | "maintenance_template" | "external_source" | "announcement" | "announcement_category" | "team" | "user" | "role" | "subscription" | "announcement_template" | "monitoring_integration" | "department" | "branding";
   /** Canal de origem (ex.: admin_api). */
   source: string;
 };
@@ -175,6 +185,51 @@ export type AuditEvent = {
 export type AuditEventList = {
   data: AuditEvent[];
   pagination: Pagination;
+};
+
+export type BrandingColors = {
+  header_background: string;
+  header_text: string;
+  /** Precisa ser claro. */
+  page_background: string;
+  /** Botões, links e marca. */
+  primary: string;
+};
+
+export type BrandingFont = "inter" | "ibm-plex-sans" | "source-sans-3" | "nunito-sans" | "roboto" | "merriweather-sans" | "system";
+
+export type BrandingImageChoice = {
+  source: "none" | "upload" | "url";
+  /** URL https de domínio liberado; só com `source: url`. */
+  url: string | null;
+};
+
+/** Campos desconhecidos são rejeitados pelo servidor. */
+export type BrandingSettings = {
+  colors: BrandingColors;
+  /** Descrição para buscadores e links compartilhados. */
+  description: string;
+  favicon: BrandingImageChoice;
+  font: BrandingFont;
+  footer_link_label: string;
+  /** http(s); informe junto com `footer_link_label`. */
+  footer_link_url: string;
+  footer_text: string;
+  login_message: string;
+  login_title: string;
+  logo: BrandingImageChoice;
+  show_title_with_logo: boolean;
+  subtitle: string;
+  /** Cabeçalho, aba do navegador, login, e-mails e feeds. */
+  title: string;
+};
+
+export type BrandingUpload = {
+  content_type: string;
+  size_bytes: number;
+  updated_at: string;
+  /** Caminho público com a versão. */
+  url: string;
 };
 
 export type CategoryColor = "gray" | "blue" | "green" | "yellow" | "orange" | "red" | "purple";
@@ -920,7 +975,7 @@ export type PermissionInfo = {
   sensitive: boolean;
 };
 
-export type PermissionKey = "components.status" | "components.manage" | "third_party.manage" | "monitoring.manage" | "incidents.manage" | "maintenances.manage" | "templates.manage" | "announcements.write" | "announcements.publish" | "announcements.settings" | "teams.manage" | "subscriptions.manage" | "audit.read" | "presence.read" | "users.manage" | "roles.manage";
+export type PermissionKey = "components.status" | "components.manage" | "third_party.manage" | "monitoring.manage" | "incidents.manage" | "maintenances.manage" | "templates.manage" | "announcements.write" | "announcements.publish" | "announcements.settings" | "teams.manage" | "subscriptions.manage" | "audit.read" | "presence.read" | "users.manage" | "roles.manage" | "branding.manage";
 
 export type PermissionList = {
   data: PermissionInfo[];
@@ -991,6 +1046,25 @@ export type PublicAnnouncementCategoryList = {
 export type PublicAnnouncementList = {
   data: PublicAnnouncement[];
   pagination: Pagination;
+};
+
+export type PublicBranding = {
+  colors: BrandingColors;
+  description: string;
+  favicon_url: string | null;
+  font: BrandingFont;
+  footer_link: {
+    label: string;
+    url: string;
+  } | null;
+  footer_text: string;
+  login_message: string;
+  login_title: string;
+  logo_url: string | null;
+  show_title_with_logo: boolean;
+  subtitle: string;
+  title: string;
+  updated_at: string | null;
 };
 
 export type PublicComponent = {

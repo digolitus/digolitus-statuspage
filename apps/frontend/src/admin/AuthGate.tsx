@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { ApiError, isAbort, SESSION_EXPIRED_EVENT } from "../api/client";
 import { authApi, socialLoginUrl } from "../api/endpoints";
 import type { LoginProvider, Me, PermissionKey } from "../api/types";
+import { BrandMark } from "../components/Branding";
 import { InfoTip } from "../components/InfoTip";
 import { ErrorPanel, Field, Loading, Notice } from "../components/ui";
+import { useBranding, useBrandingVars } from "../lib/branding";
 import { navigate } from "../lib/router";
 import { AuthContext, useCan } from "./authContext";
 import { FormStatus, useSubmit } from "./shared";
@@ -107,17 +109,18 @@ export function Can({ perm, children, fallback = null }: { perm: PermissionKey; 
   return useCan(perm) ? <>{children}</> : <>{fallback}</>;
 }
 
-function AuthShell({ children, title }: { children: ReactNode; title?: string }) {
+function AuthShell({ children, title, message }: { children: ReactNode; title?: string; message?: string }) {
+  const { branding } = useBranding();
+  const ref = useRef<HTMLElement>(null);
+  useBrandingVars(ref, branding);
   return (
-    <main className="auth-shell" id="admin-main">
+    <main className="auth-shell branded" id="admin-main" ref={ref}>
       <div className="auth-card">
         <div className="brand">
-          <span className="brand-mark" aria-hidden="true">
-            D
-          </span>
-          <span className="brand-name">Digolitus Status Page</span>
+          <BrandMark branding={branding} subtitle={false} />
         </div>
         {title && <h1>{title}</h1>}
+        {message && <p className="auth-message">{message}</p>}
         {children}
       </div>
       <p className="auth-footer">
@@ -145,6 +148,7 @@ function takeSocialLoginError(): string | null {
 }
 
 function LoginPage({ expired, onDone }: { expired: boolean; onDone: (me: Me) => void }) {
+  const { branding } = useBranding();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [socialError] = useState(takeSocialLoginError);
@@ -164,7 +168,7 @@ function LoginPage({ expired, onDone }: { expired: boolean; onDone: (me: Me) => 
     else setPassword("");
   }
   return (
-    <AuthShell title="Entrar na administração">
+    <AuthShell title={branding.login_title} message={branding.login_message}>
       {expired && <Notice tone="warn">Sua sessão terminou. Entre novamente para continuar.</Notice>}
       {socialError && (
         <div className="error-panel" role="alert">

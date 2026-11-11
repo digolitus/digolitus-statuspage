@@ -93,6 +93,8 @@ tags:
       aba conta como presente por 2 minutos após o último sinal. Visitantes públicos são anônimos: a aba envia um
       identificador aleatório, guardado apenas como hash SHA-256, sem IP, user agent ou cookie. Desligado com
       `PRESENCE_ENABLED=false` (as rotas deixam de existir).
+  - name: admin-branding
+    description: Identidade visual da página pública e da tela de login. Alterar requer `branding.manage`.
 
 paths:
   /healthz:
@@ -334,6 +336,49 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/PublicAnnouncementCategoryList' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/branding:
+    get:
+      tags: [public]
+      operationId: getBranding
+      security: []
+      summary: Identidade visual
+      description: |
+        Nome, textos, fonte, cores, logotipo e favicon da página pública e da tela de login. Sem nada salvo, devolve
+        os padrões (o título é `SITE_NAME`). `logo_url` e `favicon_url` são caminhos deste servidor (imagem enviada) ou
+        URLs https de domínios liberados em `BRANDING_IMAGE_HOSTS`.
+      responses:
+        '200':
+          description: Identidade visual atual.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicBranding' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/branding/images/{kind}:
+    parameters: [ { $ref: '#/components/parameters/BrandingImageKind' } ]
+    get:
+      tags: [public]
+      operationId: getBrandingImage
+      security: []
+      summary: Imagem enviada (logotipo ou favicon)
+      description: |
+        Arquivo enviado pela administração. Com `?v=` igual ao início do hash atual (como em `logo_url`), a resposta
+        pode ficar em cache indefinidamente. Responde 304 para `If-None-Match` com o ETag atual.
+      parameters:
+        - { name: v, in: query, schema: { type: string, maxLength: 64 }, description: Versão (prefixo do SHA-256). }
+        - { name: If-None-Match, in: header, schema: { type: string } }
+      responses:
+        '200':
+          description: Imagem.
+          headers:
+            ETag: { description: SHA-256 do arquivo entre aspas., schema: { type: string } }
+          content:
+            image/png: { schema: { type: string, format: binary } }
+            image/jpeg: { schema: { type: string, format: binary } }
+            image/webp: { schema: { type: string, format: binary } }
+            image/x-icon: { schema: { type: string, format: binary } }
+        '304': { description: Não modificada. }
+        '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalError' }
   /api/v1/auth/setup:
     get:
@@ -2750,7 +2795,7 @@ paths:
       parameters:
         - name: resource_type
           in: query
-          schema: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template, external_source, announcement, announcement_category, team, user, role, subscription, announcement_template, monitoring_integration, department] }
+          schema: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template, external_source, announcement, announcement_category, team, user, role, subscription, announcement_template, monitoring_integration, department, branding] }
         - { name: resource_id, in: query, schema: { type: string, format: uuid } }
         - { name: action, in: query, schema: { type: string, maxLength: 64 }, description: 'Ex.: created, updated, resolved, started.' }
         - name: sort
@@ -2836,9 +2881,99 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/branding:
+    get:
+      tags: [admin-branding]
+      operationId: getAdminBranding
+      summary: Consultar identidade visual
+      description: Configuração atual, imagens enviadas, padrões e domínios liberados para URLs de imagem.
+      responses:
+        '200':
+          description: Configuração.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminBranding' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    put:
+      tags: [admin-branding]
+      operationId: updateBranding
+      summary: Salvar identidade visual
+      description: |
+        Substitui toda a configuração. As cores precisam de contraste mínimo de 4,5:1 (WCAG AA): cor principal com o
+        texto branco dos botões, texto do cabeçalho com o fundo do cabeçalho e fundo da página com o texto secundário.
+        Imagem com `source: upload` exige um arquivo enviado; com `source: url`, uma URL https de domínio liberado.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BrandingSettings' }
+      responses:
+        '200':
+          description: Salvo.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminBranding' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/branding/images/{kind}:
+    parameters: [ { $ref: '#/components/parameters/BrandingImageKind' } ]
+    put:
+      tags: [admin-branding]
+      operationId: uploadBrandingImage
+      summary: Enviar logotipo ou favicon
+      description: |
+        Corpo é o arquivo. Logotipo: PNG, JPG ou WebP até 512 KB. Favicon: PNG ou ICO até 128 KB. O tipo é detectado
+        pelo conteúdo; SVG não é aceito. A imagem passa a ser a origem escolhida (`source: upload`).
+      requestBody:
+        required: true
+        content:
+          image/png: { schema: { type: string, format: binary } }
+          image/jpeg: { schema: { type: string, format: binary } }
+          image/webp: { schema: { type: string, format: binary } }
+          image/x-icon: { schema: { type: string, format: binary } }
+          application/octet-stream: { schema: { type: string, format: binary } }
+      responses:
+        '200':
+          description: Enviada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminBranding' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    delete:
+      tags: [admin-branding]
+      operationId: deleteBrandingImage
+      summary: Remover imagem enviada
+      description: Se a imagem estava em uso, a origem passa a ser `none`.
+      responses:
+        '200':
+          description: Removida.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminBranding' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
 
 components:
   parameters:
+    BrandingImageKind:
+      name: kind
+      in: path
+      required: true
+      schema: { type: string, enum: [logo, favicon] }
     ID:
       name: id
       in: path
@@ -3012,6 +3147,85 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
 
   schemas:
+    BrandingColors:
+      type: object
+      additionalProperties: false
+      required: [primary, header_background, header_text, page_background]
+      properties:
+        primary: { type: string, pattern: '^#[0-9a-fA-F]{6}$', description: 'Botões, links e marca.' }
+        header_background: { type: string, pattern: '^#[0-9a-fA-F]{6}$' }
+        header_text: { type: string, pattern: '^#[0-9a-fA-F]{6}$' }
+        page_background: { type: string, pattern: '^#[0-9a-fA-F]{6}$', description: Precisa ser claro. }
+    BrandingImageChoice:
+      type: object
+      additionalProperties: false
+      required: [source, url]
+      properties:
+        source: { type: string, enum: [none, upload, url] }
+        url: { type: string, nullable: true, maxLength: 500, description: 'URL https de domínio liberado; só com `source: url`.' }
+    BrandingFont:
+      type: string
+      enum: [inter, ibm-plex-sans, source-sans-3, nunito-sans, roboto, merriweather-sans, system]
+    BrandingSettings:
+      description: Campos desconhecidos são rejeitados pelo servidor.
+      type: object
+      required: [title, subtitle, description, login_title, login_message, footer_text, footer_link_label, footer_link_url, font, colors, show_title_with_logo, logo, favicon]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 60, description: 'Cabeçalho, aba do navegador, login, e-mails e feeds.' }
+        subtitle: { type: string, maxLength: 80 }
+        description: { type: string, maxLength: 160, description: Descrição para buscadores e links compartilhados. }
+        login_title: { type: string, minLength: 1, maxLength: 60 }
+        login_message: { type: string, maxLength: 200 }
+        footer_text: { type: string, maxLength: 280 }
+        footer_link_label: { type: string, maxLength: 40 }
+        footer_link_url: { type: string, maxLength: 300, description: 'http(s); informe junto com `footer_link_label`.' }
+        font: { $ref: '#/components/schemas/BrandingFont' }
+        colors: { $ref: '#/components/schemas/BrandingColors' }
+        show_title_with_logo: { type: boolean }
+        logo: { $ref: '#/components/schemas/BrandingImageChoice' }
+        favicon: { $ref: '#/components/schemas/BrandingImageChoice' }
+    BrandingUpload:
+      type: object
+      required: [content_type, size_bytes, url, updated_at]
+      properties:
+        content_type: { type: string }
+        size_bytes: { type: integer }
+        url: { type: string, description: Caminho público com a versão. }
+        updated_at: { type: string, format: date-time }
+    AdminBranding:
+      allOf:
+        - { $ref: '#/components/schemas/BrandingSettings' }
+        - type: object
+          required: [logo_upload, favicon_upload, allowed_image_hosts, defaults, updated_at]
+          properties:
+            logo_upload: { allOf: [ { $ref: '#/components/schemas/BrandingUpload' } ], nullable: true }
+            favicon_upload: { allOf: [ { $ref: '#/components/schemas/BrandingUpload' } ], nullable: true }
+            allowed_image_hosts: { type: array, items: { type: string }, description: BRANDING_IMAGE_HOSTS. }
+            defaults: { $ref: '#/components/schemas/BrandingSettings' }
+            updated_at: { type: string, format: date-time, nullable: true, description: Nulo enquanto nada foi salvo. }
+    PublicBranding:
+      type: object
+      required: [title, subtitle, description, login_title, login_message, footer_text, footer_link, font, colors, show_title_with_logo, logo_url, favicon_url, updated_at]
+      properties:
+        title: { type: string }
+        subtitle: { type: string }
+        description: { type: string }
+        login_title: { type: string }
+        login_message: { type: string }
+        footer_text: { type: string }
+        footer_link:
+          type: object
+          nullable: true
+          required: [label, url]
+          properties:
+            label: { type: string }
+            url: { type: string }
+        font: { $ref: '#/components/schemas/BrandingFont' }
+        colors: { $ref: '#/components/schemas/BrandingColors' }
+        show_title_with_logo: { type: boolean }
+        logo_url: { type: string, nullable: true }
+        favicon_url: { type: string, nullable: true }
+        updated_at: { type: string, format: date-time, nullable: true }
     Health:
       type: object
       additionalProperties: false
@@ -3883,7 +4097,7 @@ components:
       properties:
         id: { type: integer, format: int64 }
         occurred_at: { $ref: '#/components/schemas/Timestamp' }
-        resource_type: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template, external_source, announcement, announcement_category, team, user, role, subscription, announcement_template, monitoring_integration, department] }
+        resource_type: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template, external_source, announcement, announcement_category, team, user, role, subscription, announcement_template, monitoring_integration, department, branding] }
         resource_id: { type: string, format: uuid }
         action: { type: string }
         source: { type: string, description: 'Canal de origem (ex.: admin_api).' }
@@ -4393,7 +4607,7 @@ components:
 
     PermissionKey:
       type: string
-      enum: [components.status, components.manage, third_party.manage, monitoring.manage, incidents.manage, maintenances.manage, templates.manage, announcements.write, announcements.publish, announcements.settings, teams.manage, subscriptions.manage, audit.read, presence.read, users.manage, roles.manage]
+      enum: [components.status, components.manage, third_party.manage, monitoring.manage, incidents.manage, maintenances.manage, templates.manage, announcements.write, announcements.publish, announcements.settings, teams.manage, subscriptions.manage, audit.read, presence.read, users.manage, roles.manage, branding.manage]
     RoleScope:
       type: string
       enum: [global, team]

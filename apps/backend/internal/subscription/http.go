@@ -327,7 +327,7 @@ func (h *Handler) atom(w http.ResponseWriter, r *http.Request) {
 	if len(items) > 0 {
 		updated = items[0].when
 	}
-	f := atomFeed{Title: h.svc.siteName + " — atualizações de status", ID: base + "/", Updated: updated.UTC().Format(time.RFC3339),
+	f := atomFeed{Title: h.svc.siteName() + " — atualizações de status", ID: base + "/", Updated: updated.UTC().Format(time.RFC3339),
 		Links: []atomLink{{Href: base + "/"}, {Rel: "self", Href: base + "/api/v1/feed.atom"}}}
 	for _, it := range items {
 		f.Entries = append(f.Entries, atomEntry{Title: eventHeadline(it.ev), ID: fmt.Sprintf("tag:%s,2026:event-%d", host, it.id),
@@ -369,7 +369,7 @@ func (h *Handler) rss(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	base := h.base(r)
-	doc := rssDoc{Version: "2.0", Channel: rssChannel{Title: h.svc.siteName + " — atualizações de status", Link: base + "/",
+	doc := rssDoc{Version: "2.0", Channel: rssChannel{Title: h.svc.siteName() + " — atualizações de status", Link: base + "/",
 		Description: "Incidentes, manutenções e comunicados publicados."}}
 	for _, it := range items {
 		doc.Channel.Items = append(doc.Channel.Items, rssItem{Title: eventHeadline(it.ev), Link: base + it.ev.Path,

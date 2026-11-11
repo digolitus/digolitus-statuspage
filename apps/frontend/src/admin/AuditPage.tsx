@@ -24,11 +24,13 @@ const RESOURCE_LABEL: Record<AuditEvent["resource_type"], string> = {
   announcement_template: "Template de comunicado",
   monitoring_integration: "Integração de monitoramento",
   department: "Departamento",
+  branding: "Identidade visual",
 };
 
 function resourceLink(e: AuditEvent): string | null {
   if (e.resource_type === "incident") return `/admin/incidents/${e.resource_id}`;
   if (e.resource_type === "maintenance") return `/admin/maintenances/${e.resource_id}`;
+  if (e.resource_type === "branding") return "/admin/branding";
   return null;
 }
 

@@ -167,16 +167,17 @@ func run(args []string) error {
 		log.Info("e-mail notifications disabled (set SMTP_HOST and PUBLIC_BASE_URL to enable): only feeds and admin-created webhooks/Slack are available")
 	}
 	application := app.New(pool, app.Options{
-		AdminAPIEnabled:  cfg.AdminAPIEnabled,
-		RequestTimeout:   cfg.RequestTimeout,
-		ExternalInterval: cfg.ExternalInterval,
-		ExternalFetcher:  external.NewHTTPFetcher(10*time.Second, cfg.ExternalAllowPrivate),
-		Auth:             authCfg,
-		Mailer:           mailer,
-		Poster:           subscription.NewHTTPPoster(10*time.Second, cfg.NotifyAllowPrivate),
-		PublicBaseURL:    cfg.PublicBaseURL,
-		SiteName:         cfg.SiteName,
-		PresenceEnabled:  cfg.PresenceEnabled,
+		AdminAPIEnabled:    cfg.AdminAPIEnabled,
+		RequestTimeout:     cfg.RequestTimeout,
+		ExternalInterval:   cfg.ExternalInterval,
+		ExternalFetcher:    external.NewHTTPFetcher(10*time.Second, cfg.ExternalAllowPrivate),
+		Auth:               authCfg,
+		Mailer:             mailer,
+		Poster:             subscription.NewHTTPPoster(10*time.Second, cfg.NotifyAllowPrivate),
+		PublicBaseURL:      cfg.PublicBaseURL,
+		SiteName:           cfg.SiteName,
+		BrandingImageHosts: cfg.BrandingImageHosts,
+		PresenceEnabled:    cfg.PresenceEnabled,
 	})
 	if !cfg.AdminAPIEnabled {
 		log.Info("admin API disabled (ADMIN_API_ENABLED=false): serving public endpoints only")

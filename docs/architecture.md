@@ -80,6 +80,7 @@ As rotas administrativas passam por um único wrapper (`app.New`). Ele valida a 
 | `setup_tokens` | Token de uso único da configuração inicial (só o hash) |
 | `component_status_changes` | Histórico do status efetivo, só com inclusões: causa (componente, incidente, manutenção, monitoramento, baseline), autor e instante; base do uptime diário ([ADR 0014](adr/0014-status-history.md)) |
 | `external_component_status_changes`, `external_events` | Histórico de terceiros: mudanças de status dos componentes do provedor e incidentes/manutenções vistos (com `closed_at`); sobrevive à exclusão do provedor |
+| `branding_settings`, `branding_images` | Identidade visual (documento único validado) e logotipo/favicon enviados, servidos pela API ([ADR 0016](adr/0016-visual-identity.md)) |
 | `audit_events` | Histórico operacional com diff antes/depois, autor, origem e request ID |
 | `schema_migrations` | Versão e checksum de cada migração aplicada |
 

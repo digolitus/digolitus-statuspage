@@ -161,6 +161,14 @@ Em `/admin/monitoring`, crie uma integração e copie o endereço do webhook (ap
 - Alertas ilegíveis aparecem em "Últimos alertas recebidos" com o motivo, e a ferramenta recebe 422.
 - Decisão e regras: [ADR 0015](adr/0015-monitoring-integrations.md).
 
+## Identidade visual
+
+Em `/admin/branding` (permissão `branding.manage`) ficam título, subtítulo, textos do login e do rodapé, logotipo, favicon, fonte e cores da página pública e da tela de login.
+
+- Imagens podem ser enviadas (guardadas no banco) ou apontar para URL `https://` de um host listado em `BRANDING_IMAGE_HOSTS` (ex.: `cdn.example.com,example.com`). Passe a **mesma lista ao backend e ao frontend**: o backend valida as URLs e o frontend coloca os hosts na CSP (`img-src`). Depois de mudar a variável, reinicie os dois.
+- Um host inválido na variável impede a subida (backend e frontend), para não publicar uma CSP diferente da esperada.
+- Decisão e controles: [ADR 0016](adr/0016-visual-identity.md).
+
 ## Atualizar a Swagger UI embutida
 
 ```bash

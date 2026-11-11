@@ -68,6 +68,9 @@ services:
       # Subscriptions (notifications). E-mail, webhook and Slack self-service
       # need SMTP (double opt-in); RSS/Atom feeds always work.
       SITE_NAME: ${SITE_NAME:-Digolitus Status Page}
+      # Hosts accepted for logo/favicon URLs (visual identity). The frontend
+      # receives the same list for its CSP.
+      BRANDING_IMAGE_HOSTS: ${BRANDING_IMAGE_HOSTS:-}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
@@ -115,6 +118,8 @@ services:
     ports:
       - "127.0.0.1:${STATUSPAGE_PORT:-8080}:8080"
     networks: [internal, edge]
+    environment:
+      BRANDING_IMAGE_HOSTS: ${BRANDING_IMAGE_HOSTS:-}
     tmpfs:
       - /tmp
     healthcheck:

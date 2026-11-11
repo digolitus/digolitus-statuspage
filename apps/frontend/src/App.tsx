@@ -1,4 +1,5 @@
 import { AdminApp } from "./admin/AdminApp";
+import { BrandingProvider } from "./components/Branding";
 import { AnnouncementDetailPage, AnnouncementsPage } from "./public/AnnouncementsPage";
 import { IncidentPage, MaintenancePage } from "./public/DetailPages";
 import { PublicLayout } from "./public/PublicLayout";
@@ -13,6 +14,14 @@ import { match, useLocation } from "./lib/router";
  * The public area never calls admin endpoints.
  */
 export default function App() {
+  return (
+    <BrandingProvider>
+      <Routes />
+    </BrandingProvider>
+  );
+}
+
+function Routes() {
   const { pathname } = useLocation();
   if (pathname === "/admin" || pathname.startsWith("/admin/")) {
     return <AdminApp />;

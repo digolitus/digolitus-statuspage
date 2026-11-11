@@ -25,6 +25,7 @@ RUN apk upgrade --no-cache libexpat brotli-libs
 
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY --chmod=0755 docker-entrypoint.d/20-branding-image-hosts.sh /docker-entrypoint.d/
 
 USER 101
 
