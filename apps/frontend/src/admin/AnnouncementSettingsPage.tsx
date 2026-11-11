@@ -62,7 +62,7 @@ function CategoryForm({ initial, onSaved, existing }: { initial: CategoryValues;
           {(p) => <input {...p} type="number" min={0} max={100000} value={v.display_order} onChange={(e) => setV({ ...v, display_order: e.target.value })} />}
         </Field>
       </div>
-      <Field label="Descrição / orientação de escrita" error={fe.description} hint="Aparece no editor ao escolher a categoria e no filtro público.">
+      <Field label="Descrição / orientação de escrita" error={fe.description} info="Aparece no editor ao escolher a categoria e no filtro público.">
         {(p) => <input {...p} value={v.description} maxLength={500} onChange={(e) => setV({ ...v, description: e.target.value })} />}
       </Field>
       <p className="small">
@@ -132,13 +132,10 @@ export function AnnouncementSettingsPage() {
 
   return (
     <div className="admin-content">
-      <PageHeader title="Categorias de comunicado" />
+      <PageHeader title="Categorias de comunicado"
+        info="Categorias organizam os comunicados (ex.: Novidades, Avisos, Segurança) e viram filtros na página pública. Categorias em uso não podem ser excluídas; desative-as. Times ficam em Times." />
       <p>
         <Link to="/admin/announcements">← Comunicados</Link>
-      </p>
-      <p className="muted">
-        Categorias organizam os comunicados (ex.: Novidades, Avisos, Segurança) e viram filtros na página pública. Categorias
-        em uso não podem ser excluídas; desative-as. Os times responsáveis ficam em <Link to="/admin/teams">Times</Link>.
       </p>
 
       <section className="panel" aria-labelledby="cat-title">

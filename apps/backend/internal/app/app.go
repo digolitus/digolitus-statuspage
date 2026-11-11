@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/digolitus/digolitus-statuspage/apps/backend/api"
@@ -14,13 +15,18 @@ import (
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/apperror"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/audit"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/auth"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/branding"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/component"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/department"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/docs"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/external"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/incident"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/maintenance"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/monitoring"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/clock"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/httpx"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/presence"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/statushistory"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/statuspage"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/subscription"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/templates"
@@ -43,6 +49,12 @@ type Options struct {
 	Poster        subscription.Poster
 	PublicBaseURL string
 	SiteName      string
+	// PresenceEnabled turns on the "who is here now" heartbeats and admin
+	// panel. It needs the admin API: without it nobody could read the count.
+	PresenceEnabled bool
+	// BrandingImageHosts are the hosts accepted for logo/favicon URLs; the
+	// frontend's CSP must allow the same hosts.
+	BrandingImageHosts []string
 }
 
 // App exposes the handler, its route registry and the third-party service
@@ -53,6 +65,9 @@ type App struct {
 	External      *external.Service
 	Auth          *auth.Service
 	Subscriptions *subscription.Service
+	// Presence is nil when presence is disabled; otherwise the caller runs
+	// its sampler (Presence.Run).
+	Presence *presence.Service
 }
 
 // New builds the application.
@@ -85,23 +100,40 @@ func New(pool *pgxpool.Pool, opts Options) *App {
 	maintenanceHandler := maintenance.NewHandler(maintenance.NewService(pool, now), pool, now)
 
 	statuspage.NewHandler(statuspage.NewService(pool, now, externalSvc)).Register(rt)
+	historyHandler := statushistory.NewHandler(statushistory.NewService(pool, now))
+	historyHandler.RegisterPublic(rt)
 	incidentHandler.RegisterPublic(rt)
 	maintenanceHandler.RegisterPublic(rt)
 	announcementHandler := announcement.NewHandler(announcement.NewService(pool, now))
 	announcementHandler.RegisterPublic(rt)
+	brandingSvc := branding.NewService(pool, now, opts.SiteName, opts.BrandingImageHosts)
+	brandingHandler := branding.NewHandler(brandingSvc)
+	brandingHandler.RegisterPublic(rt)
 	if opts.Poster == nil {
 		opts.Poster = subscription.NewHTTPPoster(10*time.Second, false)
 	}
 	subscriptionSvc := subscription.NewService(pool, now, subscription.Options{Mailer: opts.Mailer, Poster: opts.Poster,
-		BaseURL: opts.PublicBaseURL, SiteName: opts.SiteName})
+		BaseURL: opts.PublicBaseURL, SiteName: opts.SiteName, SiteNameFunc: brandingSvc.SiteName})
 	subscriptionHandler := subscription.NewHandler(subscriptionSvc)
 	subscriptionHandler.RegisterPublic(rt)
+	// Monitor state changes are recorded in the status history atomically.
+	monitoringHandler := monitoring.NewHandler(monitoring.NewService(pool, now,
+		func(ctx context.Context, tx pgx.Tx, monitorID string, at time.Time) error {
+			return statushistory.Record(ctx, tx, statushistory.Cause{Type: statushistory.CauseMonitoring, ID: monitorID}, at)
+		}))
 
 	// Admin routes live under /api/v1/admin/. This wrapper is the single
 	// place where authentication and authorization are enforced: a valid
 	// session is required and the route's permissions come from
 	// adminPolicy (routes missing there are denied).
 	authSvc := auth.NewService(pool, now, opts.Auth)
+	var presenceSvc *presence.Service
+	var presenceHandler *presence.Handler
+	if opts.PresenceEnabled && opts.AdminAPIEnabled {
+		presenceSvc = presence.NewService(pool, now)
+		presenceHandler = presence.NewHandler(presenceSvc)
+		presenceHandler.RegisterPublic(rt)
+	}
 	if opts.AdminAPIEnabled {
 		authHandler := auth.NewHandler(authSvc)
 		authHandler.RegisterAuth(rt)
@@ -116,12 +148,22 @@ func New(pool *pgxpool.Pool, opts Options) *App {
 		maintenanceHandler.RegisterAdmin(rt, admin)
 		templates.NewHandler(templates.NewService(pool, now), pool).Register(rt, admin)
 		audit.NewHandler(audit.NewStore(pool)).Register(rt, admin)
+		historyHandler.RegisterAdmin(rt, admin)
 		external.NewHandler(externalSvc).Register(rt, admin)
 		announcementHandler.RegisterAdmin(rt, admin)
 		subscriptionHandler.RegisterAdmin(rt, admin)
+		if presenceHandler != nil {
+			presenceHandler.RegisterAdmin(rt, admin)
+		}
+		monitoringHandler.RegisterAdmin(rt, admin)
+		// The webhook changes status, so a read-only public instance (admin
+		// API disabled) does not accept it either.
+		monitoringHandler.RegisterPublic(rt)
+		department.NewHandler(department.NewService(pool, now)).Register(rt, admin)
+		brandingHandler.RegisterAdmin(rt, admin)
 	}
 
-	return &App{Router: rt, Handler: httpx.Chain(rt, opts.RequestTimeout), External: externalSvc, Auth: authSvc, Subscriptions: subscriptionSvc}
+	return &App{Router: rt, Handler: httpx.Chain(rt, opts.RequestTimeout), External: externalSvc, Auth: authSvc, Subscriptions: subscriptionSvc, Presence: presenceSvc}
 }
 
 type healthBody struct {

@@ -81,32 +81,32 @@ func (s *Service) eventMail(to string, e notify.Event, manage string) Mail {
 	text += "Detalhes: " + s.baseURL + e.Path + "\n\n" +
 		"—\nVocê recebe este e-mail porque se inscreveu em " + s.baseURL + ".\n" +
 		"Gerenciar ou cancelar a inscrição: " + manage + "\n"
-	return Mail{To: to, Subject: "[" + s.siteName + "] " + eventHeadline(e), Text: text, Unsubscribe: s.unsubscribeURL(manage)}
+	return Mail{To: to, Subject: "[" + s.siteName() + "] " + eventHeadline(e), Text: text, Unsubscribe: s.unsubscribeURL(manage)}
 }
 
 func (s *Service) confirmMail(to string, sub Subscription, link string) Mail {
-	what := "as atualizações de status de " + s.siteName + " neste e-mail"
+	what := "as atualizações de status de " + s.siteName() + " neste e-mail"
 	switch sub.Channel {
 	case ChannelWebhook:
-		what = "as atualizações de status de " + s.siteName + " no webhook " + deref(sub.TargetURL)
+		what = "as atualizações de status de " + s.siteName() + " no webhook " + deref(sub.TargetURL)
 	case ChannelSlack:
-		what = "as atualizações de status de " + s.siteName + " no Slack (incoming webhook informado)"
+		what = "as atualizações de status de " + s.siteName() + " no Slack (incoming webhook informado)"
 	}
 	text := "Recebemos um pedido para enviar " + what + ".\n\n" +
 		"Para confirmar, abra o link abaixo e clique em \"Confirmar inscrição\":\n" + link + "\n\n" +
 		"Se não foi você, ignore este e-mail: nada será enviado sem confirmação.\n"
-	return Mail{To: to, Subject: "Confirme sua inscrição — " + s.siteName, Text: text}
+	return Mail{To: to, Subject: "Confirme sua inscrição — " + s.siteName(), Text: text}
 }
 
 func (s *Service) manageMail(to string, link string) Mail {
-	text := "Você já tem uma inscrição ativa em " + s.siteName + ".\n\n" +
+	text := "Você já tem uma inscrição ativa em " + s.siteName() + ".\n\n" +
 		"Para escolher componentes ou cancelar a inscrição, use o link:\n" + link + "\n\n" +
 		"Se não foi você quem pediu, ignore este e-mail.\n"
-	return Mail{To: to, Subject: "Gerencie sua inscrição — " + s.siteName, Text: text, Unsubscribe: s.unsubscribeURL(link)}
+	return Mail{To: to, Subject: "Gerencie sua inscrição — " + s.siteName(), Text: text, Unsubscribe: s.unsubscribeURL(link)}
 }
 
 func (s *Service) testMail(to, manage string) Mail {
-	return Mail{To: to, Subject: "[" + s.siteName + "] Mensagem de teste",
+	return Mail{To: to, Subject: "[" + s.siteName() + "] Mensagem de teste",
 		Text:        "Esta é uma mensagem de teste enviada por um administrador.\n\nGerenciar ou cancelar: " + manage + "\n",
 		Unsubscribe: s.unsubscribeURL(manage)}
 }

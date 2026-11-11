@@ -1,82 +1,41 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import type { PublicComponent, PublicComponentGroup } from "../api/types";
+import { InfoTip } from "../components/InfoTip";
 import { Badge } from "../components/ui";
 import { componentStatusLabel, plural, toneForStatus } from "../lib/format";
+import { byDisplayOrder } from "../lib/groups";
+import { ComponentUptime, GroupUptime } from "./uptime";
 
-type Row =
-  | { kind: "component"; order: number; name: string; component: PublicComponent }
-  | { kind: "group"; order: number; name: string; group: PublicComponentGroup; components: PublicComponent[] };
+type Item =
+  | { kind: "component"; display_order: number; name: string; component: PublicComponent }
+  | { kind: "group"; display_order: number; name: string; group: PublicComponentGroup; items: Item[] };
+
+const componentItem = (c: PublicComponent): Item => ({ kind: "component", display_order: c.display_order, name: c.name, component: c });
 
 /**
- * Builds the top-level rows: groups (with their components) and ungrouped
- * components, interleaved by display order and then name.
+ * Builds the top-level rows: groups and ungrouped components, interleaved by
+ * display order and then name. Inside a group, its direct components and its
+ * subgroups (each with its components) are interleaved the same way.
+ * Components whose group or subgroup is not published fall back one level.
  */
-export function buildRows(components: PublicComponent[], groups: PublicComponentGroup[]): Row[] {
-  const byGroup = new Map<string, PublicComponent[]>();
-  const rows: Row[] = [];
+export function buildRows(components: PublicComponent[], groups: PublicComponentGroup[]): Item[] {
+  const known = new Map(groups.map((g) => [g.id, g]));
+  const children = new Map<string, Item[]>();
+  const add = (id: string, item: Item) => children.set(id, [...(children.get(id) ?? []), item]);
+  const rows: Item[] = [];
   for (const c of components) {
-    if (c.group_id && groups.some((g) => g.id === c.group_id)) {
-      byGroup.set(c.group_id, [...(byGroup.get(c.group_id) ?? []), c]);
-    } else {
-      rows.push({ kind: "component", order: c.display_order, name: c.name, component: c });
-    }
+    if (c.subgroup_id && known.get(c.subgroup_id)?.parent_id === c.group_id && c.group_id && known.has(c.group_id)) add(c.subgroup_id, componentItem(c));
+    else if (c.group_id && known.has(c.group_id)) add(c.group_id, componentItem(c));
+    else rows.push(componentItem(c));
   }
   for (const g of groups) {
-    rows.push({ kind: "group", order: g.display_order, name: g.name, group: g, components: byGroup.get(g.id) ?? [] });
+    if (!g.parent_id) continue;
+    if (known.has(g.parent_id)) add(g.parent_id, { kind: "group", display_order: g.display_order, name: g.name, group: g, items: (children.get(g.id) ?? []).sort(byDisplayOrder) });
   }
-  return rows.sort((a, b) => a.order - b.order || a.name.localeCompare(b.name, "pt-BR"));
-}
-
-/**
- * Discreet "i" next to a component name. The description opens on hover,
- * focus or tap, and closes with Escape, a second tap or a tap elsewhere.
- */
-function InfoTip({ name, text }: { name: string; text: string }) {
-  const [pinned, setPinned] = useState(false);
-  const [hover, setHover] = useState(false);
-  const ref = useRef<HTMLSpanElement>(null);
-  const tipId = useId();
-  const open = pinned || hover;
-  useEffect(() => {
-    if (!open) return;
-    const close = () => {
-      setPinned(false);
-      setHover(false);
-    };
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
-    const onDown = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && close();
-    document.addEventListener("keydown", onKey);
-    document.addEventListener("mousedown", onDown);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.removeEventListener("mousedown", onDown);
-    };
-  }, [open]);
-  return (
-    <span className="info-tip" ref={ref} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
-      <button
-        type="button"
-        className="info-tip-button"
-        aria-label={`Sobre ${name}`}
-        aria-expanded={open}
-        aria-describedby={open ? tipId : undefined}
-        onClick={() => setPinned((p) => !p)}
-        onFocus={() => setHover(true)}
-        onBlur={() => setHover(false)}
-      >
-        <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
-          <circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" strokeWidth="1.4" />
-          <circle cx="8" cy="4.9" r="1" fill="currentColor" />
-          <path d="M8 7.3v4.4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-        </svg>
-      </button>
-      {open && (
-        <span id={tipId} role="tooltip" className="info-tip-bubble">
-          {text}
-        </span>
-      )}
-    </span>
-  );
+  for (const g of groups) {
+    if (!g.parent_id) rows.push({ kind: "group", display_order: g.display_order, name: g.name, group: g, items: (children.get(g.id) ?? []).sort(byDisplayOrder) });
+  }
+  return rows.sort(byDisplayOrder);
 }
 
 function ComponentRow({ component: c }: { component: PublicComponent }) {
@@ -85,7 +44,15 @@ function ComponentRow({ component: c }: { component: PublicComponent }) {
       <div>
         <span className="component-name-line">
           <span className="component-name">{c.name}</span>
-          {c.description && <InfoTip name={c.name} text={c.description} />}
+          {c.description && <InfoTip label={`Sobre ${c.name}`} text={c.description} />}
+          {c.monitored && (
+            <span className="monitored-chip" title="Status verificado automaticamente por uma ferramenta de monitoramento.">
+              <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true">
+                <path d="M1 6h2l1.5-3 3 6L9 6h2" fill="none" stroke="currentColor" strokeWidth="1.5" />
+              </svg>
+              monitorado
+            </span>
+          )}
           {c.url && /^https?:\/\//i.test(c.url) && (
           <a
             className="component-link"
@@ -101,8 +68,16 @@ function ComponentRow({ component: c }: { component: PublicComponent }) {
         </span>
       </div>
       <Badge tone={toneForStatus[c.status]}>{componentStatusLabel[c.status]}</Badge>
+      <div className="component-uptime">
+        <ComponentUptime id={c.id} name={c.name} />
+      </div>
     </li>
   );
+}
+
+/** Ids of every component inside a group, subgroups included. */
+function componentIds(items: Item[]): string[] {
+  return items.flatMap((i) => (i.kind === "component" ? [i.component.id] : componentIds(i.items)));
 }
 
 function groupSummary(g: PublicComponentGroup): string {
@@ -112,45 +87,50 @@ function groupSummary(g: PublicComponentGroup): string {
   return parts.join(" · ");
 }
 
-/** A group, collapsed by default; its status is always visible. */
-function GroupRow({ group, components }: { group: PublicComponentGroup; components: PublicComponent[] }) {
+/** A group or subgroup, collapsed by default; its status is always visible. */
+function GroupRow({ group, items }: { group: PublicComponentGroup; items: Item[] }) {
   const [open, setOpen] = useState(false);
   const panelId = useId();
+  const sub = group.parent_id !== null;
+  const ids = useMemo(() => componentIds(items), [items]);
   return (
-    <li className={`group-row${open ? " group-row-open" : ""}`}>
+    <li className={`group-row${open ? " group-row-open" : ""}${sub ? " subgroup-row" : ""}`}>
       <button type="button" className="group-toggle" aria-expanded={open} aria-controls={panelId} onClick={() => setOpen((o) => !o)}>
         <span className="group-chevron" aria-hidden="true">
           ▸
         </span>
         <span className="group-title">
-          <span className="component-name">{group.name}</span>
+          <span className="component-name">
+            {group.name}
+            {sub && <span className="subgroup-label">subgrupo</span>}
+          </span>
           <span className="component-description">{groupSummary(group)}</span>
         </span>
         <Badge tone={toneForStatus[group.status]}>{componentStatusLabel[group.status]}</Badge>
       </button>
+      <div className="group-uptime">
+        <GroupUptime ids={ids} name={group.name} size={sub ? "sm" : "md"} />
+      </div>
       <div id={panelId} hidden={!open}>
         {group.description && <p className="group-description">{group.description}</p>}
         <ul className="component-rows nested" aria-label={`Componentes de ${group.name}`}>
-          {components.map((c) => (
-            <ComponentRow key={c.id} component={c} />
-          ))}
+          <Rows items={items} />
         </ul>
       </div>
     </li>
   );
 }
 
+function Rows({ items }: { items: Item[] }) {
+  return items.map((r) =>
+    r.kind === "group" ? <GroupRow key={`g-${r.group.id}`} group={r.group} items={r.items} /> : <ComponentRow key={r.component.id} component={r.component} />,
+  );
+}
+
 export function ComponentList({ components, groups }: { components: PublicComponent[]; groups: PublicComponentGroup[] }) {
-  const rows = buildRows(components, groups);
   return (
     <ul className="component-rows">
-      {rows.map((r) =>
-        r.kind === "group" ? (
-          <GroupRow key={`g-${r.group.id}`} group={r.group} components={r.components} />
-        ) : (
-          <ComponentRow key={r.component.id} component={r.component} />
-        ),
-      )}
+      <Rows items={buildRows(components, groups)} />
     </ul>
   );
 }

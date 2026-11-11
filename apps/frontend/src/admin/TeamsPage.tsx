@@ -1,19 +1,20 @@
 import { useId, useState, type FormEvent } from "react";
 import { adminApi } from "../api/endpoints";
-import type { Team, TeamCreate } from "../api/types";
+import type { Department, Team, TeamCreate } from "../api/types";
 import { TagInput } from "../components/TagInput";
 import { ConfirmButton, EmptyState, ErrorPanel, Field, Loading } from "../components/ui";
 import { plural } from "../lib/format";
 import { Link } from "../lib/router";
 import { useApi } from "../lib/useApi";
 import { useAuth } from "./authContext";
+import { DepartmentSelect, DepartmentsPanel, LevelBadge, useDepartments } from "./departments";
 import { FormStatus, PageHeader, ReadOnlyNote, requireText, useSubmit } from "./shared";
 
 /** Suggestions only; any label up to 40 characters is accepted. */
 const KINDS = ["Squad", "RT", "Comunidade", "Tribo", "Chapter", "Guilda", "Plataforma"];
 
-type Values = { name: string; kind: string; description: string; documentation_url: string; support_url: string; tags: string[] };
-const blank: Values = { name: "", kind: "", description: "", documentation_url: "", support_url: "", tags: [] };
+type Values = { name: string; kind: string; description: string; documentation_url: string; support_url: string; tags: string[]; department_id: string };
+const blank: Values = { name: "", kind: "", description: "", documentation_url: "", support_url: "", tags: [], department_id: "" };
 
 const toValues = (t: Team): Values => ({
   name: t.name,
@@ -22,11 +23,26 @@ const toValues = (t: Team): Values => ({
   documentation_url: t.documentation_url ?? "",
   support_url: t.support_url ?? "",
   tags: t.tags,
+  department_id: t.department_id ?? "",
 });
 
 const isLink = (v: string) => /^https?:\/\/\S+$/i.test(v);
 
-function TeamForm({ existing, onSaved, onCancel, tagSuggestions }: { existing?: Team; onSaved: () => void; onCancel?: () => void; tagSuggestions: string[] }) {
+type DeptData = { departments: Department[]; levels: string[] };
+
+function TeamForm({
+  existing,
+  onSaved,
+  onCancel,
+  tagSuggestions,
+  depts,
+}: {
+  existing?: Team;
+  onSaved: () => void;
+  onCancel?: () => void;
+  tagSuggestions: string[];
+  depts: DeptData;
+}) {
   const [v, setV] = useState(existing ? toValues(existing) : blank);
   const submit = useSubmit();
   const kindsId = useId();
@@ -48,6 +64,7 @@ function TeamForm({ existing, onSaved, onCancel, tagSuggestions }: { existing?: 
       documentation_url: v.documentation_url.trim() || null,
       support_url: v.support_url.trim() || null,
       tags: v.tags,
+      department_id: v.department_id || null,
     };
     const ok = await submit.run(
       () => (existing ? adminApi.teams.update(existing.id, body) : adminApi.teams.create(body)),
@@ -66,7 +83,7 @@ function TeamForm({ existing, onSaved, onCancel, tagSuggestions }: { existing?: 
         <Field label="Nome do time" error={fe.name}>
           {(p) => <input {...p} value={v.name} maxLength={80} placeholder="Ex.: Squad Pagamentos" onChange={(e) => set("name", e.target.value)} />}
         </Field>
-        <Field label="Tipo" error={fe.kind} hint="Squad, RT, Comunidade, Tribo… ou outro rótulo.">
+        <Field label="Tipo" error={fe.kind} info="Squad, RT, Comunidade, Tribo… ou outro rótulo.">
           {(p) => (
             <>
               <input {...p} list={kindsId} value={v.kind} maxLength={40} placeholder="Ex.: Squad" onChange={(e) => set("kind", e.target.value)} />
@@ -78,7 +95,7 @@ function TeamForm({ existing, onSaved, onCancel, tagSuggestions }: { existing?: 
             </>
           )}
         </Field>
-        <Field label="Documentação" error={fe.documentation_url} hint="Link da documentação do time ou dos serviços.">
+        <Field label="Documentação" error={fe.documentation_url} info="Link da documentação do time ou dos serviços.">
           {(p) => (
             <input
               {...p}
@@ -91,7 +108,7 @@ function TeamForm({ existing, onSaved, onCancel, tagSuggestions }: { existing?: 
             />
           )}
         </Field>
-        <Field label="Suporte" error={fe.support_url} hint="Como obter suporte (canal, formulário, plantão).">
+        <Field label="Suporte" error={fe.support_url} info="Como obter suporte (canal, formulário, plantão).">
           {(p) => (
             <input
               {...p}
@@ -105,6 +122,14 @@ function TeamForm({ existing, onSaved, onCancel, tagSuggestions }: { existing?: 
           )}
         </Field>
       </div>
+      <DepartmentSelect
+        departments={depts.departments}
+        levels={depts.levels}
+        value={v.department_id}
+        onChange={(id) => set("department_id", id)}
+        error={fe.department_id}
+        label="Departamento (opcional)"
+      />
       <Field label="Descrição" error={fe.description}>
         {(p) => <textarea {...p} rows={2} maxLength={500} value={v.description} onChange={(e) => set("description", e.target.value)} />}
       </Field>
@@ -114,7 +139,7 @@ function TeamForm({ existing, onSaved, onCancel, tagSuggestions }: { existing?: 
         onChange={(tags) => setV((s) => ({ ...s, tags }))}
         error={fe.tags}
         suggestions={tagSuggestions}
-        hint="Rótulos livres (ex.: pagamentos, on-call 24x7). Enter ou vírgula para adicionar."
+        info="Rótulos livres, ex.: pagamentos, on-call 24x7."
       />
       <FormStatus error={submit.formError} success={submit.success} />
       <div className="form-actions">
@@ -136,34 +161,100 @@ export function TeamsPage() {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const [tab, setTab] = useState<"teams" | "departments">("teams");
+  const [deptEditing, setDeptEditing] = useState<Parameters<typeof DepartmentsPanel>[0]["editing"]>(null);
+  const [deptFilter, setDeptFilter] = useState("");
+  const [withChildren, setWithChildren] = useState(true);
+  const depts = useDepartments();
+  const deptById = new Map(depts.departments.map((d) => [d.id, d]));
   const canManage = useAuth().can("teams.manage");
   const allTeams = state.status === "success" ? state.data.data : [];
   const allTags = [...new Set(allTeams.flatMap((t) => t.tags))].sort((a, b) => a.localeCompare(b, "pt-BR"));
-  const visible = tagFilter ? allTeams.filter((t) => t.tags.some((x) => x.toLowerCase() === tagFilter.toLowerCase())) : allTeams;
+  const inDept = (t: Team) => {
+    if (!deptFilter) return true;
+    if (deptFilter === "none") return !t.department_id;
+    const d = t.department_id ? deptById.get(t.department_id) : undefined;
+    return !!d && (withChildren ? d.path.some((p) => p.id === deptFilter) : d.id === deptFilter);
+  };
+  const visible = allTeams.filter((t) => inDept(t) && (!tagFilter || t.tags.some((x) => x.toLowerCase() === tagFilter.toLowerCase())));
 
   return (
     <div className="admin-content">
-      <PageHeader title="Times responsáveis">
-        {canManage && (
-          <button type="button" className="primary-button" aria-expanded={creating} onClick={() => setCreating((c) => !c)}>
-            Novo time
-          </button>
-        )}
+      <PageHeader
+        title="Times responsáveis"
+        info="Times respondem por grupos, componentes e comunicados. Membros de um time com papel de escopo “time” operam só os componentes desse time; membros são definidos em Usuários. Departamentos (opcionais, até 4 níveis) só organizam times e pessoas e não mudam permissões."
+      >
+        {canManage &&
+          (tab === "teams" ? (
+            <button type="button" className="primary-button" aria-expanded={creating} onClick={() => setCreating((c) => !c)}>
+              Novo time
+            </button>
+          ) : (
+            <button type="button" className="primary-button" onClick={() => setDeptEditing(deptEditing?.mode === "new" && !deptEditing.parentId ? null : { mode: "new" })}>
+              Novo departamento
+            </button>
+          ))}
       </PageHeader>
-      {!canManage && <ReadOnlyNote what="criar ou alterar times" />}
-      <p className="muted">
-        Times respondem por grupos, componentes e comunicados. Usuários membros de um time com um papel de escopo “time” operam
-        apenas os componentes desse time — cada time cuida dos seus serviços. Membros são definidos em{" "}
-        <Link to="/admin/users">Usuários</Link>.
-      </p>
-      {creating && (
+      {!canManage && <ReadOnlyNote what="criar ou alterar times e departamentos" />}
+      <div className="segmented" role="tablist" aria-label="Times ou departamentos">
+        {(
+          [
+            ["teams", `Times (${allTeams.length})`],
+            ["departments", `Departamentos (${depts.departments.length})`],
+          ] as const
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={tab === key}
+            className={tab === key ? "segmented-option segmented-option-active" : "segmented-option"}
+            onClick={() => setTab(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {tab === "departments" && (
+        <DepartmentsPanel
+          teams={allTeams}
+          editing={deptEditing}
+          setEditing={(e) => {
+            setDeptEditing(e);
+            if (!e) {
+              depts.reload();
+              reload();
+            }
+          }}
+        />
+      )}
+      {tab === "teams" && creating && (
         <section className="panel" aria-label="Novo time">
-          <TeamForm onSaved={reload} onCancel={() => setCreating(false)} tagSuggestions={allTags} />
+          <TeamForm onSaved={reload} onCancel={() => setCreating(false)} tagSuggestions={allTags} depts={depts} />
         </section>
       )}
-      {state.status === "loading" && <Loading />}
-      {state.status === "error" && <ErrorPanel error={state.error} onRetry={reload} />}
-      {allTags.length > 0 && (
+      {tab === "teams" && depts.departments.length > 0 && (
+        <div className="filters" role="group" aria-label="Filtrar por departamento">
+          <select aria-label="Departamento" value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)}>
+            <option value="">Todos os departamentos</option>
+            <option value="none">Sem departamento</option>
+            {depts.departments.map((d) => (
+              <option key={d.id} value={d.id}>
+                {`${"\u2003".repeat(d.level - 1)}${d.name}`}
+              </option>
+            ))}
+          </select>
+          {deptFilter && deptFilter !== "none" && (
+            <label className="checkbox">
+              <input type="checkbox" checked={withChildren} onChange={(e) => setWithChildren(e.target.checked)} />
+              <span>incluir subdepartamentos</span>
+            </label>
+          )}
+        </div>
+      )}
+      {tab === "teams" && state.status === "loading" && <Loading />}
+      {tab === "teams" && state.status === "error" && <ErrorPanel error={state.error} onRetry={reload} />}
+      {tab === "teams" && allTags.length > 0 && (
         <div className="filters" role="group" aria-label="Filtrar por tag">
           <button type="button" className={tagFilter ? "chip-button" : "chip-button chip-button-active"} aria-pressed={!tagFilter} onClick={() => setTagFilter(null)}>
             Todas as tags
@@ -181,7 +272,8 @@ export function TeamsPage() {
           ))}
         </div>
       )}
-      {state.status === "success" &&
+      {tab === "teams" &&
+        state.status === "success" &&
         (state.data.data.length === 0 ? (
           <EmptyState title="Nenhum time cadastrado">Crie times para distribuir a responsabilidade pelos componentes.</EmptyState>
         ) : (
@@ -192,6 +284,17 @@ export function TeamsPage() {
                 <li key={t.id} className="admin-item">
                   <div className="admin-item-head">
                     <div>
+                      {t.department_id && deptById.get(t.department_id) && (
+                        <p className="dept-crumb small">
+                          <LevelBadge levels={depts.levels} level={1} />
+                          {deptById.get(t.department_id)!.path.map((p, i) => (
+                            <span key={p.id}>
+                              {i > 0 && <span aria-hidden="true"> › </span>}
+                              {p.name}
+                            </span>
+                          ))}
+                        </p>
+                      )}
                       <strong>{t.name}</strong>
                       {t.kind && <span className="tag tag-team">{t.kind}</span>}
                       {!t.is_active && <span className="tag tag-warn">Desativado</span>}
@@ -260,7 +363,7 @@ export function TeamsPage() {
                       {inUse > 0 && <small className="muted">Em uso: desvincule ou desative.</small>}
                     </div>
                   )}
-                  {editing === t.id && <TeamForm existing={t} onSaved={reload} onCancel={() => setEditing(null)} tagSuggestions={allTags} />}
+                  {editing === t.id && <TeamForm existing={t} onSaved={reload} onCancel={() => setEditing(null)} tagSuggestions={allTags} depts={depts} />}
                 </li>
               );
             })}

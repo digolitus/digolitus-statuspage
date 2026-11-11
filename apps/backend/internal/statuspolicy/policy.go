@@ -1,13 +1,14 @@
 // Package statuspolicy is the single, documented place where the effective
 // status of components and the overall platform status are derived.
 //
-// All inputs are declared by operators (component status, incidents,
-// maintenances). Nothing here represents automated health checks, so results
+// Inputs are declared by operators (component status, incidents,
+// maintenances) or reported by monitoring tools linked to a component (see
+// package monitoring). Callers say which components are monitored; the rest
 // must be presented as declared status, never as verified availability.
 //
 // Rules:
 //  1. A component's effective status is the most severe of: its declared
-//     status; the impact of each active incident affecting it (incident
+//     status; the status implied by its down monitors; the impact of each active incident affecting it (incident
 //     impacts use the component status vocabulary; an "operational" impact
 //     is informational and degrades nothing); and "maintenance" when an
 //     in-progress maintenance affects it.
@@ -81,7 +82,10 @@ func StatusForImpact(impact string) string {
 type ComponentState struct {
 	ID             string
 	DeclaredStatus string
-	Public         bool
+	// MonitoredStatus is the status implied by down monitors linked to the
+	// component; empty when none is down.
+	MonitoredStatus string
+	Public          bool
 }
 
 // ActiveIncident is the policy's view of an active incident.
@@ -108,7 +112,7 @@ func Evaluate(components []ComponentState, incidents []ActiveIncident, maintenan
 	effective := make(map[string]string, len(components))
 	public := make(map[string]bool, len(components))
 	for _, c := range components {
-		effective[c.ID] = c.DeclaredStatus
+		effective[c.ID] = Worse(c.DeclaredStatus, c.MonitoredStatus)
 		public[c.ID] = c.Public
 	}
 	for _, m := range maintenances {

@@ -1,11 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { PermissionKey } from "../api/types";
 import { Link, match, useLocation } from "../lib/router";
 import { AccountPage, RolesPage, UsersPage } from "./AccessPages";
 import { AnnouncementDetailPage, AnnouncementNewPage, AnnouncementsPage } from "./announcements";
 import { AnnouncementSettingsPage } from "./AnnouncementSettingsPage";
+import { BrandingPage } from "./BrandingPage";
 import { AnnouncementTemplatesPage } from "./AnnouncementTemplatesPage";
 import { AuditPage } from "./AuditPage";
+import { StatusHistoryPage } from "./StatusHistoryPage";
 import { AuthGate } from "./AuthGate";
 import { useAuth } from "./authContext";
 import { ComponentsPage } from "./ComponentsPage";
@@ -13,10 +15,12 @@ import { GroupsPage } from "./GroupsPage";
 import { IncidentDetailPage, IncidentNewPage, IncidentsPage } from "./incidents";
 import { MaintenanceDetailPage, MaintenanceNewPage, MaintenancesPage } from "./maintenances";
 import { OverviewPage } from "./OverviewPage";
+import { AdminPresenceBeacon, PresenceChip, PresenceProvider } from "./presence";
 import { SubscriptionsPage } from "./SubscriptionsPage";
 import { TeamsPage } from "./TeamsPage";
 import { TemplatesPage } from "./TemplatesPage";
 import { ThirdPartyPage } from "./ThirdPartyPage";
+import { MonitoringPage } from "./MonitoringPage";
 
 type NavItem = { to: string; label: string; need?: PermissionKey[] };
 
@@ -37,8 +41,10 @@ const NAV_GROUPS: { id: string; label: string; items: NavItem[] }[] = [
     items: [
       { to: "/admin/components", label: "Componentes" },
       { to: "/admin/component-groups", label: "Grupos de componentes" },
+      { to: "/admin/status-history", label: "Histórico de status" },
       { to: "/admin/teams", label: "Times responsáveis" },
       { to: "/admin/third-party", label: "Serviços de terceiros" },
+      { to: "/admin/monitoring", label: "Monitoramento" },
     ],
   },
   {
@@ -57,6 +63,11 @@ const NAV_GROUPS: { id: string; label: string; items: NavItem[] }[] = [
     items: [{ to: "/admin/subscriptions", label: "Inscrições", need: ["subscriptions.manage"] }],
   },
   {
+    id: "settings",
+    label: "Configurações",
+    items: [{ to: "/admin/branding", label: "Identidade visual" }],
+  },
+  {
     id: "access",
     label: "Acesso e auditoria",
     items: [
@@ -67,30 +78,35 @@ const NAV_GROUPS: { id: string; label: string; items: NavItem[] }[] = [
   },
 ];
 
-const NAV_KEY = "dsp.admin.nav.open";
+/** Key used by older builds to remember open groups; cleared so menus always start collapsed. */
+const LEGACY_NAV_KEY = "dsp.admin.nav.open";
 
-function loadOpen(): string[] {
-  try {
-    const v = JSON.parse(window.localStorage.getItem(NAV_KEY) ?? "[]");
-    return Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-/** Collapsible menu groups: closed by default, the current page's group always open. */
+/**
+ * Collapsible menu groups: every group starts closed on each load (nothing is remembered),
+ * the current page's group opens by itself and can still be closed.
+ */
 function AdminNav({ isActive, can }: { isActive: (to: string) => boolean; can: (p: PermissionKey) => boolean }) {
-  const [open, setOpen] = useState<string[]>(loadOpen);
-  const toggle = (id: string) =>
-    setOpen((cur) => {
-      const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
-      try {
-        window.localStorage.setItem(NAV_KEY, JSON.stringify(next));
-      } catch {
-        // Not remembered; fine.
-      }
-      return next;
-    });
+  // Only explicit clicks are stored; a group without an entry follows "is it the current page's group?".
+  const [toggled, setToggled] = useState<Record<string, boolean>>({});
+  const currentGroup = NAV_GROUPS.find((g) => g.items.some((n) => isActive(n.to)))?.id;
+  useEffect(() => {
+    try {
+      window.localStorage.removeItem(LEGACY_NAV_KEY);
+    } catch {
+      // Storage unavailable; nothing to clean.
+    }
+  }, []);
+  // Navigating into a group reopens it, even if it was closed earlier in this visit
+  // (state adjusted during render, as React recommends, instead of in an effect).
+  const [seenGroup, setSeenGroup] = useState(currentGroup);
+  if (seenGroup !== currentGroup) {
+    setSeenGroup(currentGroup);
+    if (currentGroup && currentGroup in toggled) {
+      const next = { ...toggled };
+      delete next[currentGroup];
+      setToggled(next);
+    }
+  }
   return (
     <nav aria-label="Administração" className="admin-nav">
       <ul>
@@ -103,7 +119,7 @@ function AdminNav({ isActive, can }: { isActive: (to: string) => boolean; can: (
           const items = g.items.filter((n) => !n.need || n.need.some((p) => can(p)));
           if (!items.length) return null;
           const current = items.some((n) => isActive(n.to));
-          const expanded = current || open.includes(g.id);
+          const expanded = toggled[g.id] ?? current;
           return (
             <li key={g.id} className="nav-group">
               <button
@@ -111,9 +127,7 @@ function AdminNav({ isActive, can }: { isActive: (to: string) => boolean; can: (
                 className={current ? "nav-group-toggle nav-group-current" : "nav-group-toggle"}
                 aria-expanded={expanded}
                 aria-controls={`nav-${g.id}`}
-                onClick={() => !current && toggle(g.id)}
-                aria-disabled={current || undefined}
-                title={current ? "Grupo da página atual" : undefined}
+                onClick={() => setToggled((cur) => ({ ...cur, [g.id]: !expanded }))}
               >
                 <span>{g.label}</span>
                 <svg className="nav-chevron" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
@@ -156,6 +170,8 @@ function Route({ pathname }: { pathname: string }) {
   if (match("/admin/components", pathname)) return <ComponentsPage />;
   if (match("/admin/component-groups", pathname)) return <GroupsPage />;
   if (match("/admin/third-party", pathname)) return <ThirdPartyPage />;
+  if (match("/admin/status-history", pathname)) return <StatusHistoryPage />;
+  if (match("/admin/monitoring", pathname)) return <MonitoringPage />;
   if (match("/admin/incidents", pathname)) return <IncidentsPage />;
   if (match("/admin/incidents/new", pathname)) return allowed("incidents.manage") ? <IncidentNewPage /> : <Forbidden />;
   if ((p = match("/admin/incidents/:id", pathname))) return <IncidentDetailPage key={p.id} id={p.id} />;
@@ -170,6 +186,7 @@ function Route({ pathname }: { pathname: string }) {
   if ((p = match("/admin/announcements/:id", pathname))) return <AnnouncementDetailPage key={p.id} id={p.id} />;
   if (match("/admin/announcement-settings", pathname)) return <AnnouncementSettingsPage />;
   if (match("/admin/teams", pathname)) return <TeamsPage />;
+  if (match("/admin/branding", pathname)) return <BrandingPage />;
   if (match("/admin/subscriptions", pathname)) return allowed("subscriptions.manage") ? <SubscriptionsPage /> : <Forbidden />;
   if (match("/admin/audit", pathname)) return allowed("audit.read") ? <AuditPage /> : <Forbidden />;
   if (match("/admin/users", pathname)) return allowed("users.manage") ? <UsersPage /> : <Forbidden />;
@@ -182,6 +199,23 @@ function Route({ pathname }: { pathname: string }) {
   );
 }
 
+/**
+ * Name of the current screen as other administrators see it in "Usuários no
+ * admin" (menu label; detail pages also show their heading).
+ */
+function currentScreen(pathname: string): { screen: string; detail: boolean } {
+  const p = pathname.replace(/\/$/, "");
+  if (p === "/admin") return { screen: "Visão geral", detail: false };
+  if (p === "/admin/account") return { screen: "Minha conta", detail: false };
+  let best: NavItem | undefined;
+  for (const g of NAV_GROUPS) {
+    for (const n of g.items) {
+      if ((p === n.to || p.startsWith(n.to + "/")) && (!best || n.to.length > best.to.length)) best = n;
+    }
+  }
+  return best ? { screen: best.label, detail: p !== best.to } : { screen: "Administração", detail: false };
+}
+
 function AdminShell() {
   const { pathname } = useLocation();
   const { me, can, logout } = useAuth();
@@ -190,8 +224,10 @@ function AdminShell() {
     const p = pathname.replace(/\/$/, "");
     return to === "/admin" ? p === "/admin" : p === to || p.startsWith(to + "/");
   };
+  const { screen, detail } = currentScreen(pathname);
   return (
     <div className="admin">
+      <AdminPresenceBeacon screen={screen} detail={detail} pathname={pathname} />
       <a className="skip-link" href="#admin-main">
         Pular para o conteúdo
       </a>
@@ -206,6 +242,7 @@ function AdminShell() {
           <div className="admin-user" aria-label="Usuário conectado">
             <strong>{me.user.name}</strong>
             <span className="muted small">{me.is_admin ? "Administrador" : me.user.roles.map((r) => r.name).join(", ") || "Somente leitura"}</span>
+            <PresenceChip />
             <span className="admin-user-actions">
               <Link to="/admin/account">Minha conta</Link>
               <button type="button" className="link-button" onClick={() => void logout()}>
@@ -230,7 +267,9 @@ function AdminShell() {
 export function AdminApp() {
   return (
     <AuthGate>
-      <AdminShell />
+      <PresenceProvider>
+        <AdminShell />
+      </PresenceProvider>
     </AuthGate>
   );
 }

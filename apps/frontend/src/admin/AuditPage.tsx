@@ -22,11 +22,15 @@ const RESOURCE_LABEL: Record<AuditEvent["resource_type"], string> = {
   role: "Papel",
   subscription: "Inscrição",
   announcement_template: "Template de comunicado",
+  monitoring_integration: "Integração de monitoramento",
+  department: "Departamento",
+  branding: "Identidade visual",
 };
 
 function resourceLink(e: AuditEvent): string | null {
   if (e.resource_type === "incident") return `/admin/incidents/${e.resource_id}`;
   if (e.resource_type === "maintenance") return `/admin/maintenances/${e.resource_id}`;
+  if (e.resource_type === "branding") return "/admin/branding";
   return null;
 }
 
@@ -40,11 +44,8 @@ export function AuditPage() {
 
   return (
     <div className="admin-content">
-      <PageHeader title="Histórico operacional" />
-      <p className="muted">
-        Cada alteração é registrada na mesma transação da operação, com o usuário que a fez. Registros anteriores à
-        autenticação aparecem sem autor.
-      </p>
+      <PageHeader title="Histórico operacional"
+        info="Cada alteração é registrada na mesma transação da operação, com quem a fez. Registros anteriores à autenticação aparecem sem autor." />
       <label className="inline-filter">
         Tipo de recurso{" "}
         <select

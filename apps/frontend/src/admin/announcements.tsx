@@ -3,6 +3,7 @@ import { adminApi } from "../api/endpoints";
 import type { Announcement, AnnouncementCategory, AnnouncementCreate, AnnouncementImportance, AnnouncementState, AnnouncementTemplate, Team } from "../api/types";
 import { MarkdownEditor } from "../components/MarkdownEditor";
 import { RichText } from "../components/RichText";
+import { InfoTip } from "../components/InfoTip";
 import { Badge, ConfirmButton, EmptyState, ErrorPanel, Field, Loading, Pager } from "../components/ui";
 import { formatDateTime, type Tone } from "../lib/format";
 import { Link, navigate } from "../lib/router";
@@ -62,7 +63,8 @@ export function AnnouncementsPage() {
 
   return (
     <div className="admin-content">
-      <PageHeader title="Comunicados">
+      <PageHeader title="Comunicados"
+        info="Avisos gerais para os clientes, que não são incidentes nem manutenções. Não alteram nenhum status e aparecem em /announcements, com aviso de novidade no menu da página pública.">
         <Link className="secondary-button" to="/admin/announcement-settings">
           Categorias
         </Link>
@@ -73,10 +75,6 @@ export function AnnouncementsPage() {
         )}
       </PageHeader>
       {!canWrite && <ReadOnlyNote what="escrever comunicados" />}
-      <p className="muted">
-        Avisos gerais para os clientes, que não são incidentes nem manutenções. Comunicados não alteram nenhum status e
-        aparecem em <Link to="/announcements">/announcements</Link>, com aviso de novidade no menu da página pública.
-      </p>
       <div className="filters" role="group" aria-label="Filtrar por estado">
         {FILTERS.map(([value, label]) => (
           <button
@@ -196,7 +194,10 @@ function CopyFrom({ onApply }: { onApply: (a: Announcement) => void }) {
   if (state.status !== "success" || state.data.data.length === 0) return null;
   return (
     <div className="template-select">
-      <label htmlFor="copy-from">Usar um comunicado anterior como base</label>
+      <div className="field-label">
+        <label htmlFor="copy-from">Usar um comunicado anterior como base</label>
+        <InfoTip label="Sobre usar um comunicado anterior" text="Copia título, texto, categoria, time e componentes para este formulário. Nada é publicado." />
+      </div>
       <select
         id="copy-from"
         value=""
@@ -212,7 +213,6 @@ function CopyFrom({ onApply }: { onApply: (a: Announcement) => void }) {
           </option>
         ))}
       </select>
-      <small className="field-hint">Copia título, texto, categoria, time e componentes para este formulário. Nada é publicado.</small>
     </div>
   );
 }
@@ -297,7 +297,7 @@ function AnnouncementForm({
         {(p) => <input {...p} value={v.title} maxLength={200} onChange={(e) => set("title", e.target.value)} />}
       </Field>
       <div className="form-grid">
-        <Field label="Categoria" error={fe.category_id} hint={category?.description || undefined}>
+        <Field label="Categoria" error={fe.category_id} info={category?.description || undefined}>
           {(p) => (
             <select {...p} value={v.category_id} onChange={(e) => set("category_id", e.target.value)}>
               <option value="">Sem categoria</option>
@@ -447,7 +447,7 @@ function Lifecycle({ a, onChanged }: { a: Announcement; onChanged: (a: Announcem
       )}
       {a.state === "draft" && canPublish && (
         <small id="schedule-hint" className="field-hint">
-          O horário de agendamento usa o fuso deste navegador ({Intl.DateTimeFormat().resolvedOptions().timeZone}).
+          Fuso: {Intl.DateTimeFormat().resolvedOptions().timeZone}.
         </small>
       )}
       {canPublish && (a.state === "scheduled" || a.state === "published") && (

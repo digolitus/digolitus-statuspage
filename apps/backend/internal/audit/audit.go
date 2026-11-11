@@ -18,25 +18,28 @@ import (
 
 // Resource types recorded in the log.
 const (
-	ResourceComponent            = "component"
-	ResourceComponentGroup       = "component_group"
-	ResourceExternalSource       = "external_source"
-	ResourceIncident             = "incident"
-	ResourceMaintenance          = "maintenance"
-	ResourceIncidentTemplate     = "incident_template"
-	ResourceMaintenanceTemplate  = "maintenance_template"
-	ResourceAnnouncement         = "announcement"
-	ResourceAnnouncementCategory = "announcement_category"
-	ResourceTeam                 = "team"
-	ResourceUser                 = "user"
-	ResourceRole                 = "role"
-	ResourceSubscription         = "subscription"
-	ResourceAnnouncementTemplate = "announcement_template"
+	ResourceComponent             = "component"
+	ResourceComponentGroup        = "component_group"
+	ResourceExternalSource        = "external_source"
+	ResourceIncident              = "incident"
+	ResourceMaintenance           = "maintenance"
+	ResourceIncidentTemplate      = "incident_template"
+	ResourceMaintenanceTemplate   = "maintenance_template"
+	ResourceAnnouncement          = "announcement"
+	ResourceAnnouncementCategory  = "announcement_category"
+	ResourceTeam                  = "team"
+	ResourceUser                  = "user"
+	ResourceRole                  = "role"
+	ResourceSubscription          = "subscription"
+	ResourceAnnouncementTemplate  = "announcement_template"
+	ResourceMonitoringIntegration = "monitoring_integration"
+	ResourceDepartment            = "department"
+	ResourceBranding              = "branding"
 )
 
 // ResourceTypes lists every resource type, for filter validation.
 var ResourceTypes = []string{ResourceComponent, ResourceComponentGroup, ResourceIncident, ResourceMaintenance, ResourceIncidentTemplate, ResourceMaintenanceTemplate, ResourceExternalSource,
-	ResourceAnnouncement, ResourceAnnouncementCategory, ResourceTeam, ResourceUser, ResourceRole, ResourceSubscription, ResourceAnnouncementTemplate}
+	ResourceAnnouncement, ResourceAnnouncementCategory, ResourceTeam, ResourceUser, ResourceRole, ResourceSubscription, ResourceAnnouncementTemplate, ResourceMonitoringIntegration, ResourceDepartment, ResourceBranding}
 
 // Changes holds the relevant before/after values of an operation.
 type Changes struct {

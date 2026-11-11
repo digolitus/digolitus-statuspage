@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/branding"
 )
 
 // Config holds runtime settings.
@@ -32,16 +34,21 @@ type Config struct {
 	SessionIdleTimeout  time.Duration
 	SessionCookieSecure bool
 	// Notifications to subscribers.
-	SiteName       string
-	PublicBaseURL  string // absolute URL of the public page, used in links
-	SMTP           SMTP
-	NotifyWorker   bool
-	NotifyInterval time.Duration
+	SiteName string
+	// Hosts accepted for logo/favicon URLs (BRANDING_IMAGE_HOSTS); the
+	// frontend container must receive the same list for its CSP.
+	BrandingImageHosts []string
+	PublicBaseURL      string // absolute URL of the public page, used in links
+	SMTP               SMTP
+	NotifyWorker       bool
+	NotifyInterval     time.Duration
 	// Allows webhook targets on private/loopback addresses (tests or
 	// intranet integrations). Off by default.
 	NotifyAllowPrivate bool
 	// Social sign-in for existing admin users.
 	OAuth OAuth
+	// Presence: anonymous count of who is on the public page and admin now.
+	PresenceEnabled bool
 }
 
 // OAuth configures social sign-in. Each provider is enabled when all of its
@@ -154,11 +161,17 @@ func FromLookup(lookup func(string) (string, bool)) (Config, error) {
 	cfg.RequestTimeout = timeout
 
 	cfg.SiteName = get("SITE_NAME", "Digolitus Status Page")
+	if hosts, err := branding.ParseHosts(get("BRANDING_IMAGE_HOSTS", "")); err != nil {
+		errs = append(errs, err)
+	} else {
+		cfg.BrandingImageHosts = hosts
+	}
 	cfg.PublicBaseURL = strings.TrimRight(get("PUBLIC_BASE_URL", ""), "/")
 	if cfg.PublicBaseURL != "" && !strings.HasPrefix(cfg.PublicBaseURL, "https://") && !strings.HasPrefix(cfg.PublicBaseURL, "http://") {
 		errs = append(errs, errors.New("PUBLIC_BASE_URL must be an absolute http(s) URL, e.g. https://status.example.com"))
 	}
 	parseBool("NOTIFY_WORKER", "true", &cfg.NotifyWorker)
+	parseBool("PRESENCE_ENABLED", "true", &cfg.PresenceEnabled)
 	parseBool("NOTIFY_ALLOW_PRIVATE_NETWORKS", "false", &cfg.NotifyAllowPrivate)
 	notifyInterval, err := time.ParseDuration(get("NOTIFY_INTERVAL", "10s"))
 	if err != nil || notifyInterval < time.Second || notifyInterval > 5*time.Minute {

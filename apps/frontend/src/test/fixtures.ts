@@ -1,7 +1,7 @@
 import type { Incident, Maintenance, Me, StatusSummary } from "../api/types";
 
 export const emptySummary: StatusSummary = {
-  overall: { status: "unknown", basis: "declared", affected_components: 0, components_under_maintenance: 0 },
+  overall: { status: "unknown", basis: "declared", monitored_components: 0, affected_components: 0, components_under_maintenance: 0 },
   components: [],
   groups: [],
   active_incidents: [],
@@ -59,14 +59,16 @@ export const adminMe: Me = {
     must_change_password: false,
     roles: [{ id: "r1", name: "Administrador", is_system: true }],
     teams: [],
+    job_title: "",
+    departments: [],
     last_login_at: "2026-03-01T12:00:00Z",
     locked_until: null,
     created_at: "2026-03-01T12:00:00Z",
     updated_at: "2026-03-01T12:00:00Z",
   },
   permissions: [
-    "components.status", "components.manage", "third_party.manage", "incidents.manage", "maintenances.manage", "templates.manage",
-    "announcements.write", "announcements.publish", "announcements.settings", "teams.manage", "subscriptions.manage", "audit.read", "users.manage", "roles.manage",
+    "components.status", "components.manage", "third_party.manage", "monitoring.manage", "incidents.manage", "maintenances.manage", "templates.manage",
+    "announcements.write", "announcements.publish", "announcements.settings", "teams.manage", "subscriptions.manage", "audit.read", "presence.read", "users.manage", "roles.manage",
   ],
   team_permissions: [],
   is_admin: true,

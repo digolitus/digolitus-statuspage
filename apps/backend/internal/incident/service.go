@@ -15,6 +15,7 @@ import (
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/notify"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/clock"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/database"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/statushistory"
 )
 
 // Service implements incident use cases. Each mutation runs in a single
@@ -87,6 +88,9 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (Incident, error) 
 			return err
 		}
 		created.Components = refs
+		if err := statushistory.Record(ctx, tx, statushistory.Cause{Type: statushistory.CauseIncident, ID: id}, now); err != nil {
+			return err
+		}
 		return audit.Record(ctx, tx, audit.ResourceIncident, id, "created", audit.Changes{After: map[string]any{
 			"incident": viewOf(created), "message": plan.message}}, now)
 	})
@@ -114,6 +118,9 @@ func (s *Service) Patch(ctx context.Context, id string, in PatchInput) (Incident
 		next.UpdatedAt = now
 		saved, err := save(ctx, tx, next)
 		if err != nil {
+			return err
+		}
+		if err := statushistory.Record(ctx, tx, statushistory.Cause{Type: statushistory.CauseIncident, ID: id}, now); err != nil {
 			return err
 		}
 		return audit.Record(ctx, tx, audit.ResourceIncident, id, "updated", audit.Diff(viewOf(current), viewOf(saved)), now)
@@ -223,6 +230,9 @@ func (s *Service) PostUpdate(ctx context.Context, id string, in UpdateInput) (In
 		changes := audit.Diff(before, after)
 		if m, ok := changes.After.(map[string]any); ok {
 			m["message"] = msg
+		}
+		if err := statushistory.Record(ctx, tx, statushistory.Cause{Type: statushistory.CauseIncident, ID: id}, now); err != nil {
+			return err
 		}
 		return audit.Record(ctx, tx, audit.ResourceIncident, id, action, changes, now)
 	})

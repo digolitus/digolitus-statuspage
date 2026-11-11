@@ -5,6 +5,24 @@ export type Accepted = {
   message: string;
 };
 
+export type AdminBranding = BrandingSettings & ({
+  /** BRANDING_IMAGE_HOSTS. */
+  allowed_image_hosts: string[];
+  defaults: BrandingSettings;
+  favicon_upload: BrandingUpload | null;
+  logo_upload: BrandingUpload | null;
+  /** Nulo enquanto nada foi salvo. */
+  updated_at: string | null;
+});
+
+export type AdminPresenceBeat = {
+  /** Rótulo da tela (ex.: Incidentes › Lentidão no checkout). */
+  area: string;
+  tab_id: string;
+  /** Aba em segundo plano. */
+  hidden?: boolean;
+};
+
 export type Announcement = {
   archived_at: NullableTimestamp;
   /** Texto com formatação leve: parágrafos, listas com `- `, `**negrito**` e links `[texto](https://...)`. */
@@ -32,6 +50,8 @@ export type AnnouncementCategory = {
   is_active: boolean;
   name: string;
   updated_at: Timestamp;
+  /** Departamento do time (opcional). */
+  department_id?: string | null;
 };
 
 export type AnnouncementCategoryCreate = {
@@ -157,7 +177,7 @@ export type AuditEvent = {
   occurred_at: Timestamp;
   request_id: string | null;
   resource_id: string;
-  resource_type: "component" | "component_group" | "incident" | "maintenance" | "incident_template" | "maintenance_template" | "external_source" | "announcement" | "announcement_category" | "team" | "user" | "role" | "subscription" | "announcement_template";
+  resource_type: "component" | "component_group" | "incident" | "maintenance" | "incident_template" | "maintenance_template" | "external_source" | "announcement" | "announcement_category" | "team" | "user" | "role" | "subscription" | "announcement_template" | "monitoring_integration" | "department" | "branding";
   /** Canal de origem (ex.: admin_api). */
   source: string;
 };
@@ -167,24 +187,71 @@ export type AuditEventList = {
   pagination: Pagination;
 };
 
+export type BrandingColors = {
+  header_background: string;
+  header_text: string;
+  /** Precisa ser claro. */
+  page_background: string;
+  /** Botões, links e marca. */
+  primary: string;
+};
+
+export type BrandingFont = "inter" | "ibm-plex-sans" | "source-sans-3" | "nunito-sans" | "roboto" | "merriweather-sans" | "system";
+
+export type BrandingImageChoice = {
+  source: "none" | "upload" | "url";
+  /** URL https de domínio liberado; só com `source: url`. */
+  url: string | null;
+};
+
+/** Campos desconhecidos são rejeitados pelo servidor. */
+export type BrandingSettings = {
+  colors: BrandingColors;
+  /** Descrição para buscadores e links compartilhados. */
+  description: string;
+  favicon: BrandingImageChoice;
+  font: BrandingFont;
+  footer_link_label: string;
+  /** http(s); informe junto com `footer_link_label`. */
+  footer_link_url: string;
+  footer_text: string;
+  login_message: string;
+  login_title: string;
+  logo: BrandingImageChoice;
+  show_title_with_logo: boolean;
+  subtitle: string;
+  /** Cabeçalho, aba do navegador, login, e-mails e feeds. */
+  title: string;
+};
+
+export type BrandingUpload = {
+  content_type: string;
+  size_bytes: number;
+  updated_at: string;
+  /** Caminho público com a versão. */
+  url: string;
+};
+
 export type CategoryColor = "gray" | "blue" | "green" | "yellow" | "orange" | "red" | "purple";
 
 export type Component = {
   created_at: Timestamp;
   description: string;
   display_order: number;
-  /** Grupo do componente; `null` quando não agrupado. */
+  /** Grupo principal do componente (também quando está em um subgrupo); `null` quando não agrupado. */
   group_id: string | null;
   id: string;
   is_active: boolean;
   is_public: boolean;
   name: string;
-  /** Dono efetivo: `team_id` ou, se ausente, o time do grupo. Papéis de time agem sobre componentes dos seus times. */
+  /** Dono efetivo: `team_id` ou, se ausente, o time do subgrupo e depois o do grupo. Papéis de time agem sobre componentes dos seus times. */
   owner_team_id: string | null;
   /** Exibe a descrição na página pública (ícone "i" ao lado do nome). */
   show_description: boolean;
   slug: string;
   status: ComponentStatus;
+  /** Subgrupo do componente dentro de `group_id`; `null` quando está direto no grupo. */
+  subgroup_id: string | null;
   /** Time responsável pelo componente. */
   team_id: string | null;
   updated_at: Timestamp;
@@ -196,6 +263,7 @@ export type ComponentCreate = {
   name: string;
   description?: string;
   display_order?: number;
+  /** Grupo principal. Opcional quando `subgroup_id` é informado. */
   group_id?: string | null;
   is_public?: boolean;
   /** Exibe a descrição na página pública. */
@@ -203,30 +271,38 @@ export type ComponentCreate = {
   /** Único. Derivado do nome quando omitido. */
   slug?: string;
   status?: ComponentStatus;
-  /** Time responsável. `null` = herda o time do grupo. */
+  /** Subgrupo. O grupo é derivado dele; um `group_id` diferente retorna 422. */
+  subgroup_id?: string | null;
+  /** Time responsável. `null` = herda o time do subgrupo ou do grupo. */
   team_id?: string | null;
   /** Endereço http(s) completo, sem credenciais. Vazio ou `null` = sem link. */
   url?: string | null;
 };
 
 export type ComponentGroup = {
-  /** Componentes associados (inclusive ocultos e desativados). */
+  /** Componentes associados (inclusive ocultos, desativados e os dos subgrupos). */
   component_count: number;
   created_at: Timestamp;
   description: string;
   display_order: number;
   id: string;
   name: string;
+  /** Grupo principal de um subgrupo; `null` em grupos principais. */
+  parent_id: string | null;
+  /** Subgrupos do grupo (sempre 0 em subgrupos). */
+  subgroup_count: number;
   /** Time responsável; componentes sem time próprio o herdam. */
   team_id: string | null;
   updated_at: Timestamp;
 };
 
 export type ComponentGroupCreate = {
-  /** Único (sem diferenciar maiúsculas). */
+  /** Único entre grupos principais, ou entre os subgrupos do mesmo grupo (sem diferenciar maiúsculas). */
   name: string;
   description?: string;
   display_order?: number;
+  /** Grupo principal; cria um subgrupo. `null` ou ausente = grupo principal. */
+  parent_id?: string | null;
   team_id?: string | null;
 };
 
@@ -239,6 +315,11 @@ export type ComponentGroupPatch = {
   description?: string;
   display_order?: number;
   name?: string;
+  /**
+   * Move o subgrupo (com seus componentes) para outro grupo principal. Transformar grupo em subgrupo, ou o contrário,
+   * só é permitido sem componentes e sem subgrupos (409 `component_group_level_locked`).
+   */
+  parent_id?: string | null;
   /** `null` remove o time. */
   team_id?: string | null;
 };
@@ -251,7 +332,7 @@ export type ComponentList = {
 export type ComponentPatch = {
   description?: string;
   display_order?: number;
-  /** `null` remove o componente do grupo. */
+  /** `null` remove o componente do grupo. Trocar de grupo sem `subgroup_id` tira o componente do subgrupo. */
   group_id?: string | null;
   is_active?: boolean;
   is_public?: boolean;
@@ -259,7 +340,9 @@ export type ComponentPatch = {
   show_description?: boolean;
   slug?: string;
   status?: ComponentStatus;
-  /** `null` = herda o time do grupo. */
+  /** `null` deixa o componente direto no grupo; um subgrupo move o componente para o grupo dele. */
+  subgroup_id?: string | null;
+  /** `null` = herda o time do subgrupo ou do grupo. */
   team_id?: string | null;
   /** Endereço http(s) completo, sem credenciais. Vazio ou `null` = sem link. */
   url?: string | null;
@@ -273,6 +356,68 @@ export type ComponentRef = {
 
 /** Status declarado (ou efetivo, nas rotas públicas) de um componente. */
 export type ComponentStatus = "operational" | "degraded_performance" | "partial_outage" | "major_outage" | "maintenance";
+
+export type Department = {
+  child_count: number;
+  created_at: Timestamp;
+  description: string;
+  id: string;
+  /** Profundidade na árvore (1 = topo). */
+  level: number;
+  /** Pessoas ligadas direto (sem ser por time). */
+  members: DepartmentMember[];
+  name: string;
+  parent_id: string | null;
+  /** Do topo até este departamento (inclusive). */
+  path: DepartmentRef[];
+  /** Times ligados direto. */
+  team_count: number;
+  /** Pessoas distintas deste e dos subdepartamentos, direto ou por time. */
+  total_people_count: number;
+  /** Times deste e dos subdepartamentos. */
+  total_team_count: number;
+  updated_at: Timestamp;
+};
+
+export type DepartmentCreate = {
+  name: string;
+  description?: string;
+  /** Pessoas ligadas direto. */
+  member_ids?: string[];
+  /** Departamento superior; vazio cria no nível 1. */
+  parent_id?: string | null;
+};
+
+export type DepartmentLevels = {
+  /** Nome de cada nível, do 1 (topo) ao 4. Vazio = sem nome. */
+  names: string[];
+};
+
+export type DepartmentList = {
+  data: Department[];
+};
+
+export type DepartmentMember = {
+  email: string;
+  id: string;
+  is_active: boolean;
+  job_title: string;
+  name: string;
+};
+
+export type DepartmentPatch = {
+  description?: string;
+  /** Substitui as pessoas ligadas direto. */
+  member_ids?: string[];
+  name?: string;
+  /** `null` leva para o nível 1. */
+  parent_id?: string | null;
+};
+
+export type DepartmentRef = {
+  id: string;
+  name: string;
+};
 
 export type Error = {
   error: {
@@ -310,6 +455,40 @@ export type ExternalComponentList = {
 
 /** Status informado pelo provedor (`under_maintenance` vira `maintenance`); `unknown` quando não reconhecido ou desatualizado. */
 export type ExternalComponentStatus = "operational" | "degraded_performance" | "partial_outage" | "major_outage" | "maintenance" | "unknown";
+
+export type ExternalEvent = {
+  closed_at: NullableTimestamp;
+  component_names: string[];
+  first_seen_at: Timestamp;
+  id: string;
+  /** Impacto informado pelo provedor (none, minor, major, critical, maintenance). */
+  impact: string;
+  kind: "incident" | "maintenance";
+  last_seen_at: Timestamp;
+  name: string;
+  /** Último status informado pelo provedor. */
+  status: string;
+  url: string | null;
+};
+
+export type ExternalEventList = {
+  data: ExternalEvent[];
+  pagination: Pagination;
+};
+
+export type ExternalOutage = {
+  component_name: string;
+  duration_seconds: number;
+  ended_at: Timestamp;
+  external_component_id: string | null;
+  started_at: Timestamp;
+  worst_status: ExternalComponentStatus;
+};
+
+export type ExternalOutageList = {
+  data: ExternalOutage[];
+  pagination: Pagination;
+};
 
 export type ExternalSelection = {
   component_ids: string[];
@@ -357,6 +536,19 @@ export type ExternalSourcePatch = {
   display_order?: number;
   is_active?: boolean;
   name?: string;
+};
+
+export type ExternalUptime = {
+  components: ({
+    days: UptimeDay[];
+    id: string;
+    name: string;
+    uptime_percent: number | null;
+  })[];
+  days: 30 | 60 | 90;
+  from: Timestamp;
+  timezone: string;
+  to: Timestamp;
 };
 
 export type Health = {
@@ -631,6 +823,123 @@ export type Me = {
   user: User;
 };
 
+export type Monitor = {
+  component: MonitorComponent;
+  down_status: MonitorDownStatus;
+  /** Identificador na ferramenta (monitorID do UptimeRobot, UUID do check no Healthchecks.io). */
+  external_id: string;
+  id: string;
+  integration_id: string;
+  integration_name: string;
+  last_signal_at: NullableTimestamp;
+  name: string;
+  provider: MonitoringProvider;
+  state: MonitorState;
+  state_changed_at: NullableTimestamp;
+};
+
+export type MonitorComponent = {
+  id: string;
+  name: string;
+} | null;
+
+export type MonitorCreate = {
+  external_id: string;
+  component_id?: string;
+  down_status?: MonitorDownStatus;
+  name?: string;
+};
+
+/** Status aplicado ao componente enquanto o monitor estiver fora do ar. */
+export type MonitorDownStatus = "degraded_performance" | "partial_outage" | "major_outage";
+
+export type MonitorList = {
+  data: Monitor[];
+};
+
+export type MonitorPatch = {
+  component_id?: string | null;
+  down_status?: MonitorDownStatus;
+  name?: string;
+};
+
+/** `unknown` até o primeiro alerta. */
+export type MonitorState = "unknown" | "up" | "down";
+
+export type MonitoringAccepted = {
+  status: "accepted";
+};
+
+export type MonitoringEvent = {
+  /** O alerta mudou o status de um componente ligado. */
+  applied: boolean;
+  detail: string;
+  id: number;
+  kind: "down" | "up" | "ignored" | "invalid";
+  monitor_id: string | null;
+  monitor_name: string;
+  received_at: Timestamp;
+};
+
+export type MonitoringEventList = {
+  data: MonitoringEvent[];
+};
+
+export type MonitoringIntegration = {
+  created_at: Timestamp;
+  /** Monitores fora do ar agora. */
+  down_count: number;
+  id: string;
+  /** Inativa ignora alertas e não afeta status. */
+  is_active: boolean;
+  last_received_at: NullableTimestamp;
+  /** Monitores ligados a um componente. */
+  linked_count: number;
+  monitor_count: number;
+  name: string;
+  provider: MonitoringProvider;
+  /** Últimos 4 caracteres do token. */
+  token_hint: string;
+  updated_at: Timestamp;
+};
+
+export type MonitoringIntegrationCreate = {
+  name: string;
+  provider: MonitoringProvider;
+};
+
+export type MonitoringIntegrationList = {
+  data: MonitoringIntegration[];
+};
+
+export type MonitoringIntegrationPatch = {
+  is_active?: boolean;
+  name?: string;
+};
+
+/** Integração com o token do webhook, exibido apenas uma vez. */
+export type MonitoringIntegrationWithToken = {
+  created_at: Timestamp;
+  /** Monitores fora do ar agora. */
+  down_count: number;
+  id: string;
+  /** Inativa ignora alertas e não afeta status. */
+  is_active: boolean;
+  last_received_at: NullableTimestamp;
+  /** Monitores ligados a um componente. */
+  linked_count: number;
+  monitor_count: number;
+  name: string;
+  provider: MonitoringProvider;
+  /** Últimos 4 caracteres do token. */
+  token_hint: string;
+  updated_at: Timestamp;
+  /** Token secreto; use em /api/v1/hooks/monitoring?token=…. Exibido uma única vez. */
+  webhook_token: string;
+};
+
+export type MonitoringProvider = "uptimerobot" | "healthchecks";
+
 export type NullableTimestamp = string | null;
 
 export type OpenIncidentStatus = "investigating" | "identified" | "monitoring";
@@ -666,10 +975,47 @@ export type PermissionInfo = {
   sensitive: boolean;
 };
 
-export type PermissionKey = "components.status" | "components.manage" | "third_party.manage" | "incidents.manage" | "maintenances.manage" | "templates.manage" | "announcements.write" | "announcements.publish" | "announcements.settings" | "teams.manage" | "subscriptions.manage" | "audit.read" | "users.manage" | "roles.manage";
+export type PermissionKey = "components.status" | "components.manage" | "third_party.manage" | "monitoring.manage" | "incidents.manage" | "maintenances.manage" | "templates.manage" | "announcements.write" | "announcements.publish" | "announcements.settings" | "teams.manage" | "subscriptions.manage" | "audit.read" | "presence.read" | "users.manage" | "roles.manage" | "branding.manage";
 
 export type PermissionList = {
   data: PermissionInfo[];
+};
+
+export type PresenceArea = "status" | "incident" | "maintenance" | "announcements" | "subscriptions" | "other";
+
+export type PresenceSnapshot = {
+  admin: {
+    total: number;
+    /** Um item por usuário (a aba visível mais recente); visíveis primeiro, depois por nome. */
+    users: {
+      area: string;
+      hidden: boolean;
+      id: string;
+      last_seen_at: string;
+      name: string;
+    }[];
+  };
+  generated_at: string;
+  /** Contagens por minuto dos últimos 60 minutos (minutos sem amostra são omitidos). */
+  history: {
+    admin: number;
+    minute: string;
+    public: number;
+  }[];
+  peak_today: {
+    at: string;
+    count: number;
+  } | null;
+  public: {
+    /** Todas as áreas, na ordem de exibição, inclusive com zero. */
+    areas: {
+      area: PresenceArea;
+      count: number;
+    }[];
+    total: number;
+  };
+  /** Por quanto tempo uma aba conta como presente após o último sinal. */
+  window_seconds: number;
 };
 
 export type PublicAnnouncement = {
@@ -702,15 +1048,38 @@ export type PublicAnnouncementList = {
   pagination: Pagination;
 };
 
+export type PublicBranding = {
+  colors: BrandingColors;
+  description: string;
+  favicon_url: string | null;
+  font: BrandingFont;
+  footer_link: {
+    label: string;
+    url: string;
+  } | null;
+  footer_text: string;
+  login_message: string;
+  login_title: string;
+  logo_url: string | null;
+  show_title_with_logo: boolean;
+  subtitle: string;
+  title: string;
+  updated_at: string | null;
+};
+
 export type PublicComponent = {
   /** Descrição pública; vazia quando o operador não a exibe. */
   description: string;
   display_order: number;
   group_id: string | null;
   id: string;
+  /** Uma ferramenta de monitoramento informa o status deste componente. */
+  monitored: boolean;
   name: string;
   slug: string;
   status: ComponentStatus;
+  /** Subgrupo dentro de `group_id`. */
+  subgroup_id: string | null;
   updated_at: Timestamp;
   /** Link da página do componente. */
   url: string | null;
@@ -718,13 +1087,15 @@ export type PublicComponent = {
 
 export type PublicComponentGroup = {
   affected_components: number;
-  /** Componentes públicos do grupo. */
+  /** Componentes públicos do grupo (inclusive dos subgrupos) ou do subgrupo. */
   component_count: number;
   components_under_maintenance: number;
   description: string;
   display_order: number;
   id: string;
   name: string;
+  /** Preenchido em subgrupos: o grupo ao qual pertencem. */
+  parent_id: string | null;
   status: ComponentStatus;
 };
 
@@ -778,6 +1149,12 @@ export type PublicMaintenance = {
 export type PublicMaintenanceList = {
   data: PublicMaintenance[];
   pagination: Pagination;
+};
+
+export type PublicPresenceBeat = {
+  area: PresenceArea;
+  /** Identificador aleatório da aba (sessionStorage). */
+  tab_id: string;
 };
 
 export type PublicThirdPartySource = {
@@ -857,12 +1234,39 @@ export type SetupStatus = {
   setup_required: boolean;
 };
 
+export type StatusChange = {
+  actor: {
+    id: string;
+    name: string;
+  } | null;
+  /** Componente, incidente ou manutenção que causou a mudança. */
+  cause_id: string | null;
+  /** Título do incidente ou da manutenção. */
+  cause_name: string | null;
+  cause_type: StatusChangeCause;
+  changed_at: Timestamp;
+  component_id: string;
+  component_name: string;
+  id: number;
+  previous_status: ComponentStatus | null;
+  /** Status efetivo; `null` quando o componente foi desativado. */
+  status: ComponentStatus | null;
+};
+
+/** `baseline`: primeiro registro de um componente que já existia; `component`: alteração do componente; `monitoring`: um monitor ligado ao componente caiu ou voltou (`cause_id` = monitor). */
+export type StatusChangeCause = "baseline" | "component" | "incident" | "maintenance" | "monitoring";
+
+export type StatusChangeList = {
+  data: StatusChange[];
+  pagination: Pagination;
+};
+
 export type StatusSummary = {
   active_incidents: PublicIncident[];
   /** Todos os componentes públicos (agrupados ou não), na ordem de exibição. */
   components: PublicComponent[];
   generated_at: Timestamp;
-  /** Grupos com ao menos um componente público, com status derivado. */
+  /** Grupos e subgrupos (com `parent_id`) com ao menos um componente público, com status derivado. */
   groups: PublicComponentGroup[];
   maintenances: {
     in_progress: PublicMaintenance[];
@@ -871,9 +1275,14 @@ export type StatusSummary = {
   overall: {
     /** Componentes públicos com status pior que operational (exceto manutenção). */
     affected_components: number;
-    /** Origem do status. `declared` = informado por operadores, sem verificação automática. */
-    basis: "declared";
+    /**
+     * Origem do status. `declared` = nenhum componente público monitorado; `mixed` = parte deles é
+     * monitorada por ferramentas externas; `monitored` = todos.
+     */
+    basis: "declared" | "mixed" | "monitored";
     components_under_maintenance: number;
+    /** Componentes públicos com monitoramento ativo. */
+    monitored_components: number;
     status: OverallStatus;
   };
   /**
@@ -1004,6 +1413,8 @@ export type Team = {
   /** Componentes com este time como responsável direto. */
   component_count: number;
   created_at: Timestamp;
+  /** Departamento do time (opcional). */
+  department_id: string | null;
   description: string;
   /** Link da documentação do time. */
   documentation_url: string | null;
@@ -1024,6 +1435,7 @@ export type Team = {
 
 export type TeamCreate = {
   name: string;
+  department_id?: string | null;
   description?: string;
   /** Endereço http(s). Vazio ou `null` remove. */
   documentation_url?: string | null;
@@ -1040,6 +1452,8 @@ export type TeamList = {
 };
 
 export type TeamPatch = {
+  /** `null` tira o time do departamento. */
+  department_id?: string | null;
   description?: string;
   /** Endereço http(s). Vazio ou `null` remove. */
   documentation_url?: string | null;
@@ -1062,11 +1476,52 @@ export type Timestamp = string;
 
 export type UUIDList = string[];
 
+export type Uptime = {
+  components: ({
+    days: UptimeDay[];
+    id: string;
+    /** Uptime do período; `null` sem dados. */
+    uptime_percent: number | null;
+  })[];
+  days: 30 | 60 | 90;
+  from: Timestamp;
+  generated_at: Timestamp;
+  timezone: string;
+  to: Timestamp;
+};
+
+export type UptimeDay = {
+  /** Dia no timezone pedido. */
+  date: string;
+  /** Segundos em cada status não operacional. */
+  durations: {
+    degraded_performance: number;
+    maintenance: number;
+    major_outage: number;
+    partial_outage: number;
+  };
+  /** Incidentes que afetaram o componente no dia. */
+  incidents: {
+    id: string;
+    impact: IncidentImpact;
+    title: string;
+  }[];
+  status: UptimeDayStatus;
+  /** `null` sem dados no dia. */
+  uptime_percent: number | null;
+};
+
+export type UptimeDayStatus = "operational" | "degraded_performance" | "partial_outage" | "major_outage" | "maintenance" | "no_data";
+
 export type User = {
   created_at: Timestamp;
+  /** Departamentos em que a pessoa está ligada direto. */
+  departments: DepartmentRef[];
   email: string;
   id: string;
   is_active: boolean;
+  /** Cargo livre (ex.: Gerente). Vazio quando não informado. */
+  job_title: string;
   last_login_at: NullableTimestamp;
   locked_until: NullableTimestamp;
   /** Senha definida por um administrador (criação ou redefinição): a API administrativa responde 403 `password_change_required` até o usuário escolher a própria senha em `POST /api/v1/auth/password`. */
@@ -1082,6 +1537,8 @@ export type UserCreate = {
   email: string;
   name: string;
   password: Password;
+  department_ids?: string[];
+  job_title?: string;
   role_ids?: string[];
   team_ids?: string[];
 };
@@ -1091,8 +1548,11 @@ export type UserList = {
 };
 
 export type UserPatch = {
+  /** Substitui os departamentos ligados direto. */
+  department_ids?: string[];
   email?: string;
   is_active?: boolean;
+  job_title?: string;
   name?: string;
   /** Substitui os papéis do usuário. */
   role_ids?: string[];

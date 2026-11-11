@@ -19,6 +19,11 @@ func perms(p ...string) []string { return p }
 var adminPolicy = auth.Policy{
 	"GET /api/v1/admin/permissions": anyUser,
 
+	"GET /api/v1/admin/branding":                  anyUser,
+	"PUT /api/v1/admin/branding":                  perms(auth.PermBrandingManage),
+	"PUT /api/v1/admin/branding/images/{kind}":    perms(auth.PermBrandingManage),
+	"DELETE /api/v1/admin/branding/images/{kind}": perms(auth.PermBrandingManage),
+
 	"GET /api/v1/admin/components":               anyUser,
 	"GET /api/v1/admin/components/{id}":          anyUser,
 	"POST /api/v1/admin/components":              perms(auth.PermComponentsManage),
@@ -32,11 +37,26 @@ var adminPolicy = auth.Policy{
 	"GET /api/v1/admin/external-sources":                 anyUser,
 	"GET /api/v1/admin/external-sources/{id}":            anyUser,
 	"GET /api/v1/admin/external-sources/{id}/components": anyUser,
+	"GET /api/v1/admin/external-sources/{id}/outages":    anyUser,
+	"GET /api/v1/admin/external-sources/{id}/events":     anyUser,
+	"GET /api/v1/admin/external-sources/{id}/uptime":     anyUser,
 	"POST /api/v1/admin/external-sources":                perms(auth.PermThirdPartyManage),
 	"PATCH /api/v1/admin/external-sources/{id}":          perms(auth.PermThirdPartyManage),
 	"DELETE /api/v1/admin/external-sources/{id}":         perms(auth.PermThirdPartyManage),
 	"POST /api/v1/admin/external-sources/{id}/sync":      perms(auth.PermThirdPartyManage),
 	"PUT /api/v1/admin/external-sources/{id}/selection":  perms(auth.PermThirdPartyManage),
+
+	"GET /api/v1/admin/monitoring-integrations":                anyUser,
+	"GET /api/v1/admin/monitoring-integrations/{id}":           anyUser,
+	"GET /api/v1/admin/monitoring-integrations/{id}/events":    anyUser,
+	"GET /api/v1/admin/monitors":                               anyUser,
+	"POST /api/v1/admin/monitoring-integrations":               perms(auth.PermMonitoringManage),
+	"PATCH /api/v1/admin/monitoring-integrations/{id}":         perms(auth.PermMonitoringManage),
+	"DELETE /api/v1/admin/monitoring-integrations/{id}":        perms(auth.PermMonitoringManage),
+	"POST /api/v1/admin/monitoring-integrations/{id}/token":    perms(auth.PermMonitoringManage),
+	"POST /api/v1/admin/monitoring-integrations/{id}/monitors": perms(auth.PermMonitoringManage),
+	"PATCH /api/v1/admin/monitors/{id}":                        perms(auth.PermMonitoringManage),
+	"DELETE /api/v1/admin/monitors/{id}":                       perms(auth.PermMonitoringManage),
 
 	"GET /api/v1/admin/incidents":               anyUser,
 	"GET /api/v1/admin/incidents/{id}":          anyUser,
@@ -88,6 +108,13 @@ var adminPolicy = auth.Policy{
 	"POST /api/v1/admin/teams":                          perms(auth.PermTeamsManage),
 	"PATCH /api/v1/admin/teams/{id}":                    perms(auth.PermTeamsManage),
 	"DELETE /api/v1/admin/teams/{id}":                   perms(auth.PermTeamsManage),
+	"GET /api/v1/admin/department-levels":               anyUser,
+	"PUT /api/v1/admin/department-levels":               perms(auth.PermTeamsManage),
+	"GET /api/v1/admin/departments":                     anyUser,
+	"GET /api/v1/admin/departments/{id}":                anyUser,
+	"POST /api/v1/admin/departments":                    perms(auth.PermTeamsManage),
+	"PATCH /api/v1/admin/departments/{id}":              perms(auth.PermTeamsManage),
+	"DELETE /api/v1/admin/departments/{id}":             perms(auth.PermTeamsManage),
 
 	"GET /api/v1/admin/subscriptions":            perms(auth.PermSubscriptionsManage),
 	"POST /api/v1/admin/subscriptions":           perms(auth.PermSubscriptionsManage),
@@ -97,6 +124,12 @@ var adminPolicy = auth.Policy{
 	"POST /api/v1/admin/subscriptions/{id}/test": perms(auth.PermSubscriptionsManage),
 
 	"GET /api/v1/admin/audit-events": perms(auth.PermAuditRead),
+
+	// Every signed-in tab reports itself; only presence.read sees the result.
+	"POST /api/v1/admin/presence": anyUser,
+	"GET /api/v1/admin/presence":  perms(auth.PermPresenceRead),
+
+	"GET /api/v1/admin/status-history": anyUser,
 
 	"GET /api/v1/admin/users":                perms(auth.PermUsersManage),
 	"GET /api/v1/admin/users/{id}":           perms(auth.PermUsersManage),

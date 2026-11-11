@@ -12,7 +12,7 @@ import (
 )
 
 func TestEveryAdminRouteHasPolicy(t *testing.T) {
-	application := New(nil, Options{AdminAPIEnabled: true})
+	application := New(nil, Options{AdminAPIEnabled: true, PresenceEnabled: true})
 	var missing []string
 	seen := map[string]bool{}
 	for _, r := range application.Router.Routes() {

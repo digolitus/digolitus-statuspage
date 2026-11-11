@@ -6,13 +6,15 @@ info:
     API do Digolitus Status Page. Toda funcionalidade de negócio está disponível por esta API;
     a interface web é apenas um cliente dela.
 
-    ## Status declarado, não monitorado
-    Os status publicados são **declarados por operadores** (status dos componentes, incidentes e
-    manutenções). Esta versão não executa verificações automáticas de disponibilidade. O campo
-    `overall.basis` em `/api/v1/status` vale sempre `declared`.
+    ## Status declarado e monitorado
+    Os status são **declarados por operadores** (status dos componentes, incidentes e manutenções) ou
+    **informados por ferramentas de monitoramento** (UptimeRobot, Healthchecks.io) ligadas a componentes.
+    O backend não executa verificações próprias. Cada componente público indica `monitored`, e
+    `overall.basis` vale `declared` (nenhum monitorado), `mixed` (alguns) ou `monitored` (todos).
 
     ## Política de status
-    - O status efetivo de um componente é o mais grave entre o status declarado, o impacto dos
+    - O status efetivo de um componente é o mais grave entre o status declarado, o status definido para
+      os monitores ligados a ele que estão fora do ar, o impacto dos
       incidentes ativos que o afetam (o impacto usa o mesmo vocabulário do status; impacto `operational`
       é informativo e não degrada componentes) e `maintenance` quando há manutenção em andamento.
     - Ordem de gravidade: `major_outage` > `partial_outage` > `degraded_performance` > `maintenance` > `operational`.
@@ -58,6 +60,10 @@ tags:
     description: Consulta pública, sem autenticação e somente leitura.
   - name: admin-components
     description: Gestão de componentes e grupos de componentes. Requer sessão e permissão.
+  - name: admin-monitoring
+    description: Integrações com ferramentas de monitoramento e ligação de monitores a componentes. Requer sessão e permissão.
+  - name: monitoring-webhook
+    description: Recebimento de alertas das ferramentas de monitoramento, autenticado pelo token da integração.
   - name: admin-third-party
     description: Status de terceiros (Atlassian Statuspage). Requer sessão e permissão.
   - name: admin-incidents
@@ -81,6 +87,14 @@ tags:
     description: Inscritos e integrações (webhook/Slack) criadas pela administração.
   - name: admin-audit
     description: Histórico operacional (auditoria). Requer sessão e permissão.
+  - name: presence
+    description: |
+      Quem está acessando agora (ADR 0018). Cada aba aberta envia um sinal a cada minuto enquanto está visível; a
+      aba conta como presente por 2 minutos após o último sinal. Visitantes públicos são anônimos: a aba envia um
+      identificador aleatório, guardado apenas como hash SHA-256, sem IP, user agent ou cookie. Desligado com
+      `PRESENCE_ENABLED=false` (as rotas deixam de existir).
+  - name: admin-branding
+    description: Identidade visual da página pública e da tela de login. Alterar requer `branding.manage`.
 
 paths:
   /healthz:
@@ -159,6 +173,47 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/PublicComponentList' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/status/uptime:
+    get:
+      tags: [public]
+      operationId: getStatusUptime
+      security: []
+      summary: Histórico diário de uptime dos componentes públicos
+      description: |
+        Uma barra por componente público e ativo com os últimos `days` dias (o último é hoje, até agora), calculada
+        a partir do histórico do status efetivo. O status do dia é o mais grave registrado nele; `no_data` quando
+        não há histórico (antes do início do registro ou com o componente desativado). Uptime: interrupção grave
+        conta 100% do tempo como indisponível, interrupção parcial 30%; performance degradada e manutenção não
+        descontam. Os dias seguem `timezone`.
+      parameters:
+        - $ref: '#/components/parameters/UptimeDays'
+        - $ref: '#/components/parameters/UptimeTimezone'
+      responses:
+        '200':
+          description: Barras por componente, na ordem de exibição.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Uptime' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/presence:
+    post:
+      tags: [presence]
+      operationId: postPublicPresence
+      security: []
+      summary: Sinal de presença de um visitante anônimo
+      description: |
+        Enviado pela página pública a cada minuto enquanto a aba está visível. Sem efeito visível para o visitante.
+        Abas novas acima do limite por processo são ignoradas silenciosamente (resposta 204 mesmo assim).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PublicPresenceBeat' }
+      responses:
+        '204': { description: Sinal registrado. }
         '422': { $ref: '#/components/responses/ValidationError' }
         '500': { $ref: '#/components/responses/InternalError' }
   /api/v1/incidents:
@@ -281,6 +336,49 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/PublicAnnouncementCategoryList' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/branding:
+    get:
+      tags: [public]
+      operationId: getBranding
+      security: []
+      summary: Identidade visual
+      description: |
+        Nome, textos, fonte, cores, logotipo e favicon da página pública e da tela de login. Sem nada salvo, devolve
+        os padrões (o título é `SITE_NAME`). `logo_url` e `favicon_url` são caminhos deste servidor (imagem enviada) ou
+        URLs https de domínios liberados em `BRANDING_IMAGE_HOSTS`.
+      responses:
+        '200':
+          description: Identidade visual atual.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicBranding' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/branding/images/{kind}:
+    parameters: [ { $ref: '#/components/parameters/BrandingImageKind' } ]
+    get:
+      tags: [public]
+      operationId: getBrandingImage
+      security: []
+      summary: Imagem enviada (logotipo ou favicon)
+      description: |
+        Arquivo enviado pela administração. Com `?v=` igual ao início do hash atual (como em `logo_url`), a resposta
+        pode ficar em cache indefinidamente. Responde 304 para `If-None-Match` com o ETag atual.
+      parameters:
+        - { name: v, in: query, schema: { type: string, maxLength: 64 }, description: Versão (prefixo do SHA-256). }
+        - { name: If-None-Match, in: header, schema: { type: string } }
+      responses:
+        '200':
+          description: Imagem.
+          headers:
+            ETag: { description: SHA-256 do arquivo entre aspas., schema: { type: string } }
+          content:
+            image/png: { schema: { type: string, format: binary } }
+            image/jpeg: { schema: { type: string, format: binary } }
+            image/webp: { schema: { type: string, format: binary } }
+            image/x-icon: { schema: { type: string, format: binary } }
+        '304': { description: Não modificada. }
+        '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalError' }
   /api/v1/auth/setup:
     get:
@@ -608,6 +706,48 @@ paths:
             application/rss+xml:
               schema: { type: string }
         '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/hooks/monitoring:
+    post:
+      tags: [monitoring-webhook]
+      operationId: receiveMonitoringSignal
+      security: []
+      summary: Receber alerta de uma ferramenta de monitoramento
+      description: |
+        Endereço configurado no UptimeRobot ou no Healthchecks.io. O token secreto da integração vai em `?token=`
+        (ou em `Authorization: Bearer`). O corpo pode ser JSON ou formulário; os campos aceitos dependem da
+        ferramenta:
+
+        - **UptimeRobot**: `monitorID`, `monitorFriendlyName`, `alertType` (`1` = down, `2` = up; outros são
+          ignorados), `alertDetails`.
+        - **Healthchecks.io**: `check_id` (ou `code`), `name`, `status` (`up`/`down`).
+
+        Monitores desconhecidos são criados sem componente, para serem ligados na administração. Um alerta
+        ilegível é registrado e respondido com 422, para a ferramenta mostrar a falha.
+      parameters:
+        - name: token
+          in: query
+          required: false
+          schema: { type: string, maxLength: 128 }
+          description: Token secreto da integração (exibido uma única vez).
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+            example: { monitorID: '798122451', monitorFriendlyName: Site público, alertType: '1', alertDetails: Connection Timeout }
+          application/x-www-form-urlencoded:
+            schema: { type: object, additionalProperties: { type: string } }
+      responses:
+        '202':
+          description: Alerta recebido.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MonitoringAccepted' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
   /api/v1/admin/components:
     get:
       tags: [admin-components]
@@ -616,7 +756,8 @@ paths:
       parameters:
         - { name: is_active, in: query, schema: { type: boolean }, description: Filtra por ativo/desativado. }
         - { name: is_public, in: query, schema: { type: boolean }, description: Filtra por visibilidade pública. }
-        - { name: group_id, in: query, schema: { type: string, format: uuid }, description: Componentes do grupo informado. }
+        - { name: group_id, in: query, schema: { type: string, format: uuid }, description: 'Componentes do grupo informado, inclusive os dos seus subgrupos.' }
+        - { name: subgroup_id, in: query, schema: { type: string, format: uuid }, description: Componentes do subgrupo informado. }
         - { name: team_id, in: query, schema: { type: string, format: uuid }, description: 'Componentes cujo dono efetivo (time próprio ou do grupo) é o time informado.' }
         - name: sort
           in: query
@@ -724,8 +865,11 @@ paths:
     post:
       tags: [admin-components]
       operationId: createComponentGroup
-      summary: Criar grupo de componentes
-      description: Associe componentes ao grupo pelo campo `group_id` do componente.
+      summary: Criar grupo ou subgrupo de componentes
+      description: |
+        Com `parent_id`, cria um subgrupo dentro de um grupo principal (hierarquia Grupo → Subgrupo → Componente,
+        com subgrupos opcionais e sem subgrupo de subgrupo). Associe componentes pelo campo `group_id` ou
+        `subgroup_id` do componente.
       requestBody:
         required: true
         content:
@@ -790,8 +934,9 @@ paths:
       operationId: deleteComponentGroup
       summary: Excluir grupo vazio
       description: |
-        Só é possível excluir um grupo sem componentes (inclusive desativados). Mova-os antes
-        (`PATCH /api/v1/admin/components/{id}` com `group_id`); caso contrário retorna 409 `component_group_not_empty`.
+        Só é possível excluir um grupo sem componentes (inclusive desativados e os dos subgrupos) e sem subgrupos. Mova-os antes
+        (`PATCH /api/v1/admin/components/{id}` com `group_id`/`subgroup_id`); caso contrário retorna 409
+        `component_group_not_empty` ou `component_group_has_subgroups`.
       responses:
         '204': { description: Excluído. }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -928,6 +1073,79 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/external-sources/{id}/outages:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    get:
+      tags: [admin-third-party]
+      operationId: listExternalOutages
+      summary: Indisponibilidades resolvidas dos componentes do provedor
+      description: |
+        Períodos em que um componente ficou fora de `operational` segundo o provedor, derivados das mudanças de
+        status gravadas a cada leitura. Só entram períodos encerrados (o componente voltou a `operational`);
+        `unknown` não abre nem encerra um período. Mais recentes primeiro.
+      parameters:
+        - { name: only_selected, in: query, schema: { type: boolean }, description: Somente componentes publicados atualmente. }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Lista paginada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExternalOutageList' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/external-sources/{id}/events:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    get:
+      tags: [admin-third-party]
+      operationId: listExternalEvents
+      summary: Incidentes e manutenções informados pelo provedor
+      description: |
+        Cada evento visto nas leituras, com o primeiro e o último instante em que foi visto e quando deixou de ser
+        informado (`closed_at`). Por padrão lista o histórico (`state=resolved`, pelo fim, mais recentes primeiro);
+        `state=open` lista os que estão em andamento.
+      parameters:
+        - { name: state, in: query, schema: { type: string, enum: [resolved, open], default: resolved } }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Lista paginada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExternalEventList' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/external-sources/{id}/uptime:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    get:
+      tags: [admin-third-party]
+      operationId: getExternalUptime
+      summary: Histórico diário dos componentes publicados do provedor
+      description: |
+        Mesmo cálculo de `/api/v1/status/uptime`, sobre o status informado pelo provedor. `unknown` conta como sem
+        dados; períodos em que a leitura falhou mantêm o último status conhecido. Não há incidentes por dia.
+      parameters:
+        - $ref: '#/components/parameters/UptimeDays'
+        - $ref: '#/components/parameters/UptimeTimezone'
+      responses:
+        '200':
+          description: Barras por componente publicado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExternalUptime' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
   /api/v1/admin/external-sources/{id}/selection:
     parameters: [ { $ref: '#/components/parameters/ID' } ]
     put:
@@ -950,6 +1168,210 @@ paths:
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /api/v1/admin/monitoring-integrations:
+    get:
+      tags: [admin-monitoring]
+      operationId: listMonitoringIntegrations
+      summary: Listar integrações de monitoramento
+      responses:
+        '200':
+          description: Integrações por nome.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MonitoringIntegrationList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [admin-monitoring]
+      operationId: createMonitoringIntegration
+      summary: Cadastrar integração
+      description: Gera o token do webhook, devolvido apenas nesta resposta (`webhook_token`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MonitoringIntegrationCreate' }
+            example: { name: UptimeRobot produção, provider: uptimerobot }
+      responses:
+        '201':
+          description: Cadastrada.
+          headers: { Location: { $ref: '#/components/headers/Location' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MonitoringIntegrationWithToken' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/monitoring-integrations/{id}:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    get:
+      tags: [admin-monitoring]
+      operationId: getMonitoringIntegration
+      summary: Consultar integração
+      responses:
+        '200':
+          description: Integração.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MonitoringIntegration' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    patch:
+      tags: [admin-monitoring]
+      operationId: updateMonitoringIntegration
+      summary: Renomear ou ativar/desativar
+      description: Desativada, a integração ignora alertas e seus monitores deixam de afetar o status.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MonitoringIntegrationPatch' }
+      responses:
+        '200':
+          description: Atualizada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MonitoringIntegration' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    delete:
+      tags: [admin-monitoring]
+      operationId: deleteMonitoringIntegration
+      summary: Remover integração
+      description: Remove a integração, seus monitores e alertas recebidos.
+      responses:
+        '204': { description: Removida. }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/monitoring-integrations/{id}/token:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    post:
+      tags: [admin-monitoring]
+      operationId: rotateMonitoringToken
+      summary: Trocar o endereço do webhook
+      description: Gera um token novo; o endereço anterior para de funcionar imediatamente.
+      responses:
+        '200':
+          description: Token novo (exibido apenas nesta resposta).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MonitoringIntegrationWithToken' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/monitoring-integrations/{id}/events:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    get:
+      tags: [admin-monitoring]
+      operationId: listMonitoringEvents
+      summary: Últimos alertas recebidos
+      responses:
+        '200':
+          description: Até 50 alertas, do mais recente ao mais antigo.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MonitoringEventList' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/monitoring-integrations/{id}/monitors:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    post:
+      tags: [admin-monitoring]
+      operationId: addMonitor
+      summary: Cadastrar monitor manualmente
+      description: Permite ligar um monitor a um componente antes do primeiro alerta.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MonitorCreate' }
+      responses:
+        '201':
+          description: Cadastrado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Monitor' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/monitors:
+    get:
+      tags: [admin-monitoring]
+      operationId: listMonitors
+      summary: Listar monitores
+      parameters:
+        - { name: integration_id, in: query, required: false, schema: { type: string, format: uuid } }
+        - { name: component_id, in: query, required: false, schema: { type: string, format: uuid } }
+        - { name: state, in: query, required: false, schema: { $ref: '#/components/schemas/MonitorState' } }
+      responses:
+        '200':
+          description: Monitores ligados primeiro (no máximo 1000).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MonitorList' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/monitors/{id}:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    patch:
+      tags: [admin-monitoring]
+      operationId: updateMonitor
+      summary: Ligar monitor a um componente ou mudar o efeito
+      description: '`component_id: null` desliga o monitor (ele deixa de afetar o status).'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MonitorPatch' }
+      responses:
+        '200':
+          description: Atualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Monitor' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    delete:
+      tags: [admin-monitoring]
+      operationId: deleteMonitor
+      summary: Remover monitor
+      description: Se a ferramenta continuar enviando alertas dele, o monitor é recriado sem componente.
+      responses:
+        '204': { description: Removido. }
+        '404': { $ref: '#/components/responses/NotFound' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
@@ -1912,6 +2334,135 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/department-levels:
+    get:
+      tags: [admin-users]
+      operationId: getDepartmentLevels
+      summary: Nomes dos níveis de departamento
+      responses:
+        '200':
+          description: Sempre 4 nomes (vazio = sem nome).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DepartmentLevels' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    put:
+      tags: [admin-users]
+      operationId: setDepartmentLevels
+      summary: Definir os nomes dos níveis de departamento
+      description: Os nomes são só rótulos; a profundidade máxima é sempre 4 (ADR 0017).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DepartmentLevels' }
+            example: { names: [Diretoria, Gerência, Coordenação, ''] }
+      responses:
+        '200':
+          description: Atualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DepartmentLevels' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/departments:
+    get:
+      tags: [admin-users]
+      operationId: listDepartments
+      summary: Listar departamentos
+      responses:
+        '200':
+          description: Todos os departamentos (até 200), em ordem de árvore.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DepartmentList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [admin-users]
+      operationId: createDepartment
+      summary: Criar departamento
+      description: 'O nível vem do departamento superior. 422 em `parent_id` quando passaria de 4 níveis.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DepartmentCreate' }
+            example: { name: Tecnologia }
+      responses:
+        '201':
+          description: Criado.
+          headers: { Location: { $ref: '#/components/headers/Location' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Department' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/departments/{id}:
+    parameters: [ { $ref: '#/components/parameters/ID' } ]
+    get:
+      tags: [admin-users]
+      operationId: getDepartment
+      summary: Consultar departamento
+      responses:
+        '200':
+          description: Item.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Department' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    patch:
+      tags: [admin-users]
+      operationId: updateDepartment
+      summary: Atualizar ou mover departamento
+      description: 'Mover leva junto subdepartamentos, times e pessoas, desde que a árvore continue com no máximo 4 níveis.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DepartmentPatch' }
+      responses:
+        '200':
+          description: Atualizado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Department' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    delete:
+      tags: [admin-users]
+      operationId: deleteDepartment
+      summary: Excluir departamento
+      description: 'Somente sem subdepartamentos e sem times (409 `department_in_use`). Pessoas ligadas direto são desvinculadas.'
+      responses:
+        '204': { description: Excluído. }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
   /api/v1/admin/permissions:
     get:
       tags: [admin-users]
@@ -2244,7 +2795,7 @@ paths:
       parameters:
         - name: resource_type
           in: query
-          schema: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template, external_source, announcement, announcement_category, team, user, role, subscription, announcement_template] }
+          schema: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template, external_source, announcement, announcement_category, team, user, role, subscription, announcement_template, monitoring_integration, department, branding] }
         - { name: resource_id, in: query, schema: { type: string, format: uuid } }
         - { name: action, in: query, schema: { type: string, maxLength: 64 }, description: 'Ex.: created, updated, resolved, started.' }
         - name: sort
@@ -2263,9 +2814,166 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/presence:
+    post:
+      tags: [presence]
+      operationId: postAdminPresence
+      summary: Sinal de presença de um usuário no admin
+      description: |
+        Enviado por cada aba do admin a cada minuto, inclusive em segundo plano (`hidden: true`). `area` é o rótulo da
+        tela, exibido a quem tem `presence.read`. Qualquer usuário autenticado.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminPresenceBeat' }
+      responses:
+        '204': { description: Sinal registrado. }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    get:
+      tags: [presence]
+      operationId: getPresence
+      summary: Quem está acessando agora
+      description: |
+        Visitantes da página pública por área, usuários com o admin aberto, contagens por minuto da última hora e o
+        pico de visitantes públicos do dia em `timezone`. Contagem aproximada. Requer `presence.read`.
+      parameters:
+        - name: timezone
+          in: query
+          description: 'Fuso IANA para o início do dia do pico. Padrão: UTC.'
+          schema: { type: string, maxLength: 64, example: America/Sao_Paulo }
+      responses:
+        '200':
+          description: Situação atual.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PresenceSnapshot' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/status-history:
+    get:
+      tags: [admin-components]
+      operationId: listStatusHistory
+      summary: Histórico de status dos componentes
+      description: |
+        Cada mudança do status efetivo de um componente (status declarado combinado com incidentes ativos e
+        manutenções em andamento), gravada na transação da alteração que a causou. Mais recentes primeiro.
+        `status` `null` significa componente desativado.
+      parameters:
+        - { name: component_id, in: query, schema: { type: string, format: uuid } }
+        - name: cause_type
+          in: query
+          schema: { $ref: '#/components/schemas/StatusChangeCause' }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Lista paginada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StatusChangeList' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/branding:
+    get:
+      tags: [admin-branding]
+      operationId: getAdminBranding
+      summary: Consultar identidade visual
+      description: Configuração atual, imagens enviadas, padrões e domínios liberados para URLs de imagem.
+      responses:
+        '200':
+          description: Configuração.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminBranding' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    put:
+      tags: [admin-branding]
+      operationId: updateBranding
+      summary: Salvar identidade visual
+      description: |
+        Substitui toda a configuração. As cores precisam de contraste mínimo de 4,5:1 (WCAG AA): cor principal com o
+        texto branco dos botões, texto do cabeçalho com o fundo do cabeçalho e fundo da página com o texto secundário.
+        Imagem com `source: upload` exige um arquivo enviado; com `source: url`, uma URL https de domínio liberado.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BrandingSettings' }
+      responses:
+        '200':
+          description: Salvo.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminBranding' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/branding/images/{kind}:
+    parameters: [ { $ref: '#/components/parameters/BrandingImageKind' } ]
+    put:
+      tags: [admin-branding]
+      operationId: uploadBrandingImage
+      summary: Enviar logotipo ou favicon
+      description: |
+        Corpo é o arquivo. Logotipo: PNG, JPG ou WebP até 512 KB. Favicon: PNG ou ICO até 128 KB. O tipo é detectado
+        pelo conteúdo; SVG não é aceito. A imagem passa a ser a origem escolhida (`source: upload`).
+      requestBody:
+        required: true
+        content:
+          image/png: { schema: { type: string, format: binary } }
+          image/jpeg: { schema: { type: string, format: binary } }
+          image/webp: { schema: { type: string, format: binary } }
+          image/x-icon: { schema: { type: string, format: binary } }
+          application/octet-stream: { schema: { type: string, format: binary } }
+      responses:
+        '200':
+          description: Enviada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminBranding' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    delete:
+      tags: [admin-branding]
+      operationId: deleteBrandingImage
+      summary: Remover imagem enviada
+      description: Se a imagem estava em uso, a origem passa a ser `none`.
+      responses:
+        '200':
+          description: Removida.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminBranding' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
 
 components:
   parameters:
+    BrandingImageKind:
+      name: kind
+      in: path
+      required: true
+      schema: { type: string, enum: [logo, favicon] }
     ID:
       name: id
       in: path
@@ -2280,6 +2988,15 @@ components:
       name: offset
       in: query
       schema: { type: integer, minimum: 0, maximum: 100000, default: 0 }
+    UptimeDays:
+      name: days
+      in: query
+      schema: { type: integer, enum: [30, 60, 90], default: 90 }
+    UptimeTimezone:
+      name: timezone
+      in: query
+      description: 'Timezone IANA que define os dias (ex.: America/Sao_Paulo). Padrão: UTC.'
+      schema: { type: string, maxLength: 64, default: UTC }
     IncidentState:
       name: state
       in: query
@@ -2385,7 +3102,8 @@ components:
     Conflict:
       description: |
         Conflito com o estado atual. Códigos: `component_slug_conflict`, `component_group_name_conflict`,
-        `component_group_not_empty`, `external_source_conflict`, `external_source_limit`, `template_name_conflict`,
+        `component_group_not_empty`, `external_source_conflict`, `external_source_limit`, `monitoring_integration_limit`,
+        `monitor_conflict`, `monitor_limit`, `template_name_conflict`,
         `incident_resolved`, `incident_already_resolved`, `maintenance_closed`, `maintenance_already_started`,
         `maintenance_invalid_transition`, `invalid_announcement_transition`, `announcement_not_draft`,
         `announcement_category_name_conflict`, `announcement_category_in_use`, `announcement_category_limit`,
@@ -2429,6 +3147,85 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
 
   schemas:
+    BrandingColors:
+      type: object
+      additionalProperties: false
+      required: [primary, header_background, header_text, page_background]
+      properties:
+        primary: { type: string, pattern: '^#[0-9a-fA-F]{6}$', description: 'Botões, links e marca.' }
+        header_background: { type: string, pattern: '^#[0-9a-fA-F]{6}$' }
+        header_text: { type: string, pattern: '^#[0-9a-fA-F]{6}$' }
+        page_background: { type: string, pattern: '^#[0-9a-fA-F]{6}$', description: Precisa ser claro. }
+    BrandingImageChoice:
+      type: object
+      additionalProperties: false
+      required: [source, url]
+      properties:
+        source: { type: string, enum: [none, upload, url] }
+        url: { type: string, nullable: true, maxLength: 500, description: 'URL https de domínio liberado; só com `source: url`.' }
+    BrandingFont:
+      type: string
+      enum: [inter, ibm-plex-sans, source-sans-3, nunito-sans, roboto, merriweather-sans, system]
+    BrandingSettings:
+      description: Campos desconhecidos são rejeitados pelo servidor.
+      type: object
+      required: [title, subtitle, description, login_title, login_message, footer_text, footer_link_label, footer_link_url, font, colors, show_title_with_logo, logo, favicon]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 60, description: 'Cabeçalho, aba do navegador, login, e-mails e feeds.' }
+        subtitle: { type: string, maxLength: 80 }
+        description: { type: string, maxLength: 160, description: Descrição para buscadores e links compartilhados. }
+        login_title: { type: string, minLength: 1, maxLength: 60 }
+        login_message: { type: string, maxLength: 200 }
+        footer_text: { type: string, maxLength: 280 }
+        footer_link_label: { type: string, maxLength: 40 }
+        footer_link_url: { type: string, maxLength: 300, description: 'http(s); informe junto com `footer_link_label`.' }
+        font: { $ref: '#/components/schemas/BrandingFont' }
+        colors: { $ref: '#/components/schemas/BrandingColors' }
+        show_title_with_logo: { type: boolean }
+        logo: { $ref: '#/components/schemas/BrandingImageChoice' }
+        favicon: { $ref: '#/components/schemas/BrandingImageChoice' }
+    BrandingUpload:
+      type: object
+      required: [content_type, size_bytes, url, updated_at]
+      properties:
+        content_type: { type: string }
+        size_bytes: { type: integer }
+        url: { type: string, description: Caminho público com a versão. }
+        updated_at: { type: string, format: date-time }
+    AdminBranding:
+      allOf:
+        - { $ref: '#/components/schemas/BrandingSettings' }
+        - type: object
+          required: [logo_upload, favicon_upload, allowed_image_hosts, defaults, updated_at]
+          properties:
+            logo_upload: { allOf: [ { $ref: '#/components/schemas/BrandingUpload' } ], nullable: true }
+            favicon_upload: { allOf: [ { $ref: '#/components/schemas/BrandingUpload' } ], nullable: true }
+            allowed_image_hosts: { type: array, items: { type: string }, description: BRANDING_IMAGE_HOSTS. }
+            defaults: { $ref: '#/components/schemas/BrandingSettings' }
+            updated_at: { type: string, format: date-time, nullable: true, description: Nulo enquanto nada foi salvo. }
+    PublicBranding:
+      type: object
+      required: [title, subtitle, description, login_title, login_message, footer_text, footer_link, font, colors, show_title_with_logo, logo_url, favicon_url, updated_at]
+      properties:
+        title: { type: string }
+        subtitle: { type: string }
+        description: { type: string }
+        login_title: { type: string }
+        login_message: { type: string }
+        footer_text: { type: string }
+        footer_link:
+          type: object
+          nullable: true
+          required: [label, url]
+          properties:
+            label: { type: string }
+            url: { type: string }
+        font: { $ref: '#/components/schemas/BrandingFont' }
+        colors: { $ref: '#/components/schemas/BrandingColors' }
+        show_title_with_logo: { type: boolean }
+        logo_url: { type: string, nullable: true }
+        favicon_url: { type: string, nullable: true }
+        updated_at: { type: string, format: date-time, nullable: true }
     Health:
       type: object
       additionalProperties: false
@@ -2523,7 +3320,7 @@ components:
     Component:
       type: object
       additionalProperties: false
-      required: [id, name, slug, description, show_description, status, is_public, is_active, display_order, group_id, url, team_id, owner_team_id, created_at, updated_at]
+      required: [id, name, slug, description, show_description, status, is_public, is_active, display_order, group_id, subgroup_id, url, team_id, owner_team_id, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
@@ -2534,10 +3331,11 @@ components:
         is_public: { type: boolean }
         is_active: { type: boolean }
         display_order: { type: integer }
-        group_id: { type: string, format: uuid, nullable: true, description: Grupo do componente; `null` quando não agrupado. }
+        group_id: { type: string, format: uuid, nullable: true, description: 'Grupo principal do componente (também quando está em um subgrupo); `null` quando não agrupado.' }
+        subgroup_id: { type: string, format: uuid, nullable: true, description: 'Subgrupo do componente dentro de `group_id`; `null` quando está direto no grupo.' }
         url: { type: string, nullable: true, description: 'Link público da página do componente (documentação, produto, endpoint).' }
         team_id: { type: string, format: uuid, nullable: true, description: Time responsável pelo componente. }
-        owner_team_id: { type: string, format: uuid, nullable: true, description: 'Dono efetivo: `team_id` ou, se ausente, o time do grupo. Papéis de time agem sobre componentes dos seus times.' }
+        owner_team_id: { type: string, format: uuid, nullable: true, description: 'Dono efetivo: `team_id` ou, se ausente, o time do subgrupo e depois o do grupo. Papéis de time agem sobre componentes dos seus times.' }
         created_at: { $ref: '#/components/schemas/Timestamp' }
         updated_at: { $ref: '#/components/schemas/Timestamp' }
     ComponentCreate:
@@ -2552,8 +3350,9 @@ components:
         status: { $ref: '#/components/schemas/ComponentStatus' }
         is_public: { type: boolean, default: true }
         display_order: { type: integer, minimum: 0, maximum: 100000, default: 0 }
-        group_id: { type: string, format: uuid, nullable: true }
-        team_id: { type: string, format: uuid, nullable: true, description: 'Time responsável. `null` = herda o time do grupo.' }
+        group_id: { type: string, format: uuid, nullable: true, description: Grupo principal. Opcional quando `subgroup_id` é informado. }
+        subgroup_id: { type: string, format: uuid, nullable: true, description: 'Subgrupo. O grupo é derivado dele; um `group_id` diferente retorna 422.' }
+        team_id: { type: string, format: uuid, nullable: true, description: 'Time responsável. `null` = herda o time do subgrupo ou do grupo.' }
         url: &componentUrl { type: string, nullable: true, maxLength: 500, description: 'Endereço http(s) completo, sem credenciais. Vazio ou `null` = sem link.' }
     ComponentPatch:
       type: object
@@ -2568,9 +3367,10 @@ components:
         is_public: { type: boolean }
         is_active: { type: boolean }
         display_order: { type: integer, minimum: 0, maximum: 100000 }
-        group_id: { type: string, format: uuid, nullable: true, description: '`null` remove o componente do grupo.' }
+        group_id: { type: string, format: uuid, nullable: true, description: '`null` remove o componente do grupo. Trocar de grupo sem `subgroup_id` tira o componente do subgrupo.' }
+        subgroup_id: { type: string, format: uuid, nullable: true, description: '`null` deixa o componente direto no grupo; um subgrupo move o componente para o grupo dele.' }
         url: *componentUrl
-        team_id: { type: string, format: uuid, nullable: true, description: '`null` = herda o time do grupo.' }
+        team_id: { type: string, format: uuid, nullable: true, description: '`null` = herda o time do subgrupo ou do grupo.' }
     ComponentList:
       type: object
       additionalProperties: false
@@ -2581,28 +3381,31 @@ components:
     PublicComponent:
       type: object
       additionalProperties: false
-      required: [id, name, slug, description, status, group_id, url, display_order, updated_at]
+      required: [id, name, slug, description, status, monitored, group_id, subgroup_id, url, display_order, updated_at]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
         slug: { type: string }
         description: { type: string, description: 'Descrição pública; vazia quando o operador não a exibe.' }
         status: { $ref: '#/components/schemas/ComponentStatus' }
+        monitored: { type: boolean, description: 'Uma ferramenta de monitoramento informa o status deste componente.' }
         group_id: { type: string, format: uuid, nullable: true }
+        subgroup_id: { type: string, format: uuid, nullable: true, description: Subgrupo dentro de `group_id`. }
         url: { type: string, nullable: true, description: Link da página do componente. }
         display_order: { type: integer }
         updated_at: { $ref: '#/components/schemas/Timestamp' }
     PublicComponentGroup:
       type: object
       additionalProperties: false
-      required: [id, name, description, display_order, status, component_count, affected_components, components_under_maintenance]
+      required: [id, name, description, display_order, parent_id, status, component_count, affected_components, components_under_maintenance]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
         description: { type: string }
         display_order: { type: integer }
+        parent_id: { type: string, format: uuid, nullable: true, description: 'Preenchido em subgrupos: o grupo ao qual pertencem.' }
         status: { $ref: '#/components/schemas/ComponentStatus' }
-        component_count: { type: integer, description: Componentes públicos do grupo. }
+        component_count: { type: integer, description: 'Componentes públicos do grupo (inclusive dos subgrupos) ou do subgrupo.' }
         affected_components: { type: integer }
         components_under_maintenance: { type: integer }
     ExternalComponentStatus:
@@ -2713,17 +3516,155 @@ components:
               status: { type: string }
               impact: { type: string }
               url: { type: string, nullable: true }
+    MonitoringProvider:
+      type: string
+      enum: [uptimerobot, healthchecks]
+    MonitorState:
+      type: string
+      enum: [unknown, up, down]
+      description: '`unknown` até o primeiro alerta.'
+    MonitorDownStatus:
+      type: string
+      enum: [degraded_performance, partial_outage, major_outage]
+      description: Status aplicado ao componente enquanto o monitor estiver fora do ar.
+    MonitoringIntegration:
+      type: object
+      additionalProperties: false
+      required: [id, name, provider, is_active, token_hint, last_received_at, monitor_count, linked_count, down_count, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        provider: { $ref: '#/components/schemas/MonitoringProvider' }
+        is_active: { type: boolean, description: Inativa ignora alertas e não afeta status. }
+        token_hint: { type: string, description: Últimos 4 caracteres do token. }
+        last_received_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        monitor_count: { type: integer }
+        linked_count: { type: integer, description: Monitores ligados a um componente. }
+        down_count: { type: integer, description: Monitores fora do ar agora. }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    MonitoringIntegrationWithToken:
+      type: object
+      description: Integração com o token do webhook, exibido apenas uma vez.
+      additionalProperties: false
+      required: [id, name, provider, is_active, token_hint, last_received_at, monitor_count, linked_count, down_count, created_at, updated_at, webhook_token]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        provider: { $ref: '#/components/schemas/MonitoringProvider' }
+        is_active: { type: boolean, description: Inativa ignora alertas e não afeta status. }
+        token_hint: { type: string, description: Últimos 4 caracteres do token. }
+        last_received_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        monitor_count: { type: integer }
+        linked_count: { type: integer, description: Monitores ligados a um componente. }
+        down_count: { type: integer, description: Monitores fora do ar agora. }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+        webhook_token: { type: string, description: 'Token secreto; use em /api/v1/hooks/monitoring?token=…. Exibido uma única vez.' }
+    MonitoringIntegrationCreate:
+      type: object
+      additionalProperties: false
+      required: [name, provider]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        provider: { $ref: '#/components/schemas/MonitoringProvider' }
+    MonitoringIntegrationPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        is_active: { type: boolean }
+    MonitoringIntegrationList:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/MonitoringIntegration' } }
+    MonitorComponent:
+      type: object
+      nullable: true
+      additionalProperties: false
+      required: [id, name]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+    Monitor:
+      type: object
+      additionalProperties: false
+      required: [id, integration_id, integration_name, provider, external_id, name, component, down_status, state, state_changed_at, last_signal_at]
+      properties:
+        id: { type: string, format: uuid }
+        integration_id: { type: string, format: uuid }
+        integration_name: { type: string }
+        provider: { $ref: '#/components/schemas/MonitoringProvider' }
+        external_id: { type: string, description: 'Identificador na ferramenta (monitorID do UptimeRobot, UUID do check no Healthchecks.io).' }
+        name: { type: string }
+        component: { $ref: '#/components/schemas/MonitorComponent' }
+        down_status: { $ref: '#/components/schemas/MonitorDownStatus' }
+        state: { $ref: '#/components/schemas/MonitorState' }
+        state_changed_at: { $ref: '#/components/schemas/NullableTimestamp' }
+        last_signal_at: { $ref: '#/components/schemas/NullableTimestamp' }
+    MonitorCreate:
+      type: object
+      additionalProperties: false
+      required: [external_id]
+      properties:
+        external_id: { type: string, minLength: 1, maxLength: 128 }
+        name: { type: string, maxLength: 255 }
+        component_id: { type: string, format: uuid }
+        down_status: { $ref: '#/components/schemas/MonitorDownStatus' }
+    MonitorPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: { type: string, maxLength: 255 }
+        component_id: { type: string, format: uuid, nullable: true }
+        down_status: { $ref: '#/components/schemas/MonitorDownStatus' }
+    MonitorList:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Monitor' } }
+    MonitoringEvent:
+      type: object
+      additionalProperties: false
+      required: [id, received_at, kind, monitor_id, monitor_name, detail, applied]
+      properties:
+        id: { type: integer, format: int64 }
+        received_at: { $ref: '#/components/schemas/Timestamp' }
+        kind: { type: string, enum: [down, up, ignored, invalid] }
+        monitor_id: { type: string, format: uuid, nullable: true }
+        monitor_name: { type: string }
+        detail: { type: string }
+        applied: { type: boolean, description: O alerta mudou o status de um componente ligado. }
+    MonitoringEventList:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/MonitoringEvent' } }
+    MonitoringAccepted:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status: { type: string, enum: [accepted] }
     ComponentGroup:
       type: object
       additionalProperties: false
-      required: [id, name, description, display_order, team_id, component_count, created_at, updated_at]
+      required: [id, name, description, display_order, parent_id, team_id, component_count, subgroup_count, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
         description: { type: string }
         display_order: { type: integer }
+        parent_id: { type: string, format: uuid, nullable: true, description: 'Grupo principal de um subgrupo; `null` em grupos principais.' }
         team_id: { type: string, format: uuid, nullable: true, description: Time responsável; componentes sem time próprio o herdam. }
-        component_count: { type: integer, description: Componentes associados (inclusive ocultos e desativados). }
+        component_count: { type: integer, description: 'Componentes associados (inclusive ocultos, desativados e os dos subgrupos).' }
+        subgroup_count: { type: integer, description: Subgrupos do grupo (sempre 0 em subgrupos). }
         created_at: { $ref: '#/components/schemas/Timestamp' }
         updated_at: { $ref: '#/components/schemas/Timestamp' }
     ComponentGroupCreate:
@@ -2731,9 +3672,10 @@ components:
       additionalProperties: false
       required: [name]
       properties:
-        name: { type: string, minLength: 1, maxLength: 120, description: Único (sem diferenciar maiúsculas). }
+        name: { type: string, minLength: 1, maxLength: 120, description: 'Único entre grupos principais, ou entre os subgrupos do mesmo grupo (sem diferenciar maiúsculas).' }
         description: { type: string, maxLength: 1000 }
         display_order: { type: integer, minimum: 0, maximum: 100000, default: 0 }
+        parent_id: { type: string, format: uuid, nullable: true, description: 'Grupo principal; cria um subgrupo. `null` ou ausente = grupo principal.' }
         team_id: { type: string, format: uuid, nullable: true }
     ComponentGroupPatch:
       type: object
@@ -2743,6 +3685,13 @@ components:
         name: { type: string, minLength: 1, maxLength: 120 }
         description: { type: string, maxLength: 1000 }
         display_order: { type: integer, minimum: 0, maximum: 100000 }
+        parent_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: |
+            Move o subgrupo (com seus componentes) para outro grupo principal. Transformar grupo em subgrupo, ou o contrário,
+            só é permitido sem componentes e sem subgrupos (409 `component_group_level_locked`).
         team_id: { type: string, format: uuid, nullable: true, description: '`null` remove o time.' }
     ComponentGroupList:
       type: object
@@ -3148,7 +4097,7 @@ components:
       properties:
         id: { type: integer, format: int64 }
         occurred_at: { $ref: '#/components/schemas/Timestamp' }
-        resource_type: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template, external_source, announcement, announcement_category, team, user, role, subscription, announcement_template] }
+        resource_type: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template, external_source, announcement, announcement_category, team, user, role, subscription, announcement_template, monitoring_integration, department, branding] }
         resource_id: { type: string, format: uuid }
         action: { type: string }
         source: { type: string, description: 'Canal de origem (ex.: admin_api).' }
@@ -3166,12 +4115,237 @@ components:
           type: object
           description: Valores relevantes anteriores (`before`) e posteriores (`after`).
           additionalProperties: true
+    PublicPresenceBeat:
+      type: object
+      additionalProperties: false
+      required: [tab_id, area]
+      properties:
+        tab_id: { type: string, pattern: '^[A-Za-z0-9_-]{16,64}$', description: Identificador aleatório da aba (sessionStorage). }
+        area: { $ref: '#/components/schemas/PresenceArea' }
+    PresenceArea:
+      type: string
+      enum: [status, incident, maintenance, announcements, subscriptions, other]
+    AdminPresenceBeat:
+      type: object
+      additionalProperties: false
+      required: [tab_id, area]
+      properties:
+        tab_id: { type: string, pattern: '^[A-Za-z0-9_-]{16,64}$' }
+        area: { type: string, minLength: 1, maxLength: 120, description: 'Rótulo da tela (ex.: Incidentes › Lentidão no checkout).' }
+        hidden: { type: boolean, default: false, description: Aba em segundo plano. }
+    PresenceSnapshot:
+      type: object
+      additionalProperties: false
+      required: [window_seconds, public, admin, history, peak_today, generated_at]
+      properties:
+        window_seconds: { type: integer, description: Por quanto tempo uma aba conta como presente após o último sinal. }
+        public:
+          type: object
+          additionalProperties: false
+          required: [total, areas]
+          properties:
+            total: { type: integer, minimum: 0 }
+            areas:
+              type: array
+              description: Todas as áreas, na ordem de exibição, inclusive com zero.
+              items:
+                type: object
+                additionalProperties: false
+                required: [area, count]
+                properties:
+                  area: { $ref: '#/components/schemas/PresenceArea' }
+                  count: { type: integer, minimum: 0 }
+        admin:
+          type: object
+          additionalProperties: false
+          required: [total, users]
+          properties:
+            total: { type: integer, minimum: 0 }
+            users:
+              type: array
+              description: Um item por usuário (a aba visível mais recente); visíveis primeiro, depois por nome.
+              items:
+                type: object
+                additionalProperties: false
+                required: [id, name, area, hidden, last_seen_at]
+                properties:
+                  id: { type: string, format: uuid }
+                  name: { type: string }
+                  area: { type: string }
+                  hidden: { type: boolean }
+                  last_seen_at: { type: string, format: date-time }
+        history:
+          type: array
+          description: Contagens por minuto dos últimos 60 minutos (minutos sem amostra são omitidos).
+          items:
+            type: object
+            additionalProperties: false
+            required: [minute, public, admin]
+            properties:
+              minute: { type: string, format: date-time }
+              public: { type: integer, minimum: 0 }
+              admin: { type: integer, minimum: 0 }
+        peak_today:
+          type: object
+          nullable: true
+          additionalProperties: false
+          required: [count, at]
+          properties:
+            count: { type: integer, minimum: 0 }
+            at: { type: string, format: date-time }
+        generated_at: { type: string, format: date-time }
     AuditEventList:
       type: object
       additionalProperties: false
       required: [data, pagination]
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/AuditEvent' } }
+        pagination: { $ref: '#/components/schemas/Pagination' }
+
+    StatusChangeCause:
+      type: string
+      enum: [baseline, component, incident, maintenance, monitoring]
+      description: '`baseline`: primeiro registro de um componente que já existia; `component`: alteração do componente; `monitoring`: um monitor ligado ao componente caiu ou voltou (`cause_id` = monitor).'
+    StatusChange:
+      type: object
+      additionalProperties: false
+      required: [id, component_id, component_name, status, previous_status, cause_type, cause_id, cause_name, actor, changed_at]
+      properties:
+        id: { type: integer, format: int64 }
+        component_id: { type: string, format: uuid }
+        component_name: { type: string }
+        status: { allOf: [ { $ref: '#/components/schemas/ComponentStatus' } ], nullable: true, description: 'Status efetivo; `null` quando o componente foi desativado.' }
+        previous_status: { allOf: [ { $ref: '#/components/schemas/ComponentStatus' } ], nullable: true }
+        cause_type: { $ref: '#/components/schemas/StatusChangeCause' }
+        cause_id: { type: string, format: uuid, nullable: true, description: 'Componente, incidente ou manutenção que causou a mudança.' }
+        cause_name: { type: string, nullable: true, description: Título do incidente ou da manutenção. }
+        actor:
+          type: object
+          nullable: true
+          additionalProperties: false
+          required: [id, name]
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string }
+        changed_at: { $ref: '#/components/schemas/Timestamp' }
+    StatusChangeList:
+      type: object
+      additionalProperties: false
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/StatusChange' } }
+        pagination: { $ref: '#/components/schemas/Pagination' }
+    UptimeDayStatus:
+      type: string
+      enum: [operational, degraded_performance, partial_outage, major_outage, maintenance, no_data]
+    UptimeDay:
+      type: object
+      additionalProperties: false
+      required: [date, status, uptime_percent, durations, incidents]
+      properties:
+        date: { type: string, format: date, description: Dia no timezone pedido. }
+        status: { $ref: '#/components/schemas/UptimeDayStatus' }
+        uptime_percent: { type: number, nullable: true, description: '`null` sem dados no dia.' }
+        durations:
+          type: object
+          additionalProperties: false
+          required: [major_outage, partial_outage, degraded_performance, maintenance]
+          description: Segundos em cada status não operacional.
+          properties:
+            major_outage: { type: integer, format: int64 }
+            partial_outage: { type: integer, format: int64 }
+            degraded_performance: { type: integer, format: int64 }
+            maintenance: { type: integer, format: int64 }
+        incidents:
+          type: array
+          description: Incidentes que afetaram o componente no dia.
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, title, impact]
+            properties:
+              id: { type: string, format: uuid }
+              title: { type: string }
+              impact: { $ref: '#/components/schemas/IncidentImpact' }
+    Uptime:
+      type: object
+      additionalProperties: false
+      required: [days, timezone, from, to, components, generated_at]
+      properties:
+        days: { type: integer, enum: [30, 60, 90] }
+        timezone: { type: string }
+        from: { $ref: '#/components/schemas/Timestamp' }
+        to: { $ref: '#/components/schemas/Timestamp' }
+        generated_at: { $ref: '#/components/schemas/Timestamp' }
+        components:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, uptime_percent, days]
+            properties:
+              id: { type: string, format: uuid }
+              uptime_percent: { type: number, nullable: true, description: 'Uptime do período; `null` sem dados.' }
+              days: { type: array, items: { $ref: '#/components/schemas/UptimeDay' } }
+    ExternalUptime:
+      type: object
+      additionalProperties: false
+      required: [days, timezone, from, to, components]
+      properties:
+        days: { type: integer, enum: [30, 60, 90] }
+        timezone: { type: string }
+        from: { $ref: '#/components/schemas/Timestamp' }
+        to: { $ref: '#/components/schemas/Timestamp' }
+        components:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, name, uptime_percent, days]
+            properties:
+              id: { type: string, format: uuid }
+              name: { type: string }
+              uptime_percent: { type: number, nullable: true }
+              days: { type: array, items: { $ref: '#/components/schemas/UptimeDay' } }
+    ExternalOutage:
+      type: object
+      additionalProperties: false
+      required: [external_component_id, component_name, worst_status, started_at, ended_at, duration_seconds]
+      properties:
+        external_component_id: { type: string, format: uuid, nullable: true }
+        component_name: { type: string }
+        worst_status: { $ref: '#/components/schemas/ExternalComponentStatus' }
+        started_at: { $ref: '#/components/schemas/Timestamp' }
+        ended_at: { $ref: '#/components/schemas/Timestamp' }
+        duration_seconds: { type: integer, format: int64 }
+    ExternalOutageList:
+      type: object
+      additionalProperties: false
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/ExternalOutage' } }
+        pagination: { $ref: '#/components/schemas/Pagination' }
+    ExternalEvent:
+      type: object
+      additionalProperties: false
+      required: [id, kind, name, status, impact, url, component_names, first_seen_at, last_seen_at, closed_at]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [incident, maintenance] }
+        name: { type: string }
+        status: { type: string, description: Último status informado pelo provedor. }
+        impact: { type: string, description: 'Impacto informado pelo provedor (none, minor, major, critical, maintenance).' }
+        url: { type: string, nullable: true }
+        component_names: { type: array, items: { type: string } }
+        first_seen_at: { $ref: '#/components/schemas/Timestamp' }
+        last_seen_at: { $ref: '#/components/schemas/Timestamp' }
+        closed_at: { $ref: '#/components/schemas/NullableTimestamp' }
+    ExternalEventList:
+      type: object
+      additionalProperties: false
+      required: [data, pagination]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/ExternalEvent' } }
         pagination: { $ref: '#/components/schemas/Pagination' }
 
     StatusSummary:
@@ -3182,13 +4356,16 @@ components:
         overall:
           type: object
           additionalProperties: false
-          required: [status, basis, affected_components, components_under_maintenance]
+          required: [status, basis, monitored_components, affected_components, components_under_maintenance]
           properties:
             status: { $ref: '#/components/schemas/OverallStatus' }
             basis:
               type: string
-              enum: [declared]
-              description: Origem do status. `declared` = informado por operadores, sem verificação automática.
+              enum: [declared, mixed, monitored]
+              description: |
+                Origem do status. `declared` = nenhum componente público monitorado; `mixed` = parte deles é
+                monitorada por ferramentas externas; `monitored` = todos.
+            monitored_components: { type: integer, description: Componentes públicos com monitoramento ativo. }
             affected_components: { type: integer, description: Componentes públicos com status pior que operational (exceto manutenção). }
             components_under_maintenance: { type: integer }
         components:
@@ -3197,7 +4374,7 @@ components:
           items: { $ref: '#/components/schemas/PublicComponent' }
         groups:
           type: array
-          description: Grupos com ao menos um componente público, com status derivado.
+          description: 'Grupos e subgrupos (com `parent_id`) com ao menos um componente público, com status derivado.'
           items: { $ref: '#/components/schemas/PublicComponentGroup' }
         active_incidents: { type: array, items: { $ref: '#/components/schemas/PublicIncident' } }
         maintenances:
@@ -3345,6 +4522,7 @@ components:
         color: { $ref: '#/components/schemas/CategoryColor' }
         display_order: { type: integer }
         is_active: { type: boolean }
+        department_id: { type: string, format: uuid, nullable: true, description: Departamento do time (opcional). }
         announcement_count: { type: integer }
         created_at: { $ref: '#/components/schemas/Timestamp' }
         updated_at: { $ref: '#/components/schemas/Timestamp' }
@@ -3377,7 +4555,7 @@ components:
     Team:
       type: object
       additionalProperties: false
-      required: [id, name, kind, description, documentation_url, support_url, tags, is_active, announcement_count, component_count, group_count, member_count, created_at, updated_at]
+      required: [id, name, kind, description, documentation_url, support_url, tags, is_active, department_id, announcement_count, component_count, group_count, member_count, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
@@ -3387,6 +4565,7 @@ components:
         support_url: { type: string, nullable: true, description: Link de como obter suporte. }
         tags: { type: array, items: { type: string }, description: 'Tags livres do time (ex.: pagamentos, on-call 24x7).' }
         is_active: { type: boolean }
+        department_id: { type: string, format: uuid, nullable: true, description: Departamento do time (opcional). }
         announcement_count: { type: integer }
         component_count: { type: integer, description: Componentes com este time como responsável direto. }
         group_count: { type: integer }
@@ -3405,6 +4584,7 @@ components:
         support_url: { type: string, nullable: true, maxLength: 500, description: 'Endereço http(s). Vazio ou `null` remove.' }
         tags: { type: array, maxItems: 20, items: { type: string, maxLength: 30 }, description: 'Substitui a lista. Espaços extras e repetidas (sem diferenciar maiúsculas) são removidos.' }
         is_active: { type: boolean, default: true }
+        department_id: { type: string, format: uuid, nullable: true }
     TeamPatch:
       type: object
       additionalProperties: false
@@ -3417,6 +4597,7 @@ components:
         support_url: { type: string, nullable: true, maxLength: 500, description: 'Endereço http(s). Vazio ou `null` remove.' }
         tags: { type: array, maxItems: 20, items: { type: string, maxLength: 30 }, description: 'Substitui a lista. Espaços extras e repetidas (sem diferenciar maiúsculas) são removidos.' }
         is_active: { type: boolean }
+        department_id: { type: string, format: uuid, nullable: true, description: '`null` tira o time do departamento.' }
     TeamList:
       type: object
       additionalProperties: false
@@ -3426,7 +4607,7 @@ components:
 
     PermissionKey:
       type: string
-      enum: [components.status, components.manage, third_party.manage, incidents.manage, maintenances.manage, templates.manage, announcements.write, announcements.publish, announcements.settings, teams.manage, subscriptions.manage, audit.read, users.manage, roles.manage]
+      enum: [components.status, components.manage, third_party.manage, monitoring.manage, incidents.manage, maintenances.manage, templates.manage, announcements.write, announcements.publish, announcements.settings, teams.manage, subscriptions.manage, audit.read, presence.read, users.manage, roles.manage, branding.manage]
     RoleScope:
       type: string
       enum: [global, team]
@@ -3439,6 +4620,71 @@ components:
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
+    DepartmentLevels:
+      type: object
+      additionalProperties: false
+      required: [names]
+      properties:
+        names: { type: array, maxItems: 4, items: { type: string, maxLength: 40 }, description: 'Nome de cada nível, do 1 (topo) ao 4. Vazio = sem nome.' }
+    DepartmentRef:
+      type: object
+      additionalProperties: false
+      required: [id, name]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+    DepartmentMember:
+      type: object
+      additionalProperties: false
+      required: [id, name, email, job_title, is_active]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        email: { type: string }
+        job_title: { type: string }
+        is_active: { type: boolean }
+    Department:
+      type: object
+      additionalProperties: false
+      required: [id, name, description, parent_id, level, path, members, child_count, team_count, total_team_count, total_people_count, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        parent_id: { type: string, format: uuid, nullable: true }
+        level: { type: integer, minimum: 1, maximum: 4, description: Profundidade na árvore (1 = topo). }
+        path: { type: array, items: { $ref: '#/components/schemas/DepartmentRef' }, description: Do topo até este departamento (inclusive). }
+        members: { type: array, items: { $ref: '#/components/schemas/DepartmentMember' }, description: Pessoas ligadas direto (sem ser por time). }
+        child_count: { type: integer }
+        team_count: { type: integer, description: Times ligados direto. }
+        total_team_count: { type: integer, description: Times deste e dos subdepartamentos. }
+        total_people_count: { type: integer, description: 'Pessoas distintas deste e dos subdepartamentos, direto ou por time.' }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    DepartmentCreate:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        description: { type: string, maxLength: 500 }
+        parent_id: { type: string, format: uuid, nullable: true, description: Departamento superior; vazio cria no nível 1. }
+        member_ids: { type: array, maxItems: 200, items: { type: string, format: uuid }, description: Pessoas ligadas direto. }
+    DepartmentPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        description: { type: string, maxLength: 500 }
+        parent_id: { type: string, format: uuid, nullable: true, description: '`null` leva para o nível 1.' }
+        member_ids: { type: array, maxItems: 200, items: { type: string, format: uuid }, description: Substitui as pessoas ligadas direto. }
+    DepartmentList:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Department' } }
     PermissionInfo:
       type: object
       additionalProperties: false
@@ -3467,7 +4713,7 @@ components:
     User:
       type: object
       additionalProperties: false
-      required: [id, email, name, is_active, must_change_password, roles, teams, last_login_at, locked_until, created_at, updated_at]
+      required: [id, email, name, is_active, must_change_password, roles, teams, job_title, departments, last_login_at, locked_until, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
         email: { type: string }
@@ -3476,6 +4722,8 @@ components:
         must_change_password: { type: boolean, description: 'Senha definida por um administrador (criação ou redefinição): a API administrativa responde 403 `password_change_required` até o usuário escolher a própria senha em `POST /api/v1/auth/password`.' }
         roles: { type: array, items: { $ref: '#/components/schemas/RoleRef' } }
         teams: { type: array, items: { $ref: '#/components/schemas/UserTeamRef' }, description: Times do usuário; papéis de time agem sobre os componentes deles. }
+        job_title: { type: string, description: 'Cargo livre (ex.: Gerente). Vazio quando não informado.' }
+        departments: { type: array, items: { $ref: '#/components/schemas/DepartmentRef' }, description: Departamentos em que a pessoa está ligada direto. }
         last_login_at: { $ref: '#/components/schemas/NullableTimestamp' }
         locked_until: { $ref: '#/components/schemas/NullableTimestamp' }
         created_at: { $ref: '#/components/schemas/Timestamp' }
@@ -3501,6 +4749,8 @@ components:
         password: { $ref: '#/components/schemas/Password' }
         role_ids: { type: array, maxItems: 50, items: { type: string, format: uuid } }
         team_ids: { type: array, maxItems: 50, items: { type: string, format: uuid } }
+        job_title: { type: string, maxLength: 60 }
+        department_ids: { type: array, maxItems: 50, items: { type: string, format: uuid } }
     UserPatch:
       type: object
       additionalProperties: false
@@ -3511,6 +4761,8 @@ components:
         is_active: { type: boolean }
         role_ids: { type: array, maxItems: 50, items: { type: string, format: uuid }, description: Substitui os papéis do usuário. }
         team_ids: { type: array, maxItems: 50, items: { type: string, format: uuid }, description: Substitui os times do usuário. }
+        job_title: { type: string, maxLength: 60 }
+        department_ids: { type: array, maxItems: 50, items: { type: string, format: uuid }, description: Substitui os departamentos ligados direto. }
         unlock: { type: boolean, description: '`true` remove o bloqueio por tentativas de login.' }
     PasswordReset:
       type: object

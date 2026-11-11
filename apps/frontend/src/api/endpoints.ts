@@ -1,5 +1,9 @@
 import { request } from "./client";
 import type {
+  AdminBranding,
+  BrandingImageKind,
+  BrandingSettings,
+  PublicBranding,
   Announcement,
   AnnouncementCategory,
   AnnouncementCategoryCreate,
@@ -8,6 +12,8 @@ import type {
   AnnouncementPatch,
   AnnouncementState,
   AuditEvent,
+  PresenceArea,
+  PresenceSnapshot,
   LoginProvider,
   Me,
   PermissionInfo,
@@ -25,9 +31,21 @@ import type {
   ComponentGroupPatch,
   ComponentPatch,
   ExternalComponent,
+  ExternalEvent,
+  ExternalOutage,
   ExternalSource,
+  ExternalUptime,
   ExternalSourceCreate,
   ExternalSourcePatch,
+  Monitor,
+  MonitorCreate,
+  MonitorPatch,
+  MonitorState,
+  MonitoringEvent,
+  MonitoringIntegration,
+  MonitoringIntegrationCreate,
+  MonitoringIntegrationPatch,
+  MonitoringIntegrationWithToken,
   Incident,
   IncidentCreate,
   IncidentPatch,
@@ -53,10 +71,17 @@ import type {
   PublicComponent,
   PublicIncident,
   PublicMaintenance,
+  StatusChange,
+  StatusChangeCause,
   StatusSummary,
   Team,
+  Uptime,
   TeamCreate,
   TeamPatch,
+  Department,
+  DepartmentCreate,
+  DepartmentPatch,
+  DepartmentLevels,
   SubscribeInput,
   Subscription,
   SubscriptionAdminCreate,
@@ -71,9 +96,12 @@ import type {
 
 type Signal = { signal?: AbortSignal };
 type ListQuery = { limit?: number; offset?: number; sort?: string };
+export type UptimeRange = 30 | 60 | 90;
 
 export const publicApi = {
   status: (o: Signal = {}) => request<StatusSummary>("GET", "/api/v1/status", o),
+  uptime: (days: UptimeRange, timezone: string, o: Signal = {}) =>
+    request<Uptime>("GET", "/api/v1/status/uptime", { ...o, query: { days, timezone } }),
   components: (o: Signal = {}) => request<Page<PublicComponent>>("GET", "/api/v1/components", { ...o, query: { limit: 100 } }),
   incidents: (query: ListQuery & { state?: "active" | "resolved" }, o: Signal = {}) =>
     request<Page<PublicIncident>>("GET", "/api/v1/incidents", { ...o, query }),
@@ -88,6 +116,15 @@ export const publicApi = {
     request<PublicAnnouncement>("GET", `/api/v1/announcements/${encodeURIComponent(id)}`, o),
   announcementCategories: (o: Signal = {}) =>
     request<{ data: PublicAnnouncementCategory[] }>("GET", "/api/v1/announcement-categories", o),
+  branding: (o: Signal = {}) => request<PublicBranding>("GET", "/api/v1/branding", o),
+};
+
+/** Heartbeats of "who is here now" (no cookie; tab_id is random per tab). */
+export const presenceApi = {
+  public: (tabId: string, area: PresenceArea) =>
+    request<void>("POST", "/api/v1/presence", { body: { tab_id: tabId, area } }),
+  admin: (tabId: string, area: string, hidden: boolean) =>
+    request<void>("POST", "/api/v1/admin/presence", { body: { tab_id: tabId, area, hidden } }),
 };
 
 const S = "/api/v1/subscriptions";
@@ -121,14 +158,30 @@ const A = "/api/v1/admin";
 const id = (v: string) => encodeURIComponent(v);
 
 export const adminApi = {
+  branding: {
+    get: (o: Signal = {}) => request<AdminBranding>("GET", "/api/v1/admin/branding", o),
+    update: (body: BrandingSettings) => request<AdminBranding>("PUT", "/api/v1/admin/branding", { body }),
+    uploadImage: (kind: BrandingImageKind, file: Blob) =>
+      request<AdminBranding>("PUT", `/api/v1/admin/branding/images/${kind}`, { rawBody: file, timeoutMs: 30_000 }),
+    deleteImage: (kind: BrandingImageKind) => request<AdminBranding>("DELETE", `/api/v1/admin/branding/images/${kind}`),
+  },
   components: {
-    list: (query: ListQuery & { is_active?: boolean; is_public?: boolean; group_id?: string; team_id?: string }, o: Signal = {}) =>
+    list: (query: ListQuery & { is_active?: boolean; is_public?: boolean; group_id?: string; subgroup_id?: string; team_id?: string }, o: Signal = {}) =>
       request<Page<Component>>("GET", `${A}/components`, { ...o, query }),
     create: (body: ComponentCreate) => request<Component>("POST", `${A}/components`, { body }),
     update: (cid: string, body: ComponentPatch) => request<Component>("PATCH", `${A}/components/${id(cid)}`, { body }),
   },
   groups: {
     list: (query: ListQuery, o: Signal = {}) => request<Page<ComponentGroup>>("GET", `${A}/component-groups`, { ...o, query }),
+    /** Every group and subgroup, following pagination (pages hold at most 100). */
+    all: async (o: Signal = {}): Promise<ComponentGroup[]> => {
+      const out: ComponentGroup[] = [];
+      for (;;) {
+        const p = await request<Page<ComponentGroup>>("GET", `${A}/component-groups`, { ...o, query: { limit: 100, offset: out.length } });
+        out.push(...p.data);
+        if (p.data.length === 0 || out.length >= p.pagination.total) return out;
+      }
+    },
     create: (body: ComponentGroupCreate) => request<ComponentGroup>("POST", `${A}/component-groups`, { body }),
     update: (gid: string, body: ComponentGroupPatch) => request<ComponentGroup>("PATCH", `${A}/component-groups/${id(gid)}`, { body }),
     remove: (gid: string) => request<void>("DELETE", `${A}/component-groups/${id(gid)}`),
@@ -190,6 +243,28 @@ export const adminApi = {
       request<{ data: ExternalComponent[] }>("GET", `${A}/external-sources/${id(sid)}/components`, o),
     setSelection: (sid: string, componentIds: string[]) =>
       request<{ data: ExternalComponent[] }>("PUT", `${A}/external-sources/${id(sid)}/selection`, { body: { component_ids: componentIds } }),
+    outages: (sid: string, query: ListQuery & { only_selected?: boolean }, o: Signal = {}) =>
+      request<Page<ExternalOutage>>("GET", `${A}/external-sources/${id(sid)}/outages`, { ...o, query }),
+    events: (sid: string, query: ListQuery & { state?: "resolved" | "open" }, o: Signal = {}) =>
+      request<Page<ExternalEvent>>("GET", `${A}/external-sources/${id(sid)}/events`, { ...o, query }),
+    uptime: (sid: string, days: UptimeRange, timezone: string, o: Signal = {}) =>
+      request<ExternalUptime>("GET", `${A}/external-sources/${id(sid)}/uptime`, { ...o, query: { days, timezone } }),
+  },
+  monitoring: {
+    list: (o: Signal = {}) => request<{ data: MonitoringIntegration[] }>("GET", `${A}/monitoring-integrations`, o),
+    create: (body: MonitoringIntegrationCreate) =>
+      request<MonitoringIntegrationWithToken>("POST", `${A}/monitoring-integrations`, { body }),
+    update: (mid: string, body: MonitoringIntegrationPatch) =>
+      request<MonitoringIntegration>("PATCH", `${A}/monitoring-integrations/${id(mid)}`, { body }),
+    remove: (mid: string) => request<void>("DELETE", `${A}/monitoring-integrations/${id(mid)}`),
+    rotateToken: (mid: string) => request<MonitoringIntegrationWithToken>("POST", `${A}/monitoring-integrations/${id(mid)}/token`),
+    events: (mid: string, o: Signal = {}) =>
+      request<{ data: MonitoringEvent[] }>("GET", `${A}/monitoring-integrations/${id(mid)}/events`, o),
+    addMonitor: (mid: string, body: MonitorCreate) => request<Monitor>("POST", `${A}/monitoring-integrations/${id(mid)}/monitors`, { body }),
+    monitors: (query: { integration_id?: string; component_id?: string; state?: MonitorState }, o: Signal = {}) =>
+      request<{ data: Monitor[] }>("GET", `${A}/monitors`, { ...o, query }),
+    updateMonitor: (mid: string, body: MonitorPatch) => request<Monitor>("PATCH", `${A}/monitors/${id(mid)}`, { body }),
+    removeMonitor: (mid: string) => request<void>("DELETE", `${A}/monitors/${id(mid)}`),
   },
   announcements: {
     list: (
@@ -219,6 +294,14 @@ export const adminApi = {
     update: (tid: string, body: TeamPatch) => request<Team>("PATCH", `${A}/teams/${id(tid)}`, { body }),
     remove: (tid: string) => request<void>("DELETE", `${A}/teams/${id(tid)}`),
   },
+  departments: {
+    list: (o: Signal = {}) => request<{ data: Department[] }>("GET", `${A}/departments`, o),
+    create: (body: DepartmentCreate) => request<Department>("POST", `${A}/departments`, { body }),
+    update: (did: string, body: DepartmentPatch) => request<Department>("PATCH", `${A}/departments/${id(did)}`, { body }),
+    remove: (did: string) => request<void>("DELETE", `${A}/departments/${id(did)}`),
+    levels: (o: Signal = {}) => request<DepartmentLevels>("GET", `${A}/department-levels`, o),
+    setLevels: (body: DepartmentLevels) => request<DepartmentLevels>("PUT", `${A}/department-levels`, { body }),
+  },
   subscriptions: {
     list: (query: ListQuery & { channel?: SubscriptionChannel; status?: SubscriptionStatus; q?: string }, o: Signal = {}) =>
       request<SubscriptionList>("GET", `${A}/subscriptions`, { ...o, query }),
@@ -240,6 +323,12 @@ export const adminApi = {
     update: (rid: string, body: RolePatch) => request<Role>("PATCH", `${A}/roles/${id(rid)}`, { body }),
     remove: (rid: string) => request<void>("DELETE", `${A}/roles/${id(rid)}`),
   },
+  statusHistory: {
+    list: (query: ListQuery & { component_id?: string; cause_type?: StatusChangeCause }, o: Signal = {}) =>
+      request<Page<StatusChange>>("GET", `${A}/status-history`, { ...o, query }),
+  },
+  presence: (timezone: string, o: Signal = {}) =>
+    request<PresenceSnapshot>("GET", `${A}/presence`, { ...o, query: { timezone } }),
   audit: {
     list: (
       query: ListQuery & { resource_type?: string; resource_id?: string; action?: string },

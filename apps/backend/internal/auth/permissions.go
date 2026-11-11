@@ -16,11 +16,14 @@ const (
 	PermAnnouncementsPublish Permission = "announcements.publish"
 	PermAnnouncementsSetting Permission = "announcements.settings"
 	PermThirdPartyManage     Permission = "third_party.manage"
+	PermMonitoringManage     Permission = "monitoring.manage"
 	PermTeamsManage          Permission = "teams.manage"
 	PermSubscriptionsManage  Permission = "subscriptions.manage"
 	PermAuditRead            Permission = "audit.read"
+	PermPresenceRead         Permission = "presence.read"
 	PermUsersManage          Permission = "users.manage"
 	PermRolesManage          Permission = "roles.manage"
+	PermBrandingManage       Permission = "branding.manage"
 )
 
 // PermissionInfo describes a permission for the admin UI.
@@ -41,6 +44,7 @@ var Catalogue = []PermissionInfo{
 	{PermComponentsStatus, "Componentes", "Alterar status de componentes", "Muda apenas o status declarado de componentes existentes.", false, true},
 	{PermComponentsManage, "Componentes", "Gerenciar componentes e grupos", "Cria, edita, reorganiza e desativa componentes; cria, edita e exclui grupos.", false, true},
 	{PermThirdPartyManage, "Componentes", "Gerenciar serviços de terceiros", "Cadastra provedores externos e escolhe os componentes exibidos.", false, false},
+	{PermMonitoringManage, "Componentes", "Gerenciar monitoramento", "Cadastra integrações de monitoramento (UptimeRobot, Healthchecks.io) e liga monitores a componentes, o que muda o status exibido automaticamente.", false, false},
 	{PermIncidentsManage, "Indisponibilidades", "Gerenciar incidentes", "Abre incidentes, publica atualizações e resolve.", false, true},
 	{PermMaintenancesManage, "Indisponibilidades", "Gerenciar manutenções", "Programa, inicia, conclui e cancela manutenções.", false, true},
 	{PermTemplatesManage, "Indisponibilidades", "Gerenciar templates", "Cria e edita templates de incidente e de manutenção.", false, false},
@@ -49,7 +53,9 @@ var Catalogue = []PermissionInfo{
 	{PermAnnouncementsSetting, "Comunicados", "Gerenciar categorias", "Cria, edita, desativa e exclui categorias de comunicados.", false, false},
 	{PermTeamsManage, "Administração", "Gerenciar times", "Cria e edita times responsáveis (tipo, documentação, suporte).", false, false},
 	{PermSubscriptionsManage, "Administração", "Gerenciar inscrições", "Consulta e remove inscritos; cria integrações por webhook e Slack.", false, false},
+	{PermBrandingManage, "Administração", "Gerenciar identidade visual", "Altera nome, textos, logotipo, favicon, fonte e cores da página pública e da tela de login.", false, false},
 	{PermAuditRead, "Administração", "Consultar histórico operacional", "Lê o registro de alterações (auditoria).", false, false},
+	{PermPresenceRead, "Administração", "Ver acessos em tempo real", "Vê quantos visitantes estão na página pública e quais usuários estão no admin agora.", false, false},
 	{PermUsersManage, "Administração", "Gerenciar usuários", "Cria usuários, atribui papéis e times, redefine senhas e desativa contas.", true, false},
 	{PermRolesManage, "Administração", "Gerenciar papéis", "Cria e edita papéis e suas permissões.", true, false},
 }

@@ -35,11 +35,36 @@ export type IncidentTemplate = S.IncidentTemplate;
 export type MaintenanceTemplate = S.MaintenanceTemplate;
 export type AnnouncementTemplate = S.AnnouncementTemplate;
 export type AuditEvent = S.AuditEvent;
+export type PresenceArea = S.PresenceArea;
+export type PresenceSnapshot = S.PresenceSnapshot;
 export type StatusSummary = S.StatusSummary;
 export type PublicThirdPartySource = S.PublicThirdPartySource;
 export type ExternalSource = S.ExternalSource;
 export type ExternalComponent = S.ExternalComponent;
 export type ExternalComponentStatus = S.ExternalComponentStatus;
+
+// Status history and daily uptime.
+export type Uptime = S.Uptime;
+export type UptimeDay = S.UptimeDay;
+export type UptimeDayStatus = S.UptimeDayStatus;
+export type StatusChange = S.StatusChange;
+export type StatusChangeCause = S.StatusChangeCause;
+export type ExternalUptime = S.ExternalUptime;
+export type ExternalOutage = S.ExternalOutage;
+export type ExternalEvent = S.ExternalEvent;
+
+// Monitoring integrations (UptimeRobot, Healthchecks.io).
+export type MonitoringProvider = S.MonitoringProvider;
+export type MonitoringIntegration = S.MonitoringIntegration;
+export type MonitoringIntegrationWithToken = S.MonitoringIntegrationWithToken;
+export type MonitoringIntegrationCreate = S.MonitoringIntegrationCreate;
+export type MonitoringIntegrationPatch = S.MonitoringIntegrationPatch;
+export type Monitor = S.Monitor;
+export type MonitorCreate = S.MonitorCreate;
+export type MonitorPatch = S.MonitorPatch;
+export type MonitorState = S.MonitorState;
+export type MonitorDownStatus = S.MonitorDownStatus;
+export type MonitoringEvent = S.MonitoringEvent;
 
 export type AnnouncementState = S.AnnouncementState;
 export type AnnouncementImportance = S.AnnouncementImportance;
@@ -90,6 +115,10 @@ export type AnnouncementCategoryCreate = S.AnnouncementCategoryCreate;
 export type AnnouncementCategoryPatch = S.AnnouncementCategoryPatch;
 export type TeamCreate = S.TeamCreate;
 export type TeamPatch = S.TeamPatch;
+export type Department = S.Department;
+export type DepartmentCreate = S.DepartmentCreate;
+export type DepartmentPatch = S.DepartmentPatch;
+export type DepartmentLevels = S.DepartmentLevels;
 
 // Authentication and access control.
 export type PermissionKey = S.PermissionKey;
@@ -103,3 +132,13 @@ export type RoleCreate = S.RoleCreate;
 export type RolePatch = S.RolePatch;
 export type SetupInput = S.SetupInput;
 export type LoginProvider = S.LoginProvider;
+
+// Visual identity.
+export type PublicBranding = S.PublicBranding;
+export type AdminBranding = S.AdminBranding;
+export type BrandingSettings = S.BrandingSettings;
+export type BrandingColors = S.BrandingColors;
+export type BrandingFont = S.BrandingFont;
+export type BrandingImageChoice = S.BrandingImageChoice;
+export type BrandingUpload = S.BrandingUpload;
+export type BrandingImageKind = "logo" | "favicon";

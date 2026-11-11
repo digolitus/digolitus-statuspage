@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { adminApi } from "../api/endpoints";
 import type { Incident, IncidentCreate, IncidentImpact, IncidentStatus, IncidentTemplate } from "../api/types";
+import { WithInfo } from "../components/InfoTip";
 import { Badge, ConfirmButton, EmptyState, ErrorPanel, Field, Loading, Pager, Timeline } from "../components/ui";
 import { StatusSelect } from "../components/StatusSelect";
 import { browserTimeZone, formatDateTime, IMPACTS, impactLabel, incidentStatusLabel, toneForIncident, formatDuration, toLocalInput } from "../lib/format";
@@ -174,7 +175,7 @@ export function IncidentNewPage() {
               </select>
             )}
           </Field>
-          <Field label="Início do impacto (opcional)" error={fe.started_at} hint={`Se começou antes de abrir aqui. Vazio = agora. Horário local (${browserTimeZone()}).`}>
+          <Field label="Início do impacto (opcional)" error={fe.started_at} hint={`Horário local (${browserTimeZone()}).`} info="Se começou antes de abrir aqui. Vazio = agora.">
             {(p) => <input {...p} type="datetime-local" value={v.started_at} onChange={(e) => setV({ ...v, started_at: e.target.value })} />}
           </Field>
         </div>
@@ -248,23 +249,26 @@ function MetadataForm({ incident, onSaved }: { incident: Incident; onSaved: (i: 
         </Field>
       </div>
       <fieldset className="field period-field">
-        <legend>Período real do impacto</legend>
+        <legend>
+          <WithInfo
+            label="Sobre o período real do impacto"
+            info="Pode ser anterior à abertura ou ao encerramento aqui. A página pública mostra este período; a linha do tempo mantém o horário de cada publicação."
+          >
+            Período real do impacto
+          </WithInfo>
+        </legend>
         <div className="form-grid form-grid-2">
           <Field label="Início do impacto" error={submit.fieldErrors.started_at} hint={`Horário local (${browserTimeZone()}).`}>
             {(p) => <input {...p} type="datetime-local" value={v.started_at} onChange={(e) => setV({ ...v, started_at: e.target.value })} />}
           </Field>
           {resolved ? (
-            <Field label="Fim do impacto" error={submit.fieldErrors.resolved_at} hint="Quando o serviço voltou ao normal.">
+            <Field label="Fim do impacto" error={submit.fieldErrors.resolved_at} info="Quando o serviço voltou ao normal.">
               {(p) => <input {...p} type="datetime-local" value={v.resolved_at} onChange={(e) => setV({ ...v, resolved_at: e.target.value })} />}
             </Field>
           ) : (
             <p className="field-hint period-note">O fim é informado ao resolver o incidente.</p>
           )}
         </div>
-        <small className="field-hint">
-          Pode ser anterior à abertura ou ao encerramento aqui. A página pública mostra este período; a linha do tempo mantém o horário de
-          cada publicação.
-        </small>
       </fieldset>
       <Field label="Notas internas" error={submit.fieldErrors.internal_notes}>
         {(p) => <textarea {...p} rows={2} maxLength={5000} value={v.internal_notes} onChange={(e) => setV({ ...v, internal_notes: e.target.value })} />}
@@ -324,7 +328,7 @@ function PublishUpdateForm({ incident, onSaved }: { incident: Incident; onSaved:
           }}
         />
       )}
-      <Field label="Novo status" error={submit.fieldErrors.status} hint="Selecione Resolvido para encerrar o incidente.">
+      <Field label="Novo status" error={submit.fieldErrors.status} info="Selecione Resolvido para encerrar o incidente.">
         {(p) => (
           <select {...p} value={status} onChange={(e) => setStatus(e.target.value as IncidentStatus)}>
                 {ALL_STATUSES.map((s) => (
@@ -340,7 +344,7 @@ function PublishUpdateForm({ incident, onSaved }: { incident: Incident; onSaved:
       </Field>
       {status === "resolved" && (
         <div className="form-grid form-grid-2">
-          <Field label="Fim do impacto (opcional)" error={submit.fieldErrors.resolved_at} hint="Vazio = agora.">
+          <Field label="Fim do impacto (opcional)" error={submit.fieldErrors.resolved_at} info="Vazio = agora.">
             {(p) => <input {...p} type="datetime-local" value={endLocal} onChange={(e) => setEndLocal(e.target.value)} />}
           </Field>
         </div>
@@ -425,7 +429,8 @@ export function IncidentDetailPage({ id }: { id: string }) {
           <div className="form-grid form-grid-2">
             <Field
               label="Fim do impacto (opcional)"
-              hint={`Se o problema terminou antes de encerrar aqui. Vazio = agora. Horário local (${browserTimeZone()}).`}
+              hint={`Horário local (${browserTimeZone()}).`}
+              info="Se o problema terminou antes de encerrar aqui. Vazio = agora."
             >
               {(p) => <input {...p} type="datetime-local" value={resolveEnd} onChange={(e) => setResolveEnd(e.target.value)} />}
             </Field>
@@ -462,7 +467,7 @@ export function IncidentDetailPage({ id }: { id: string }) {
         </section>
       )}
 
-      {resolved && <p className="muted">Incidente resolvido. A linha do tempo é preservada e não aceita novas atualizações.</p>}
+      {resolved && <p className="muted">Incidente resolvido; a linha do tempo não aceita novas atualizações.</p>}
 
       {canManage && (
         <section className="panel" aria-labelledby="meta-title">

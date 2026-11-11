@@ -37,6 +37,25 @@ func TestEvaluate(t *testing.T) {
 			wantEffective: map[string]string{"api": PartialOutage, "web": Operational},
 		},
 		{
+			name:          "down monitor raises component status",
+			components:    []ComponentState{{ID: "api", DeclaredStatus: Operational, MonitoredStatus: PartialOutage, Public: true}, web},
+			wantOverall:   Overall{Status: PartialOutage, AffectedComponents: 1},
+			wantEffective: map[string]string{"api": PartialOutage, "web": Operational},
+		},
+		{
+			name:          "monitor never hides a worse declared status",
+			components:    []ComponentState{{ID: "api", DeclaredStatus: MajorOutage, MonitoredStatus: DegradedPerformance, Public: true}},
+			wantOverall:   Overall{Status: MajorOutage, AffectedComponents: 1},
+			wantEffective: map[string]string{"api": MajorOutage},
+		},
+		{
+			name:          "down monitor outranks maintenance",
+			components:    []ComponentState{{ID: "api", DeclaredStatus: Operational, MonitoredStatus: MajorOutage, Public: true}},
+			maintenances:  []ActiveMaintenance{{ComponentIDs: []string{"api"}}},
+			wantOverall:   Overall{Status: MajorOutage, AffectedComponents: 1},
+			wantEffective: map[string]string{"api": MajorOutage},
+		},
+		{
 			name:          "incident impact raises component status",
 			components:    []ComponentState{api, web},
 			incidents:     []ActiveIncident{{Impact: MajorOutage, ComponentIDs: []string{"api"}}},

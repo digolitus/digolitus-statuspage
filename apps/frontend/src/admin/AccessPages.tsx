@@ -1,10 +1,12 @@
 import { useId, useState, type FormEvent } from "react";
 import { authApi, adminApi } from "../api/endpoints";
 import type { PermissionInfo, PermissionKey, Role, RoleScope, Team, User } from "../api/types";
+import { WithInfo } from "../components/InfoTip";
 import { Badge, ConfirmButton, EmptyState, ErrorPanel, Field, Loading } from "../components/ui";
 import { formatDateTime, isFuture } from "../lib/format";
 import { useApi } from "../lib/useApi";
 import { useAuth } from "./authContext";
+import { DepartmentPicker, useDepartments } from "./departments";
 import { FormStatus, PageHeader, requireText, useSubmit, useTeams } from "./shared";
 
 const MIN_PASSWORD = 12;
@@ -118,7 +120,11 @@ function TeamPicker({ teams, selected, onChange, error }: { teams: Team[]; selec
   const options = teams.filter((t) => t.is_active || selected.includes(t.id));
   return (
     <fieldset className={`field picker${error ? " field-invalid" : ""}`}>
-      <legend>Times</legend>
+      <legend>
+        <WithInfo label="Sobre Times" info="Papéis com escopo “times” valem só para os componentes destes times.">
+          Times
+        </WithInfo>
+      </legend>
       {options.length === 0 ? (
         <small className="field-hint">Nenhum time cadastrado.</small>
       ) : (
@@ -136,7 +142,6 @@ function TeamPicker({ teams, selected, onChange, error }: { teams: Team[]; selec
           ))}
         </div>
       )}
-      <small className="field-hint">Papéis com escopo “times” valem só para os componentes destes times.</small>
       {error && <small className="field-error">{error}</small>}
     </fieldset>
   );
@@ -189,11 +194,15 @@ function NewUserForm({ roles, teams, allowed, onCreated }: { roles: Role[]; team
   );
 }
 
-function UserItem({ u, roles, teams, allowed, onChanged }: { u: User; roles: Role[]; teams: Team[]; allowed: Set<string>; onChanged: () => void }) {
+type Depts = ReturnType<typeof useDepartments>;
+
+function UserItem({ u, roles, teams, depts, allowed, onChanged }: { u: User; roles: Role[]; teams: Team[]; depts: Depts; allowed: Set<string>; onChanged: () => void }) {
   const { me } = useAuth();
   const [editing, setEditing] = useState(false);
   const [roleIds, setRoleIds] = useState(u.roles.map((r) => r.id));
   const [teamIds, setTeamIds] = useState(u.teams.map((t) => t.id));
+  const [departmentIds, setDepartmentIds] = useState(u.departments.map((d) => d.id));
+  const [jobTitle, setJobTitle] = useState(u.job_title);
   const [password, setPassword] = useState("");
   const submit = useSubmit();
   const self = u.id === me.user.id;
@@ -202,12 +211,17 @@ function UserItem({ u, roles, teams, allowed, onChanged }: { u: User; roles: Rol
     <li className="admin-item">
       <div className="admin-item-head">
         <div>
-          <strong>{u.name}</strong> <span className="muted">{u.email}</span>
+          <strong>{u.name}</strong> {u.job_title && <span className="tag">{u.job_title}</span>} <span className="muted">{u.email}</span>
           <div className="admin-item-tags">
             {u.roles.length === 0 ? <span className="tag">Sem papel (somente leitura)</span> : u.roles.map((r) => <span key={r.id} className="tag">{r.name}</span>)}
             {u.teams.map((t) => (
               <span key={t.id} className="tag tag-team">
                 Time: {t.name}
+              </span>
+            ))}
+            {u.departments.map((d) => (
+              <span key={d.id} className="tag">
+                Depto.: {d.name}
               </span>
             ))}
             {self && <span className="tag">Você</span>}
@@ -245,14 +259,24 @@ function UserItem({ u, roles, teams, allowed, onChanged }: { u: User; roles: Rol
           <div className="picker-row">
             <RolePicker roles={roles} selected={roleIds} allowed={allowed} onChange={setRoleIds} error={submit.fieldErrors.role_ids} />
             <TeamPicker teams={teams} selected={teamIds} onChange={setTeamIds} error={submit.fieldErrors.team_ids} />
+            <DepartmentPicker
+              departments={depts.departments}
+              levels={depts.levels}
+              selected={departmentIds}
+              onChange={setDepartmentIds}
+              error={submit.fieldErrors.department_ids}
+            />
           </div>
+          <Field label="Cargo (opcional)" error={submit.fieldErrors.job_title}>
+            {(p) => <input {...p} value={jobTitle} maxLength={60} placeholder="Ex.: Gerente" onChange={(e) => setJobTitle(e.target.value)} />}
+          </Field>
           <div className="form-actions">
             <button
               type="button"
               className="primary-button"
               disabled={submit.busy}
               onClick={() =>
-                submit.run(() => adminApi.users.update(u.id, { role_ids: roleIds, team_ids: teamIds }), "Acesso atualizado.").then((r) => r && onChanged())
+                submit.run(() => adminApi.users.update(u.id, { role_ids: roleIds, team_ids: teamIds, department_ids: departmentIds, job_title: jobTitle.trim() }), "Acesso atualizado.").then((r) => r && onChanged())
               }
             >
               Salvar acesso
@@ -260,7 +284,7 @@ function UserItem({ u, roles, teams, allowed, onChanged }: { u: User; roles: Rol
           </div>
           {!self && (
             <div className="inline-form">
-              <Field label="Nova senha" error={submit.fieldErrors.password} hint="Redefine a senha e encerra as sessões do usuário.">
+              <Field label="Nova senha" error={submit.fieldErrors.password} info="Redefine a senha e encerra as sessões do usuário.">
                 {(p) => <input {...p} type="password" autoComplete="new-password" value={password} maxLength={128} onChange={(e) => setPassword(e.target.value)} />}
               </Field>
               <button
@@ -292,18 +316,15 @@ function UserItem({ u, roles, teams, allowed, onChanged }: { u: User; roles: Rol
 export function UsersPage() {
   const { me, can } = useAuth();
   const teams = useTeams();
+  const depts = useDepartments();
   const data = useApi(async (signal) => {
     const [users, roles] = await Promise.all([adminApi.users.list({ signal }), adminApi.roles.list({ signal })]);
     return { users: users.data, roles: roles.data };
   }, []);
   return (
     <div className="admin-content">
-      <PageHeader title="Usuários" />
-      <p className="muted">
-        Cada usuário recebe um ou mais papéis; as permissões são a soma deles. Sem papel, o usuário só consulta os dados.
-        Você só pode conceder papéis cujas permissões também possui. Papéis com escopo “times” valem apenas para os
-        componentes dos times do usuário.
-      </p>
+      <PageHeader title="Usuários"
+        info="Cada usuário recebe um ou mais papéis; as permissões são a soma deles. Sem papel, só consulta os dados. Você só concede papéis cujas permissões também possui. Papéis com escopo “times” valem só para os componentes dos times do usuário." />
       {data.state.status === "loading" && <Loading />}
       {data.state.status === "error" && <ErrorPanel error={data.state.error} onRetry={data.reload} />}
       {data.state.status === "success" && (
@@ -322,6 +343,7 @@ export function UsersPage() {
                   u={u}
                   roles={data.state.data!.roles}
                   teams={teams}
+                  depts={depts}
                   allowed={grantable(data.state.data!.roles, can, me.is_admin)}
                   onChanged={data.reload}
                 />
@@ -414,7 +436,18 @@ function RoleForm({ catalogue, role, onSaved }: { catalogue: PermissionInfo[]; r
         </Field>
       </div>
       <fieldset className="field segmented-field">
-        <legend>Escopo</legend>
+        <legend>
+          <WithInfo
+            label="Sobre Escopo"
+            info={
+              v.scope === "team"
+                ? "Cada usuário age só nos componentes dos próprios times (e nos incidentes, manutenções e comunicados deles)."
+                : "As permissões valem para tudo."
+            }
+          >
+            Escopo
+          </WithInfo>
+        </legend>
         <div className="segmented" role="radiogroup" aria-label="Escopo">
           {(
             [
@@ -428,11 +461,6 @@ function RoleForm({ catalogue, role, onSaved }: { catalogue: PermissionInfo[]; r
             </label>
           ))}
         </div>
-        <small className="field-hint">
-          {v.scope === "team"
-            ? "Cada usuário age só nos componentes dos próprios times (e nos incidentes, manutenções e comunicados deles)."
-            : "As permissões valem para tudo."}
-        </small>
       </fieldset>
       <PermissionPicker scope={v.scope} catalogue={catalogue} selected={v.permissions} onChange={(permissions) => setV({ ...v, permissions })} disabled={(p) => !can(p)} />
       {fe.permissions && <p className="field-error">{fe.permissions}</p>}
@@ -461,11 +489,8 @@ export function RolesPage() {
   };
   return (
     <div className="admin-content">
-      <PageHeader title="Papéis e permissões" />
-      <p className="muted">
-        Papéis agrupam permissões. Mudanças valem imediatamente para os usuários que têm o papel. O papel Administrador é
-        fixo e tem acesso total. Permissões marcadas como sensíveis permitem mudar quem pode fazer o quê.
-      </p>
+      <PageHeader title="Papéis e permissões"
+        info="Papéis agrupam permissões e mudanças valem na hora para quem tem o papel. O papel Administrador é fixo e tem acesso total. Permissões sensíveis permitem mudar quem pode fazer o quê." />
       {data.state.status === "loading" && <Loading />}
       {data.state.status === "error" && <ErrorPanel error={data.state.error} onRetry={data.reload} />}
       {data.state.status === "success" && (

@@ -1,12 +1,17 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
+import { InfoTip } from "../components/InfoTip";
 import { publicApi } from "../api/endpoints";
 import type { StatusSummary } from "../api/types";
+import { WithInfo } from "../components/InfoTip";
 import { Badge, EmptyState, ErrorPanel, Loading, Pager } from "../components/ui";
 import { formatDateTime, overallLabel, plural, toneForStatus } from "../lib/format";
 import { useApi } from "../lib/useApi";
 import { usePolling } from "../lib/usePolling";
 import { ComponentList } from "./ComponentList";
-import { ThirdPartyList } from "./ThirdPartyList";
+import { openThirdPartyEvents } from "../lib/thirdParty";
+import { ThirdPartyEventCard, ThirdPartyList } from "./ThirdPartyList";
+import { RangePicker, UptimeProvider } from "./uptime";
+import { useUptime } from "./useUptime";
 import { IncidentCard, MaintenanceCard, MaintenanceRow } from "./views";
 
 /** Public refresh policy: every 60 s, backing off up to 5 min on failures. */
@@ -47,6 +52,7 @@ export function StatusPage() {
     intervalMs: POLL_INTERVAL_MS,
     maxBackoffMs: POLL_MAX_BACKOFF_MS,
   });
+  const uptime = useUptime();
 
   if (!poll.data) {
     return (
@@ -62,7 +68,10 @@ export function StatusPage() {
 
   const s = poll.data;
   const tone = toneForStatus[s.overall.status];
-  const happeningNow = s.active_incidents.length + s.maintenances.in_progress.length;
+  // Third-party problems in progress are shown here; they enter the provider's
+  // history (admin) once resolved.
+  const thirdPartyNow = openThirdPartyEvents(s.third_party);
+  const happeningNow = s.active_incidents.length + s.maintenances.in_progress.length + thirdPartyNow.length;
 
   return (
     <>
@@ -82,8 +91,7 @@ export function StatusPage() {
           )}
           <div className="status-actions">
             <span className="last-check">
-              Atualizado em {formatDateTime(s.generated_at)} · status declarado pela equipe de operações, sem verificação
-              automática.
+              Atualizado em {formatDateTime(s.generated_at)} · {basisText(s)}
             </span>
             <button type="button" className="link-button" onClick={poll.refresh} disabled={poll.refreshing}>
               {poll.refreshing ? "Atualizando…" : "Atualizar agora"}
@@ -104,29 +112,50 @@ export function StatusPage() {
             {s.maintenances.in_progress.map((m) => (
               <MaintenanceCard key={m.id} maintenance={m} linkTo={`/maintenances/${m.id}`} />
             ))}
+            {thirdPartyNow.map((e) => (
+              <ThirdPartyEventCard key={e.key} source={e.source} event={e.event} />
+            ))}
           </div>
         </section>
       )}
 
       <section className="container page-section" id="components" aria-labelledby="components-title">
-        <h2 id="components-title" className="section-title">
-          Componentes
-        </h2>
+        <div className="section-head">
+          <WithInfo
+            block
+            label="Sobre o uptime"
+            info={
+              s.components.length > 0 && uptime.bars
+                ? "Clique em um dia para ver o que aconteceu. Uptime calculado sobre o status declarado: interrupção grave conta 100% do tempo, interrupção parcial 30%; performance degradada e manutenção não descontam. Dias em cinza não têm histórico registrado."
+                : undefined
+            }
+          >
+            <h2 id="components-title" className="section-title">
+              Componentes
+            </h2>
+          </WithInfo>
+          {s.components.length > 0 && uptime.bars && <RangePicker days={uptime.days} onChange={uptime.setDays} />}
+        </div>
         {s.components.length === 0 ? (
           <EmptyState title="Nenhum componente publicado" />
         ) : (
-          <ComponentList components={s.components} groups={s.groups} />
+          <UptimeProvider bars={uptime.bars}>
+            <ComponentList components={s.components} groups={s.groups} />
+          </UptimeProvider>
         )}
       </section>
 
       {s.third_party.length > 0 && (
         <section className="container page-section" id="third-party" aria-labelledby="third-party-title">
-          <h2 id="third-party-title" className="section-title">
-            Serviços de terceiros
-          </h2>
-          <p className="section-note">
-            Status informado por cada provedor em sua própria página; não altera o status da plataforma acima.
-          </p>
+          <WithInfo
+            block
+            label="Sobre serviços de terceiros"
+            info="Status informado por cada provedor em sua própria página. Não altera o status da plataforma."
+          >
+            <h2 id="third-party-title" className="section-title">
+              Serviços de terceiros
+            </h2>
+          </WithInfo>
           <ThirdPartyList sources={s.third_party} />
         </section>
       )}
@@ -217,4 +246,18 @@ function HistoryContent() {
         ))}
     </>
   );
+}
+
+/** Short note on where the published status comes from; details in the tooltip. */
+function basisText(s: StatusSummary): ReactNode {
+  const n = s.overall.monitored_components;
+  const tip = (
+    <InfoTip
+      label="Origem do status"
+      text="Componentes com o selo “monitorado” têm o status verificado automaticamente por ferramentas de monitoramento. Os demais têm status declarado pela equipe de operações."
+    />
+  );
+  if (s.overall.basis === "monitored") return <>todos monitorados {tip}</>;
+  if (s.overall.basis === "mixed") return <>{n} de {s.components.length} monitorados {tip}</>;
+  return "status declarado pela equipe de operações, sem verificação automática.";
 }

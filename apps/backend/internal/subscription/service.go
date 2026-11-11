@@ -105,7 +105,7 @@ type Service struct {
 	mailer   Mailer
 	poster   Poster
 	baseURL  string
-	siteName string
+	siteName func() string
 	key      tokenKey
 }
 
@@ -117,6 +117,9 @@ type Options struct {
 	// BaseURL is the public page's absolute URL (links in messages).
 	BaseURL  string
 	SiteName string
+	// SiteNameFunc, when set, returns the current name (the configured
+	// branding title) and takes precedence over SiteName.
+	SiteNameFunc func() string
 }
 
 // NewService builds the service.
@@ -124,7 +127,12 @@ func NewService(pool *pgxpool.Pool, now clock.Clock, o Options) *Service {
 	if o.SiteName == "" {
 		o.SiteName = "Status"
 	}
-	return &Service{pool: pool, now: now, mailer: o.Mailer, poster: o.Poster, baseURL: strings.TrimRight(o.BaseURL, "/"), siteName: o.SiteName}
+	siteName := o.SiteNameFunc
+	if siteName == nil {
+		name := o.SiteName
+		siteName = func() string { return name }
+	}
+	return &Service{pool: pool, now: now, mailer: o.Mailer, poster: o.Poster, baseURL: strings.TrimRight(o.BaseURL, "/"), siteName: siteName}
 }
 
 // EmailEnabled reports whether e-mail (and so public self-service) works.

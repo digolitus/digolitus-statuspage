@@ -435,23 +435,47 @@ func saveSnapshot(ctx context.Context, tx pgx.Tx, id string, snap Snapshot, now 
 	if snap.Indicator != "" {
 		indicator = &snap.Indicator
 	}
-	if _, err := tx.Exec(ctx, `UPDATE external_sources SET page_name = $2, indicator = $3, indicator_description = $4, events = $5,
-		last_checked_at = $6, last_success_at = $6, last_error = NULL WHERE id = $1`,
-		id, snap.PageName, indicator, snap.IndicatorDescription, events, now); err != nil {
+	// The UPDATE locks the source row, so concurrent snapshots of the same
+	// source (poller and manual sync) are serialized and the statuses read
+	// below are the ones in force.
+	var sourceName string
+	if err := tx.QueryRow(ctx, `UPDATE external_sources SET page_name = $2, indicator = $3, indicator_description = $4, events = $5,
+		last_checked_at = $6, last_success_at = $6, last_error = NULL WHERE id = $1 RETURNING name`,
+		id, snap.PageName, indicator, snap.IndicatorDescription, events, now).Scan(&sourceName); err != nil {
 		return fmt.Errorf("update external source snapshot: %w", err)
+	}
+	previous, err := currentStatuses(ctx, tx, id)
+	if err != nil {
+		return err
 	}
 	present := make([]string, 0, len(snap.Components))
 	for _, c := range snap.Components {
 		present = append(present, c.ExternalID)
-		if _, err := tx.Exec(ctx, `INSERT INTO external_components
+		var componentID string
+		if err := tx.QueryRow(ctx, `INSERT INTO external_components
 			(source_id, external_id, name, description, group_name, status, position, provider_updated_at, created_at, updated_at)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
 			ON CONFLICT (source_id, external_id) DO UPDATE SET name = EXCLUDED.name, description = EXCLUDED.description,
 				group_name = EXCLUDED.group_name, status = EXCLUDED.status, position = EXCLUDED.position,
-				provider_updated_at = EXCLUDED.provider_updated_at, is_present = true, updated_at = EXCLUDED.updated_at`,
-			id, c.ExternalID, c.Name, c.Description, c.GroupName, c.Status, c.Position, c.UpdatedAt, now); err != nil {
+				provider_updated_at = EXCLUDED.provider_updated_at, is_present = true, updated_at = EXCLUDED.updated_at
+			RETURNING id`,
+			id, c.ExternalID, c.Name, c.Description, c.GroupName, c.Status, c.Position, c.UpdatedAt, now).Scan(&componentID); err != nil {
 			return fmt.Errorf("upsert external component: %w", err)
 		}
+		prev, known := previous[c.ExternalID]
+		if known && prev == c.Status {
+			continue
+		}
+		var prevStatus *string
+		if known {
+			prevStatus = &prev
+		}
+		if err := recordComponentChange(ctx, tx, id, componentID, sourceName, c.Name, c.Status, prevStatus, now); err != nil {
+			return err
+		}
+	}
+	if err := recordEvents(ctx, tx, id, sourceName, snap, now); err != nil {
+		return err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE external_components SET is_present = false, updated_at = $3
 		WHERE source_id = $1 AND is_present AND NOT (external_id = ANY($2::text[]))`, id, present, now); err != nil {

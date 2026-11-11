@@ -52,6 +52,8 @@ type Query = Record<string, string | number | boolean | undefined | null>;
 export interface RequestOptions {
   query?: Query;
   body?: unknown;
+  /** Sent as is (e.g. an image file), with its own Content-Type. */
+  rawBody?: Blob;
   signal?: AbortSignal;
   timeoutMs?: number;
 }
@@ -87,8 +89,11 @@ export async function request<T>(method: string, path: string, options: RequestO
 
   try {
     const headers: Record<string, string> = { Accept: "application/json" };
-    let body: string | undefined;
-    if (options.body !== undefined) {
+    let body: string | Blob | undefined;
+    if (options.rawBody !== undefined) {
+      headers["Content-Type"] = options.rawBody.type || "application/octet-stream";
+      body = options.rawBody;
+    } else if (options.body !== undefined) {
       headers["Content-Type"] = "application/json";
       body = JSON.stringify(options.body);
     }

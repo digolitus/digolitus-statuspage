@@ -6,6 +6,7 @@ import { Badge, ConfirmButton, EmptyState, ErrorPanel, Field, Loading } from "..
 import { externalStatusLabel, formatDateTime, toneForStatus } from "../lib/format";
 import { useApi } from "../lib/useApi";
 import { useAuth } from "./authContext";
+import { SourceHistory } from "./SourceHistory";
 import { FormStatus, PageHeader, ReadOnlyNote, useSubmit } from "./shared";
 
 const EXAMPLES = ["https://www.githubstatus.com", "https://status.veracode.com"];
@@ -30,10 +31,10 @@ function AddSourceForm({ onCreated }: { onCreated: (s: ExternalSource) => void }
   return (
     <form className="form" onSubmit={handle} noValidate aria-label="Cadastrar provedor">
       <div className="form-grid">
-        <Field label="URL da página de status" error={submit.fieldErrors.url} hint={`Páginas Atlassian Statuspage, ex.: ${EXAMPLES.join(" ou ")}`}>
+        <Field label="URL da página de status" error={submit.fieldErrors.url} info={`Páginas Atlassian Statuspage, ex.: ${EXAMPLES.join(" ou ")}`}>
           {(p) => <input {...p} type="url" inputMode="url" placeholder="https://www.githubstatus.com" value={url} maxLength={500} onChange={(e) => setUrl(e.target.value)} />}
         </Field>
-        <Field label="Nome (opcional)" error={submit.fieldErrors.name} hint="Padrão: nome informado pelo provedor.">
+        <Field label="Nome (opcional)" error={submit.fieldErrors.name} info="Padrão: nome informado pelo provedor.">
           {(p) => <input {...p} value={name} maxLength={120} onChange={(e) => setName(e.target.value)} />}
         </Field>
       </div>
@@ -126,6 +127,7 @@ function SelectionEditor({ source, onSaved }: { source: ExternalSource; onSaved:
 function SourceItem({ source: s, onChanged, startOpen }: { source: ExternalSource; onChanged: () => void; startOpen: boolean }) {
   const canManage = useAuth().can("third_party.manage");
   const [open, setOpen] = useState(startOpen);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   return (
@@ -154,6 +156,11 @@ function SourceItem({ source: s, onChanged, startOpen }: { source: ExternalSourc
             )}
           </p>
         </div>
+      </div>
+      <div className="form-actions">
+        <button type="button" className="secondary-button" aria-expanded={historyOpen} onClick={() => setHistoryOpen((o) => !o)}>
+          Histórico
+        </button>
       </div>
       {canManage && <div className="form-actions">
         <button type="button" className="secondary-button" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
@@ -205,6 +212,7 @@ function SourceItem({ source: s, onChanged, startOpen }: { source: ExternalSourc
         </p>
       )}
       {open && <SelectionEditor source={s} onSaved={onChanged} />}
+      {historyOpen && <SourceHistory source={s} />}
     </li>
   );
 }
@@ -215,11 +223,8 @@ export function ThirdPartyPage() {
   const canManage = useAuth().can("third_party.manage");
   return (
     <div className="admin-content">
-      <PageHeader title="Serviços de terceiros" />
-      <p className="muted">
-        Incorpore o status de serviços de que a plataforma depende (GitHub, Veracode e outras páginas Atlassian Statuspage). O
-        status é lido periodicamente da página de cada provedor, exibido em seção própria e não altera o status geral.
-      </p>
+      <PageHeader title="Serviços de terceiros"
+        info="Status de serviços de que a plataforma depende (páginas Atlassian Statuspage, como GitHub e Veracode). Lido periodicamente de cada provedor, exibido em seção própria e não altera o status geral." />
       {canManage ? (
         <section className="panel" aria-label="Novo provedor">
           <AddSourceForm

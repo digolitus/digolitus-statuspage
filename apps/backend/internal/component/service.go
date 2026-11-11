@@ -13,6 +13,7 @@ import (
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/clock"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/database"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/httpx"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/statushistory"
 )
 
 // Service implements the component use cases.
@@ -35,6 +36,9 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (Component, error)
 	c.CreatedAt = s.now()
 	var created Component
 	err = database.InTx(ctx, s.pool, func(tx pgx.Tx) error {
+		if err := resolveGrouping(ctx, tx, &c, true); err != nil {
+			return err
+		}
 		var err error
 		if created, err = insert(ctx, tx, c); err != nil {
 			return err
@@ -42,6 +46,9 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (Component, error)
 		// Team-scoped managers may only create components their teams own
 		// (own team or group's team); checked on the inserted row.
 		if err := auth.RequireComponents(ctx, tx, auth.PermComponentsManage, []string{created.ID}); err != nil {
+			return err
+		}
+		if err := statushistory.Record(ctx, tx, statushistory.Cause{Type: statushistory.CauseComponent, ID: created.ID}, created.CreatedAt); err != nil {
 			return err
 		}
 		return audit.Record(ctx, tx, audit.ResourceComponent, created.ID, "created", audit.Changes{After: created}, created.CreatedAt)
@@ -65,6 +72,11 @@ func (s *Service) Update(ctx context.Context, id string, in UpdateInput) (Compon
 		if err != nil {
 			return err
 		}
+		if in.GroupID.Set || in.SubgroupID.Set {
+			if err := resolveGrouping(ctx, tx, &next, in.GroupID.Set); err != nil {
+				return err
+			}
+		}
 		next.UpdatedAt = s.now()
 		if updated, err = update(ctx, tx, next); err != nil {
 			return err
@@ -83,12 +95,54 @@ func (s *Service) Update(ctx context.Context, id string, in UpdateInput) (Compon
 			action = "reactivated"
 		case current.Status != updated.Status:
 			action = "status_changed"
-		case !sameGroup(current.GroupID, updated.GroupID):
+		case !sameGroup(current.GroupID, updated.GroupID) || !sameGroup(current.SubgroupID, updated.SubgroupID):
 			action = "group_changed"
+		}
+		if err := statushistory.Record(ctx, tx, statushistory.Cause{Type: statushistory.CauseComponent, ID: id}, updated.UpdatedAt); err != nil {
+			return err
 		}
 		return audit.Record(ctx, tx, audit.ResourceComponent, id, action, audit.Diff(current, updated), updated.UpdatedAt)
 	})
 	return updated, err
+}
+
+// resolveGrouping validates the component's place in the hierarchy. With a
+// subgroup, the group is derived from it (an explicit, different group is
+// rejected). Otherwise an explicitly set group must be a top-level group.
+// Rows are locked so the referenced group cannot change level meanwhile.
+func resolveGrouping(ctx context.Context, q database.Querier, c *Component, groupSet bool) error {
+	var v apperror.Validator
+	if c.SubgroupID != nil {
+		sg, err := GetGroup(ctx, q, *c.SubgroupID, true)
+		if e, ok := apperror.As(err); (ok && e.Kind == apperror.KindNotFound) || (err == nil && !sg.IsSubgroup()) {
+			v.Add("subgroup_id", "Subgrupo não encontrado.")
+			return v.Err()
+		}
+		if err != nil {
+			return err
+		}
+		if groupSet && c.GroupID != nil && *c.GroupID != *sg.ParentID {
+			v.Add("subgroup_id", "O subgrupo escolhido pertence a outro grupo.")
+			return v.Err()
+		}
+		c.GroupID = sg.ParentID
+		return nil
+	}
+	if !groupSet || c.GroupID == nil {
+		return nil
+	}
+	g, err := GetGroup(ctx, q, *c.GroupID, true)
+	if e, ok := apperror.As(err); ok && e.Kind == apperror.KindNotFound {
+		v.Add("group_id", "Grupo não encontrado.")
+		return v.Err()
+	}
+	if err != nil {
+		return err
+	}
+	if g.IsSubgroup() {
+		v.Add("group_id", "Escolha um grupo principal; para colocar o componente em um subgrupo, use subgroup_id.")
+	}
+	return v.Err()
 }
 
 // requireUpdate applies team scopes: a status-only change is allowed by
@@ -127,7 +181,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	q := httpx.NewQuery(r.URL.Query())
 	page := q.Page()
 	sort := q.Sort([]string{"display_order", "name", "created_at", "updated_at"}, httpx.Sort{Field: "display_order"})
-	f := Filter{Active: q.Bool("is_active"), Public: q.Bool("is_public"), GroupID: q.UUID("group_id"), TeamID: q.UUID("team_id")}
+	f := Filter{Active: q.Bool("is_active"), Public: q.Bool("is_public"), GroupID: q.UUID("group_id"), SubgroupID: q.UUID("subgroup_id"), TeamID: q.UUID("team_id")}
 	if err := q.Err(); err != nil {
 		httpx.Fail(w, r, err)
 		return

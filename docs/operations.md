@@ -128,6 +128,7 @@ SMTP_FROM="Status Empresa <status@empresa.com>"
 **Entrega.**
 
 - O worker (`NOTIFY_WORKER=true`, a cada `NOTIFY_INTERVAL`, padrão `10s`) envia as mensagens registradas na mesma transação de cada publicação. Ele pode rodar em várias réplicas.
+- Presença ("quem está acessando agora", [ADR 0018](adr/0018-active-visitors.md)): ligada por padrão (`PRESENCE_ENABLED`). Cada réplica grava a contagem por minuto e apaga sinais com mais de 10 min. Não guarda IP nem cookie.
 - Falhas são repetidas com backoff. Webhook ou Slack com 15 falhas seguidas é desativado, e o motivo aparece em *Inscrições*.
 - Webhooks em rede privada exigem `NOTIFY_ALLOW_PRIVATE_NETWORKS=true`.
 
@@ -150,6 +151,23 @@ O backend lê `https://<provedor>/api/v2/summary.json` a cada `EXTERNAL_STATUS_I
 - Conexões a endereços privados, loopback e link-local são recusadas. `EXTERNAL_STATUS_ALLOW_PRIVATE_NETWORKS=true` libera essas redes; use apenas para páginas internas conhecidas.
 - Falhas de leitura ficam em `last_error` (visível em `/admin/third-party`) e no log (`external status: sync failed`). Sem leitura bem-sucedida por `max(3 × intervalo, 10 min)`, o provedor aparece como desatualizado e seus componentes como "Desconhecido".
 - Decisão e controles: [ADR 0006](adr/0006-third-party-status.md).
+
+## Monitoramento (UptimeRobot, Healthchecks.io)
+
+Em `/admin/monitoring`, crie uma integração e copie o endereço do webhook (aparece uma única vez) e o modelo de corpo para a ferramenta. Os monitores aparecem depois do primeiro alerta; ligue cada um a um componente.
+
+- O endereço precisa ser alcançável pela ferramenta (HTTPS público). Ele contém o token: não o publique. Se vazar, use "Trocar endereço".
+- O Nginx não registra `/api/v1/hooks/monitoring` no access log e limita a 5 req/s por IP (rajada 20). Em outro proxy, faça o mesmo: o token está na query string.
+- Alertas ilegíveis aparecem em "Últimos alertas recebidos" com o motivo, e a ferramenta recebe 422.
+- Decisão e regras: [ADR 0015](adr/0015-monitoring-integrations.md).
+
+## Identidade visual
+
+Em `/admin/branding` (permissão `branding.manage`) ficam título, subtítulo, textos do login e do rodapé, logotipo, favicon, fonte e cores da página pública e da tela de login.
+
+- Imagens podem ser enviadas (guardadas no banco) ou apontar para URL `https://` de um host listado em `BRANDING_IMAGE_HOSTS` (ex.: `cdn.example.com,example.com`). Passe a **mesma lista ao backend e ao frontend**: o backend valida as URLs e o frontend coloca os hosts na CSP (`img-src`). Depois de mudar a variável, reinicie os dois.
+- Um host inválido na variável impede a subida (backend e frontend), para não publicar uma CSP diferente da esperada.
+- Decisão e controles: [ADR 0016](adr/0016-visual-identity.md).
 
 ## Atualizar a Swagger UI embutida
 

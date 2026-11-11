@@ -34,14 +34,14 @@ describe("public status page", () => {
   it("puts components first when nothing is happening, with groups collapsed", async () => {
     const summary: StatusSummary = {
       ...emptySummary,
-      overall: { status: "degraded_performance", basis: "declared", affected_components: 1, components_under_maintenance: 0 },
+      overall: { status: "degraded_performance", basis: "declared", monitored_components: 0, affected_components: 1, components_under_maintenance: 0 },
       components: [
-        { id: "c1", name: "API de Pagamentos", slug: "api-pag", description: "", status: "degraded_performance", group_id: "g1", url: null, display_order: 0, updated_at: "2026-03-01T11:00:00Z" },
-        { id: "c2", name: "Checkout", slug: "checkout", description: "", status: "operational", group_id: "g1", url: null, display_order: 1, updated_at: "2026-03-01T11:00:00Z" },
-        { id: "c3", name: "Portal", slug: "portal", description: "", status: "operational", group_id: null, url: null, display_order: 5, updated_at: "2026-03-01T11:00:00Z" },
+        { id: "c1", name: "API de Pagamentos", slug: "api-pag", description: "", status: "degraded_performance", monitored: false, group_id: "g1", subgroup_id: null, url: null, display_order: 0, updated_at: "2026-03-01T11:00:00Z" },
+        { id: "c2", name: "Checkout", slug: "checkout", description: "", status: "operational", monitored: false, group_id: "g1", subgroup_id: null, url: null, display_order: 1, updated_at: "2026-03-01T11:00:00Z" },
+        { id: "c3", name: "Portal", slug: "portal", description: "", status: "operational", monitored: false, group_id: null, subgroup_id: null, url: null, display_order: 5, updated_at: "2026-03-01T11:00:00Z" },
       ],
       groups: [
-        { id: "g1", name: "Pagamentos", description: "Cobrança", display_order: 1, status: "degraded_performance", component_count: 2, affected_components: 1, components_under_maintenance: 0 },
+        { id: "g1", name: "Pagamentos", description: "Cobrança", display_order: 1, parent_id: null, status: "degraded_performance", component_count: 2, affected_components: 1, components_under_maintenance: 0 },
       ],
     };
     mockApi({ "GET /api/v1/status": { body: summary }, ...history });
@@ -61,8 +61,8 @@ describe("public status page", () => {
   it("renders components, active incidents with timeline and maintenances", async () => {
     const summary: StatusSummary = {
       ...emptySummary,
-      overall: { status: "partial_outage", basis: "declared", affected_components: 1, components_under_maintenance: 0 },
-      components: [{ id: "c1", name: "API", slug: "api", description: "REST", status: "partial_outage", group_id: null, url: "https://docs.example.com/api", display_order: 0, updated_at: "2026-03-01T11:00:00Z" }],
+      overall: { status: "partial_outage", basis: "declared", monitored_components: 0, affected_components: 1, components_under_maintenance: 0 },
+      components: [{ id: "c1", name: "API", slug: "api", description: "REST", status: "partial_outage", monitored: false, group_id: null, subgroup_id: null, url: "https://docs.example.com/api", display_order: 0, updated_at: "2026-03-01T11:00:00Z" }],
       active_incidents: [incident],
       maintenances: { in_progress: [], upcoming: [maintenance] },
     };
@@ -141,17 +141,24 @@ describe("third-party services", () => {
     render(<App />);
     const toggle = await screen.findByRole("button", { name: /GitHub/ });
     expect(screen.getByRole("heading", { name: "Serviços de terceiros" })).toBeInTheDocument();
-    expect(screen.getByText(/não altera o status da plataforma/)).toBeInTheDocument();
+    // The explanation lives in the "i" next to the heading.
+    await userEvent.hover(screen.getByRole("button", { name: "Sobre serviços de terceiros" }));
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/Status informado por cada provedor/);
     // Overall stays as declared by the platform itself.
     expect(screen.getByText("Status não informado")).toBeInTheDocument();
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(screen.getByText("API Requests")).not.toBeVisible();
 
-    await userEvent.click(toggle);
-    expect(screen.getByText("API Requests")).toBeVisible();
-    const event = screen.getByRole("link", { name: "API degraded" });
+    // A provider problem in progress is shown at the top, linking to the provider.
+    const now = screen.getByRole("heading", { name: "Acontecendo agora" }).closest("section") as HTMLElement;
+    const event = within(now).getByRole("link", { name: "API degraded" });
     expect(event).toHaveAttribute("href", "https://stspg.io/a");
     expect(event).toHaveAttribute("rel", "noopener noreferrer");
+    expect(within(now).getByText("Terceiro · GitHub")).toBeInTheDocument();
+
+    await userEvent.click(toggle);
+    expect(screen.getByText("API Requests")).toBeVisible();
+    expect(screen.getAllByRole("link", { name: "API degraded" })).toHaveLength(1);
     expect(screen.getByRole("link", { name: /Ver status em www.githubstatus.com/ })).toBeInTheDocument();
   });
 
@@ -193,6 +200,74 @@ describe("third-party services", () => {
     await user.click(screen.getByRole("button", { name: "Salvar seleção (1)" }));
     expect(await screen.findByText("Seleção salva.")).toBeInTheDocument();
     expect(calls.find((c) => c.method === "PUT")?.body).toEqual({ component_ids: ["e1"] });
+  });
+});
+
+describe("monitoring integrations", () => {
+  const integration = {
+    id: "m1", name: "UptimeRobot produção", provider: "uptimerobot" as const, is_active: true, token_hint: "f2Za",
+    last_received_at: "2026-03-01T12:00:00Z", monitor_count: 1, linked_count: 0, down_count: 0,
+    created_at: "2026-03-01T12:00:00Z", updated_at: "2026-03-01T12:00:00Z",
+  };
+  const monitor = {
+    id: "mon1", integration_id: "m1", integration_name: "UptimeRobot produção", provider: "uptimerobot" as const,
+    external_id: "798122451", name: "Site público", component: null, down_status: "major_outage" as const, state: "down" as const,
+    state_changed_at: "2026-03-01T12:00:00Z", last_signal_at: "2026-03-01T12:00:00Z",
+  };
+  const component = {
+    id: "c1", name: "Portal", slug: "portal", description: "", show_description: false, status: "operational" as const,
+    is_public: true, is_active: true, display_order: 0, group_id: null, url: null, team_id: null, owner_team_id: null,
+    created_at: "2026-03-01T12:00:00Z", updated_at: "2026-03-01T12:00:00Z",
+  };
+
+  it("shows the webhook address once after creating an integration", async () => {
+    window.history.pushState(null, "", "/admin/monitoring");
+    const calls = mockApi({ ...session(),
+      "GET /api/v1/admin/monitoring-integrations": { body: { data: [] } },
+      "GET /api/v1/admin/monitors": { body: { data: [] } },
+      "POST /api/v1/admin/monitoring-integrations": { status: 201, body: { ...integration, last_received_at: null, monitor_count: 0, webhook_token: "tok-123" } },
+    });
+    render(<App />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("radio", { name: /Healthchecks.io/ }));
+    await user.type(screen.getByLabelText("Nome"), "Jobs noturnos");
+    await user.click(screen.getByRole("button", { name: "Criar integração" }));
+    expect(await screen.findByDisplayValue(/\/api\/v1\/hooks\/monitoring\?token=tok-123$/)).toBeInTheDocument();
+    expect(screen.getByText(/Exibido só agora/)).toBeInTheDocument();
+    expect(calls.find((c) => c.method === "POST")?.body).toEqual({ name: "Jobs noturnos", provider: "healthchecks" });
+  });
+
+  it("links a monitor to a component", async () => {
+    window.history.pushState(null, "", "/admin/monitoring");
+    const calls = mockApi({ ...session(),
+      "GET /api/v1/admin/monitoring-integrations": { body: { data: [integration] } },
+      "GET /api/v1/admin/monitors": { body: { data: [monitor] } },
+      "GET /api/v1/admin/monitoring-integrations/m1/events": { body: { data: [] } },
+      "GET /api/v1/admin/components": page([component]),
+      "PATCH /api/v1/admin/monitors/mon1": { body: { ...monitor, component: { id: "c1", name: "Portal" } } },
+    });
+    render(<App />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Monitores e alertas" }));
+    const select = await screen.findByRole("combobox", { name: "Componente de Site público" });
+    await screen.findByRole("option", { name: "Portal" });
+    await user.selectOptions(select, "c1");
+    await vi.waitFor(() => expect(calls.find((c) => c.method === "PATCH")?.body).toEqual({ component_id: "c1" }));
+  });
+
+  it("marks monitored components on the public page", async () => {
+    const summary: StatusSummary = {
+      ...emptySummary,
+      overall: { status: "operational", basis: "mixed", monitored_components: 1, affected_components: 0, components_under_maintenance: 0 },
+      components: [
+        { id: "a", name: "Portal", slug: "portal", description: "", status: "operational", monitored: true, group_id: null, subgroup_id: null, url: null, display_order: 0, updated_at: "2026-03-01T12:00:00Z" },
+        { id: "b", name: "Relatórios", slug: "relatorios", description: "", status: "operational", monitored: false, group_id: null, subgroup_id: null, url: null, display_order: 1, updated_at: "2026-03-01T12:00:00Z" },
+      ],
+    };
+    mockApi({ "GET /api/v1/status": { body: summary }, ...history });
+    render(<App />);
+    expect(await screen.findByText("monitorado")).toBeInTheDocument();
+    expect(screen.getByText(/1 de 2 monitorados/)).toBeInTheDocument();
   });
 });
 
@@ -300,7 +375,7 @@ describe("admin area", () => {
       permissions: ["incidents.manage", "components.status"] as PermissionKey[],
       user: { ...adminMe.user, name: "Operadora", roles: [{ id: "r2", name: "Operador de incidentes", is_system: false }] },
     };
-    const comp = { id: "c1", name: "API", slug: "api", description: "", status: "operational" as const, is_public: true, is_active: true, display_order: 0, group_id: null, url: null, created_at: "", updated_at: "" };
+    const comp = { id: "c1", name: "API", slug: "api", description: "", status: "operational" as const, is_public: true, is_active: true, display_order: 0, group_id: null, subgroup_id: null, url: null, created_at: "", updated_at: "" };
     const calls = mockApi({
       ...session(operator),
       "GET /api/v1/admin/components": page([comp]),
@@ -406,7 +481,7 @@ describe("admin area", () => {
     await user.click(await screen.findByRole("button", { name: "Resolver incidente" }));
     expect(calls.some((c) => c.path.endsWith("/resolve"))).toBe(false);
     await user.click(screen.getByRole("button", { name: "Confirmar resolução" }));
-    expect(await screen.findByText(/Incidente resolvido. A linha do tempo é preservada/)).toBeInTheDocument();
+    expect(await screen.findByText(/Incidente resolvido; a linha do tempo não aceita/)).toBeInTheDocument();
     expect(calls.find((c) => c.path.endsWith("/resolve"))?.body).toEqual({ message: expect.stringContaining("resolvido") });
   });
 
@@ -448,6 +523,22 @@ describe("admin area", () => {
     expect(within(nav).queryByRole("link", { name: "Incidentes" })).not.toBeInTheDocument();
     await user.click(operation);
     expect(within(nav).getByRole("link", { name: "Incidentes" })).toBeInTheDocument();
+    // The current page's group can be closed too.
+    await user.click(catalog);
+    expect(catalog).toHaveAttribute("aria-expanded", "false");
+    expect(within(nav).queryByRole("link", { name: "Componentes" })).not.toBeInTheDocument();
+  });
+
+  it("starts every admin menu group collapsed, ignoring groups opened in an earlier visit", async () => {
+    window.localStorage.setItem("dsp.admin.nav.open", JSON.stringify(["operation", "access"]));
+    window.history.pushState(null, "", "/admin");
+    mockApi({ ...session() });
+    render(<App />);
+    const nav = await screen.findByRole("navigation", { name: "Administração" });
+    for (const name of ["Operação", "Catálogo", "Acesso e auditoria"]) {
+      expect(within(nav).getByRole("button", { name })).toHaveAttribute("aria-expanded", "false");
+    }
+    expect(window.localStorage.getItem("dsp.admin.nav.open")).toBeNull();
   });
 
   it("schedules a maintenance sending local time plus an explicit timezone", async () => {
@@ -654,7 +745,7 @@ describe("team ownership", () => {
   });
   const comp = (id: string, name: string, teamId: string | null, owner: string | null) => ({
     id, name, slug: id, description: "", status: "operational" as const, is_public: true, is_active: true, display_order: 0,
-    group_id: null, url: null, team_id: teamId, owner_team_id: owner, created_at: "", updated_at: "",
+    group_id: null, subgroup_id: null, url: null, team_id: teamId, owner_team_id: owner, created_at: "", updated_at: "",
   });
 
   it("lets a team-scoped user manage only the components of their teams", async () => {
@@ -802,5 +893,55 @@ describe("announcement templates and team tags", () => {
     await user.click(screen.getByRole("button", { name: "Criar time" }));
     expect(await screen.findByText("Time criado.")).toBeInTheDocument();
     expect((calls.find((c) => c.method === "POST")?.body as { tags: string[] }).tags).toEqual(["pagamentos", "on-call"]);
+  });
+});
+
+describe("component subgroups", () => {
+  const group = (id: string, name: string, parent: string | null, components: number, subgroups = 0) => ({
+    id, name, description: "", display_order: 0, parent_id: parent, team_id: null, component_count: components, subgroup_count: subgroups, created_at: "", updated_at: "",
+  });
+  const groups = [group("g1", "Pagamentos", null, 3, 1), group("s1", "Cartões", "g1", 2), group("g2", "Plataforma", null, 0)];
+
+  it("lists subgroups under their group and creates one with the parent set", async () => {
+    window.history.pushState(null, "", "/admin/component-groups");
+    const calls = mockApi({
+      ...session(),
+      "GET /api/v1/admin/component-groups": page(groups),
+      "POST /api/v1/admin/component-groups": { status: 201, body: group("s2", "Pix", "g1", 0) },
+    });
+    render(<App />);
+    const user = userEvent.setup();
+    const subs = await screen.findByRole("list", { name: "Subgrupos de Pagamentos" });
+    expect(within(subs).getByText("Cartões")).toBeInTheDocument();
+    expect(screen.getByText("1 componente direto no grupo (sem subgrupo)")).toBeInTheDocument();
+    await user.click(screen.getAllByRole("button", { name: "+ Subgrupo" })[0]);
+    const form = screen.getByRole("region", { name: "Novo subgrupo em Pagamentos" });
+    await user.type(within(form).getByLabelText("Nome"), "Pix");
+    await user.click(within(form).getByRole("button", { name: "Criar subgrupo" }));
+    expect(await within(form).findByText("Subgrupo salvo.")).toBeInTheDocument();
+    expect(calls.find((c) => c.method === "POST")?.body).toMatchObject({ name: "Pix", parent_id: "g1" });
+  });
+
+  it("offers only the chosen group's subgroups on a component", async () => {
+    window.history.pushState(null, "", "/admin/components");
+    const calls = mockApi({
+      ...session(),
+      "GET /api/v1/admin/components": page([]),
+      "GET /api/v1/admin/component-groups": page(groups),
+      "POST /api/v1/admin/components": { status: 201, body: {} },
+    });
+    render(<App />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Novo componente" }));
+    const form = screen.getByRole("region", { name: "Novo componente" });
+    const groupSelect = within(form).getByLabelText("Grupo (opcional)");
+    expect(within(groupSelect).getAllByRole("option").map((o: HTMLElement) => o.textContent)).toEqual(["Sem grupo", "Pagamentos", "Plataforma"]);
+    expect(within(form).queryByLabelText("Subgrupo (opcional)")).not.toBeInTheDocument();
+    await user.selectOptions(groupSelect, "g1");
+    await user.selectOptions(within(form).getByLabelText("Subgrupo (opcional)"), "s1");
+    await user.type(within(form).getByLabelText("Nome"), "API de Cartões");
+    await user.click(within(form).getByRole("button", { name: "Criar componente" }));
+    await screen.findByText("Componente salvo.");
+    expect(calls.find((c) => c.method === "POST")?.body).toMatchObject({ group_id: "g1", subgroup_id: "s1" });
   });
 });
