@@ -8,9 +8,8 @@
 # Needs: git-cliff >= 2.14 (pip install git-cliff==2.14.2) and, to publish
 # the GitHub Release, gh authenticated with write access to the repository.
 #
-# The tag points to a commit whose message has [skip ci], so GitHub Actions
-# skips the push workflows for it (CI and, after it, image publishing), so no
-# versioned images are published for a release cut this way.
+# No pipeline runs: the release commit has [skip ci] (skips CI on the main
+# push) and ci.yml has no v* tag trigger, so no versioned images are built.
 set -eu
 
 DRY_RUN=0

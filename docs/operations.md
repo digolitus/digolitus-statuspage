@@ -185,7 +185,7 @@ make release-dry-run            # mostra a próxima versão e as notas, sem alte
 make release                    # CHANGELOG.md, commit, tag vX.Y.Z e GitHub Release
 ```
 
-O script roda só na `main` limpa e igual à `origin/main`. O commit da release leva `[skip ci]`, então o push da `main` e da tag não dispara CI nem publicação de imagens. Por isso, uma release feita assim não gera imagens versionadas no GHCR; para isso o CI precisa rodar num push da tag sem `[skip ci]`. A configuração fica em `cliff.toml`.
+O script roda só na `main` limpa e igual à `origin/main`. O commit da release leva `[skip ci]`, então o push da `main` não dispara o CI, e o CI não tem gatilho para tags `v*`. Por isso uma release não roda pipeline nem gera imagens versionadas no GHCR; para voltar a gerar, devolva `tags: ["v*"]` ao `ci.yml`. A configuração fica em `cliff.toml`.
 
 ## Deploy
 

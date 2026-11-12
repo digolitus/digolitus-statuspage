@@ -204,7 +204,7 @@ As Actions são fixadas por SHA de commit. O Dependabot propõe atualizações s
 
 ### Publicação de imagens
 
-O workflow [`.github/workflows/publish.yml`](.github/workflows/publish.yml) publica as imagens no GHCR somente depois que o CI passou para o mesmo commit, em push para `main` ou em tag `v*` (nunca em pull requests). Antes do envio, a imagem é reconstruída a partir do commit aprovado e escaneada com Trivy. As imagens são multiplataforma (`linux/amd64` e `linux/arm64`) e vêm com proveniência e SBOM.
+O workflow [`.github/workflows/publish.yml`](.github/workflows/publish.yml) publica as imagens no GHCR somente depois que o CI passou para o mesmo commit, em push para `main` (nunca em pull requests; tags `v*` não rodam o CI, veja [Releases](docs/operations.md#releases)). Antes do envio, a imagem é reconstruída a partir do commit aprovado e escaneada com Trivy. As imagens são multiplataforma (`linux/amd64` e `linux/arm64`) e vêm com proveniência e SBOM.
 
 | Tag | Quando |
 |---|---|

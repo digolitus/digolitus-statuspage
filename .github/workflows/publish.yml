@@ -1,9 +1,9 @@
 # Publishes container images to GHCR, only for commits that already passed
-# CI on a push to main or on a v* tag (never for pull requests). Images are
+# CI on a push to main (never for pull requests; v* tags no longer run CI). Images are
 # rebuilt from the approved commit, scanned with Trivy, and only then pushed.
 #
-# Tags: sha-<full commit SHA> (immutable, use it to deploy), "main" for the
-# main branch, and <major>.<minor>.<patch> / <major>.<minor> for releases.
+# Tags: sha-<full commit SHA> (immutable, use it to deploy) and "main" for the
+# main branch. The semver tags below only apply if CI runs on a v* tag again.
 # "latest" is deliberately not published.
 name: Publish images
 
@@ -25,8 +25,8 @@ env:
 jobs:
   publish:
     name: Publish ${{ matrix.app }}
-    # CI runs on push only for main and v* tags, so a successful push run is
-    # either the main branch or a release tag.
+    # CI runs on push only for main, so a successful push run is the main
+    # branch (the semver rules stay for when tags run CI again).
     if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 30

@@ -8,8 +8,8 @@ on:
   pull_request:
   push:
     branches: [main]
-    # Release tags run the full pipeline; publish.yml then publishes them.
-    tags: ["v*"]
+    # Release tags (v*) do not trigger CI: releases are cut without the
+    # pipeline by scripts/release.sh (docs/operations.md, "Releases").
   workflow_dispatch:
 
 permissions:
@@ -27,8 +27,8 @@ env:
 jobs:
   changes:
     name: Detect changed modules
-    # Only pull requests are filtered by path (via the API). Pushes to main,
-    # tags and manual runs validate everything: on a push, paths-filter would
+    # Only pull requests are filtered by path (via the API). Pushes to main
+    # and manual runs validate everything: on a push, paths-filter would
     # `git fetch` the previous commit, which fails without credentials in a
     # private repository (checkout keeps none).
     if: github.event_name == 'pull_request'
@@ -64,7 +64,7 @@ jobs:
     name: Backend (Go)
     needs: changes
     # Shared files (workflows, Compose) widen validation to every module.
-    # Anything but a pull request (main, tags, manual runs) validates everything.
+    # Anything but a pull request (main, manual runs) validates everything.
     if: >-
       !cancelled() && (github.event_name != 'pull_request' ||
       needs.changes.outputs.backend == 'true' || needs.changes.outputs.shared == 'true')
