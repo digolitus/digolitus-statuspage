@@ -5,6 +5,7 @@ import { IncidentPage, MaintenancePage } from "./public/DetailPages";
 import { PublicLayout } from "./public/PublicLayout";
 import { StatusPage } from "./public/StatusPage";
 import { SubscriptionConfirmPage, SubscriptionManagePage } from "./public/Subscribe";
+import { SuspicionsRoutes } from "./public/Suspicions";
 import { presenceApi } from "./api/endpoints";
 import { publicArea, tabId, usePresenceBeacon } from "./lib/presence";
 import { match, useLocation } from "./lib/router";
@@ -38,6 +39,8 @@ function Routes() {
     content = <SubscriptionConfirmPage />;
   } else if (match("/subscriptions/manage", pathname)) {
     content = <SubscriptionManagePage />;
+  } else if (pathname === "/suspeitas" || pathname.startsWith("/suspeitas/")) {
+    content = <SuspicionsRoutes pathname={pathname} />;
   } else if ((params = match("/announcements/:id", pathname))) {
     content = <AnnouncementDetailPage key={params.id} id={params.id} />;
   }

@@ -25,12 +25,17 @@ const RESOURCE_LABEL: Record<AuditEvent["resource_type"], string> = {
   monitoring_integration: "Integração de monitoramento",
   department: "Departamento",
   branding: "Identidade visual",
+  suspicion: "Suspeita",
+  reporter: "Reportante",
+  feature_flag: "Funcionalidade",
 };
 
 function resourceLink(e: AuditEvent): string | null {
   if (e.resource_type === "incident") return `/admin/incidents/${e.resource_id}`;
   if (e.resource_type === "maintenance") return `/admin/maintenances/${e.resource_id}`;
   if (e.resource_type === "branding") return "/admin/branding";
+  if (e.resource_type === "suspicion") return `/admin/suspicions/${e.resource_id}`;
+  if (e.resource_type === "feature_flag") return "/admin/features";
   return null;
 }
 

@@ -24,6 +24,8 @@ const (
 	PermUsersManage          Permission = "users.manage"
 	PermRolesManage          Permission = "roles.manage"
 	PermBrandingManage       Permission = "branding.manage"
+	PermSuspicionsManage     Permission = "suspicions.manage"
+	PermFeaturesManage       Permission = "features.manage"
 )
 
 // PermissionInfo describes a permission for the admin UI.
@@ -47,6 +49,7 @@ var Catalogue = []PermissionInfo{
 	{PermMonitoringManage, "Componentes", "Gerenciar monitoramento", "Cadastra integrações de monitoramento (UptimeRobot, Healthchecks.io) e liga monitores a componentes, o que muda o status exibido automaticamente.", false, false},
 	{PermIncidentsManage, "Indisponibilidades", "Gerenciar incidentes", "Abre incidentes, publica atualizações e resolve.", false, true},
 	{PermMaintenancesManage, "Indisponibilidades", "Gerenciar manutenções", "Programa, inicia, conclui e cancela manutenções.", false, true},
+	{PermSuspicionsManage, "Indisponibilidades", "Triar suspeitas", "Analisa suspeitas reportadas por visitantes: publica, abre incidente, finaliza e conversa com quem reportou.", false, true},
 	{PermTemplatesManage, "Indisponibilidades", "Gerenciar templates", "Cria e edita templates de incidente e de manutenção.", false, false},
 	{PermAnnouncementsWrite, "Comunicados", "Escrever comunicados", "Cria e edita rascunhos e o texto de comunicados.", false, true},
 	{PermAnnouncementsPublish, "Comunicados", "Publicar comunicados", "Publica, agenda, despublica, arquiva e restaura comunicados.", false, true},
@@ -54,6 +57,7 @@ var Catalogue = []PermissionInfo{
 	{PermTeamsManage, "Administração", "Gerenciar times", "Cria e edita times responsáveis (tipo, documentação, suporte).", false, false},
 	{PermSubscriptionsManage, "Administração", "Gerenciar inscrições", "Consulta e remove inscritos; cria integrações por webhook e Slack.", false, false},
 	{PermBrandingManage, "Administração", "Gerenciar identidade visual", "Altera nome, textos, logotipo, favicon, fonte e cores da página pública e da tela de login.", false, false},
+	{PermFeaturesManage, "Administração", "Ligar e desligar funcionalidades", "Liga e desliga funcionalidades opcionais, como Reportar suspeita.", false, false},
 	{PermAuditRead, "Administração", "Consultar histórico operacional", "Lê o registro de alterações (auditoria).", false, false},
 	{PermPresenceRead, "Administração", "Ver acessos em tempo real", "Vê quantos visitantes estão na página pública e quais usuários estão no admin agora.", false, false},
 	{PermUsersManage, "Administração", "Gerenciar usuários", "Cria usuários, atribui papéis e times, redefine senhas e desativa contas.", true, false},

@@ -21,8 +21,11 @@ import { TeamsPage } from "./TeamsPage";
 import { TemplatesPage } from "./TemplatesPage";
 import { ThirdPartyPage } from "./ThirdPartyPage";
 import { MonitoringPage } from "./MonitoringPage";
+import { FeaturesPage, SuspicionDetailPage, SuspicionsPage, useSuspicionBadge } from "./suspicions";
+import { useFeatures } from "../lib/features";
 
-type NavItem = { to: string; label: string; need?: PermissionKey[] };
+/** `feature` hides the entry while that feature flag is off; `badge` shows a live counter. */
+type NavItem = { to: string; label: string; need?: PermissionKey[]; feature?: "suspicions"; badge?: "suspicions" };
 
 /** Navigation, grouped by purpose; `need` hides entries the user cannot use at all. */
 const NAV_GROUPS: { id: string; label: string; items: NavItem[] }[] = [
@@ -33,6 +36,7 @@ const NAV_GROUPS: { id: string; label: string; items: NavItem[] }[] = [
       { to: "/admin/incidents", label: "Incidentes" },
       { to: "/admin/maintenances", label: "Manutenções" },
       { to: "/admin/announcements", label: "Comunicados" },
+      { to: "/admin/suspicions", label: "Suspeitas", need: ["suspicions.manage"], feature: "suspicions", badge: "suspicions" },
     ],
   },
   {
@@ -65,7 +69,10 @@ const NAV_GROUPS: { id: string; label: string; items: NavItem[] }[] = [
   {
     id: "settings",
     label: "Configurações",
-    items: [{ to: "/admin/branding", label: "Identidade visual" }],
+    items: [
+      { to: "/admin/branding", label: "Identidade visual" },
+      { to: "/admin/features", label: "Funcionalidades" },
+    ],
   },
   {
     id: "access",
@@ -88,6 +95,8 @@ const LEGACY_NAV_KEY = "dsp.admin.nav.open";
 function AdminNav({ isActive, can }: { isActive: (to: string) => boolean; can: (p: PermissionKey) => boolean }) {
   // Only explicit clicks are stored; a group without an entry follows "is it the current page's group?".
   const [toggled, setToggled] = useState<Record<string, boolean>>({});
+  const features = useFeatures();
+  const suspicionBadge = useSuspicionBadge();
   const currentGroup = NAV_GROUPS.find((g) => g.items.some((n) => isActive(n.to)))?.id;
   useEffect(() => {
     try {
@@ -116,7 +125,7 @@ function AdminNav({ isActive, can }: { isActive: (to: string) => boolean; can: (
           </Link>
         </li>
         {NAV_GROUPS.map((g) => {
-          const items = g.items.filter((n) => !n.need || n.need.some((p) => can(p)));
+          const items = g.items.filter((n) => (!n.need || n.need.some((p) => can(p))) && (!n.feature || features[n.feature]));
           if (!items.length) return null;
           const current = items.some((n) => isActive(n.to));
           const expanded = toggled[g.id] ?? current;
@@ -139,6 +148,11 @@ function AdminNav({ isActive, can }: { isActive: (to: string) => boolean; can: (
                   <li key={n.to}>
                     <Link to={n.to} aria-current={isActive(n.to) ? "page" : undefined}>
                       {n.label}
+                      {n.badge === "suspicions" && suspicionBadge ? (
+                        <span className="nav-badge" aria-label={`${suspicionBadge} pendentes de triagem`}>
+                          {suspicionBadge}
+                        </span>
+                      ) : null}
                     </Link>
                   </li>
                 ))}
@@ -187,6 +201,10 @@ function Route({ pathname }: { pathname: string }) {
   if (match("/admin/announcement-settings", pathname)) return <AnnouncementSettingsPage />;
   if (match("/admin/teams", pathname)) return <TeamsPage />;
   if (match("/admin/branding", pathname)) return <BrandingPage />;
+  if (match("/admin/features", pathname)) return <FeaturesPage />;
+  if (match("/admin/suspicions", pathname)) return allowed("suspicions.manage") ? <SuspicionsPage /> : <Forbidden />;
+  if ((p = match("/admin/suspicions/:id", pathname)))
+    return allowed("suspicions.manage") ? <SuspicionDetailPage key={p.id} id={p.id} /> : <Forbidden />;
   if (match("/admin/subscriptions", pathname)) return allowed("subscriptions.manage") ? <SubscriptionsPage /> : <Forbidden />;
   if (match("/admin/audit", pathname)) return allowed("audit.read") ? <AuditPage /> : <Forbidden />;
   if (match("/admin/users", pathname)) return allowed("users.manage") ? <UsersPage /> : <Forbidden />;

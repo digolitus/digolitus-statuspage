@@ -81,6 +81,7 @@ services:
       NOTIFY_WORKER: ${NOTIFY_WORKER:-true}
       NOTIFY_INTERVAL: ${NOTIFY_INTERVAL:-10s}
       PRESENCE_ENABLED: ${PRESENCE_ENABLED:-true}
+      SUSPICIONS_ENABLED: ${SUSPICIONS_ENABLED:-true}
       NOTIFY_ALLOW_PRIVATE_NETWORKS: ${NOTIFY_ALLOW_PRIVATE_NETWORKS:-false}
       # Social sign-in for existing users (needs PUBLIC_BASE_URL). Each
       # provider is enabled when all of its variables are set. For Apple,

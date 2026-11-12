@@ -18,6 +18,7 @@ const (
 	KindUnavailable
 	KindUnauthenticated
 	KindForbidden
+	KindTooMany
 )
 
 // FieldError describes a validation problem with a single input field.

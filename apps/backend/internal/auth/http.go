@@ -68,6 +68,9 @@ func (s *Service) principal(r *http.Request) (*Principal, error) {
 	return s.Authenticate(r.Context(), c.Value)
 }
 
+// CheckOrigin is checkOrigin for other session kinds (reporters).
+func CheckOrigin(r *http.Request) error { return checkOrigin(r) }
+
 // checkOrigin rejects cross-site state-changing requests (CSRF defence in
 // depth on top of SameSite=Strict cookies and the JSON content type). It
 // relies on Sec-Fetch-Site, sent by current browsers, and falls back to

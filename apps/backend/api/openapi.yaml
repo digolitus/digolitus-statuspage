@@ -95,6 +95,14 @@ tags:
       `PRESENCE_ENABLED=false` (as rotas deixam de existir).
   - name: admin-branding
     description: Identidade visual da página pública e da tela de login. Alterar requer `branding.manage`.
+  - name: admin-features
+    description: Funcionalidades opcionais ligadas e desligadas pela administração (ADR 0019).
+  - name: suspicions
+    description: |
+      Reportar suspeita (ADR 0019). Quem reporta entra com link por e-mail ou Google (conta separada dos usuários do
+      admin, cookie `dsp_reporter`). Todas as rotas respondem 404 (`feature_disabled`) com a funcionalidade desligada.
+  - name: admin-suspicions
+    description: Triagem das suspeitas. Requer `suspicions.manage`.
 
 paths:
   /healthz:
@@ -2795,7 +2803,7 @@ paths:
       parameters:
         - name: resource_type
           in: query
-          schema: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template, external_source, announcement, announcement_category, team, user, role, subscription, announcement_template, monitoring_integration, department, branding] }
+          schema: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template, external_source, announcement, announcement_category, team, user, role, subscription, announcement_template, monitoring_integration, department, branding, suspicion, reporter, feature_flag] }
         - { name: resource_id, in: query, schema: { type: string, format: uuid } }
         - { name: action, in: query, schema: { type: string, maxLength: 64 }, description: 'Ex.: created, updated, resolved, started.' }
         - name: sort
@@ -2966,6 +2974,423 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/features:
+    get:
+      tags: [public]
+      operationId: getPublicFeatures
+      summary: Funcionalidades opcionais ligadas
+      description: Diz à página pública quais funcionalidades opcionais estão ligadas (ex. o link "Reportar suspeita").
+      security: []
+      responses:
+        '200':
+          description: Estado das funcionalidades.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicFeatures' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/features:
+    get:
+      tags: [admin-features]
+      operationId: listFeatures
+      summary: Funcionalidades opcionais
+      description: Qualquer usuário autenticado. `locked` indica que o servidor desligou a funcionalidade (variável de ambiente).
+      responses:
+        '200':
+          description: Funcionalidades.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FeatureList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/features/{key}:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string, enum: [suspicions] }
+    put:
+      tags: [admin-features]
+      operationId: setFeature
+      summary: Ligar ou desligar uma funcionalidade
+      description: Requer `features.manage`. Vale em até 5 segundos em todas as réplicas. Desligar não apaga dados.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FeatureSet' }
+      responses:
+        '200':
+          description: Funcionalidade atualizada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Feature' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/suspicions:
+    get:
+      tags: [suspicions]
+      operationId: listPublicSuspicions
+      summary: Suspeitas públicas em aberto
+      description: Suspeitas que o time publicou e ainda está analisando. Sem nomes, e-mails nem textos de quem reportou.
+      security: []
+      responses:
+        '200':
+          description: Suspeitas publicadas, atividade mais recente primeiro.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicSuspicionList' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/reporter/providers:
+    get:
+      tags: [suspicions]
+      operationId: getReporterProviders
+      summary: Formas de entrar para reportar
+      security: []
+      responses:
+        '200':
+          description: Formas disponíveis.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReporterProviders' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/reporter/login-link:
+    post:
+      tags: [suspicions]
+      operationId: sendReporterLoginLink
+      summary: Enviar link de acesso por e-mail
+      description: |
+        Envia um link de uso único, válido por 15 minutos, para `/suspeitas/entrar?token=…`. A resposta é a mesma
+        para e-mails com ou sem conta. No máximo 3 links por e-mail a cada 15 minutos (`too_many_links`).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReporterLinkRequest' }
+      responses:
+        '202': { description: Link enviado. }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /api/v1/reporter/login:
+    post:
+      tags: [suspicions]
+      operationId: redeemReporterLoginLink
+      summary: Entrar com o link recebido
+      description: Troca o token do link por uma sessão (cookie `dsp_reporter`, 30 dias). Cria a conta no primeiro acesso.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReporterRedeem' }
+      responses:
+        '200':
+          description: Sessão aberta.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reporter' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/reporter/logout:
+    post:
+      tags: [suspicions]
+      operationId: reporterLogout
+      summary: Sair
+      security: []
+      responses:
+        '204': { description: Sessão encerrada. }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/reporter/me:
+    get:
+      tags: [suspicions]
+      operationId: getReporter
+      summary: Quem está reportando
+      security: []
+      responses:
+        '200':
+          description: Conta da sessão.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reporter' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/reporter/suspicions:
+    get:
+      tags: [suspicions]
+      operationId: listMySuspicions
+      summary: Minhas suspeitas
+      description: Suspeitas em que a pessoa reportou, com o estado e a conversa com o time (sem anotações internas).
+      security: []
+      responses:
+        '200':
+          description: Suspeitas da pessoa.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MySuspicionList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [suspicions]
+      operationId: reportSuspicion
+      summary: Abrir suspeita
+      description: |
+        Registra um relato. Relatos do mesmo componente entram na suspeita aberta dele (pendente ou publicada) ou na
+        que virou incidente ainda não resolvido; sem nenhuma, abre uma nova, pendente de triagem. No máximo 5 relatos
+        por hora por pessoa (`rate_limited`) e um por suspeita (`already_reported`).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReportCreate' }
+      responses:
+        '201':
+          description: Relato registrado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MySuspicion' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/reporter/suspicions/{id}/messages:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      tags: [suspicions]
+      operationId: replyToTeam
+      summary: Responder ao time
+      description: No máximo 20 mensagens por hora por pessoa.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MessageBody' }
+      responses:
+        '201':
+          description: Mensagem enviada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MySuspicion' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/reporter/oauth/google:
+    get:
+      tags: [suspicions]
+      operationId: startReporterGoogleLogin
+      summary: Entrar com o Google para reportar
+      description: Use como link de navegação. Exige o Google configurado e `PUBLIC_BASE_URL`.
+      security: []
+      responses:
+        '302':
+          description: Redirecionamento para o Google.
+          headers:
+            Location: { description: Página de login do Google., schema: { type: string } }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/reporter/oauth/google/callback:
+    get:
+      tags: [suspicions]
+      operationId: reporterGoogleCallback
+      summary: Retorno do login com Google
+      description: |
+        Abre a sessão de quem reporta (criando a conta pelo e-mail verificado) e volta para `/suspeitas/minhas`; em
+        falha, para `/suspeitas/entrar?login_error=<cancelled|blocked|failed>`.
+      security: []
+      parameters:
+        - { name: state, in: query, schema: { type: string } }
+        - { name: code, in: query, schema: { type: string } }
+        - { name: error, in: query, schema: { type: string } }
+      responses:
+        '302':
+          description: Volta para a página pública.
+          headers:
+            Location: { description: Destino., schema: { type: string } }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/admin/suspicions:
+    get:
+      tags: [admin-suspicions]
+      operationId: listSuspicions
+      summary: Fila de suspeitas
+      description: |
+        Requer `suspicions.manage`. Quem tem a permissão só para os seus times vê apenas os componentes deles.
+        `counts` traz as abertas no escopo do filtro `queue`, para o contador do menu.
+      parameters:
+        - name: status
+          in: query
+          description: '`open` = pendentes e publicadas. Sem valor: todas.'
+          schema: { type: string, enum: [open, pending, published, incident, closed] }
+        - name: queue
+          in: query
+          description: '`mine` = componentes dos meus times; `general` = componentes sem time. Padrão: todas.'
+          schema: { type: string, enum: [mine, general, all] }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Suspeitas, pendentes primeiro.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminSuspicionList' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/suspicions/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    get:
+      tags: [admin-suspicions]
+      operationId: getSuspicion
+      summary: Detalhe da suspeita
+      responses:
+        '200': { $ref: '#/components/responses/SuspicionDetail' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    patch:
+      tags: [admin-suspicions]
+      operationId: patchSuspicion
+      summary: Definir responsável
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SuspicionPatch' }
+      responses:
+        '200': { $ref: '#/components/responses/SuspicionDetail' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/suspicions/{id}/publish:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      tags: [admin-suspicions]
+      operationId: publishSuspicion
+      summary: Publicar
+      description: Torna visível na página pública uma suspeita pendente. Ela continua em análise.
+      responses:
+        '200': { $ref: '#/components/responses/SuspicionDetail' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/suspicions/{id}/close:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      tags: [admin-suspicions]
+      operationId: closeSuspicion
+      summary: Finalizar análise
+      description: Encerra com motivo; a mensagem vai por e-mail a todos que reportaram e aparece em Minhas suspeitas.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SuspicionClose' }
+      responses:
+        '200': { $ref: '#/components/responses/SuspicionDetail' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/suspicions/{id}/incident:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      tags: [admin-suspicions]
+      operationId: openIncidentFromSuspicion
+      summary: Abrir incidente
+      description: |
+        Abre o incidente (mesmo corpo de `POST /api/v1/admin/incidents`; sem `component_ids`, usa o componente
+        reportado) e liga a suspeita a ele, na mesma transação. Requer também `incidents.manage`. Quem reportou é
+        avisado agora e quando o incidente for resolvido.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IncidentCreate' }
+      responses:
+        '201': { $ref: '#/components/responses/SuspicionDetail' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/suspicions/{id}/messages:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      tags: [admin-suspicions]
+      operationId: addSuspicionMessage
+      summary: Anotação interna ou mensagem a quem reportou
+      description: '`internal` fica só com o time. `reporter` vai por e-mail para a pessoa (padrão: quem abriu).'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SuspicionMessageCreate' }
+      responses:
+        '201': { $ref: '#/components/responses/SuspicionDetail' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/admin/reporters/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    patch:
+      tags: [admin-suspicions]
+      operationId: blockReporter
+      summary: Bloquear ou desbloquear quem reporta
+      description: Requer `suspicions.manage` para toda a plataforma. Bloquear encerra as sessões da pessoa.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReporterBlock' }
+      responses:
+        '200':
+          description: Conta atualizada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SuspicionReporter' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
 
 components:
   parameters:
@@ -3077,6 +3502,16 @@ components:
       description: Sessão criada por `POST /api/v1/auth/login` ou `POST /api/v1/auth/setup`.
 
   responses:
+    TooManyRequests:
+      description: Limite de uso atingido (`rate_limited`, `too_many_links`).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    SuspicionDetail:
+      description: Suspeita.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/SuspicionDetail' }
     SocialLoginRedirect:
       description: Redirecionamento para `/admin` (sucesso) ou `/admin?login_error=<código>` (falha).
       headers:
@@ -3109,7 +3544,8 @@ components:
         `announcement_category_name_conflict`, `announcement_category_in_use`, `announcement_category_limit`,
         `team_name_conflict`, `team_in_use`, `team_limit`, `subscriptions_unavailable`, `subscription_exists`,
         `subscription_pending`, `subscription_not_active`, `setup_already_done`, `user_email_conflict`, `last_admin`,
-        `cannot_deactivate_self`, `role_name_conflict`, `role_in_use`, `role_limit`, `system_role_immutable`.
+        `cannot_deactivate_self`, `role_name_conflict`, `role_in_use`, `role_limit`, `system_role_immutable`,
+        `feature_locked`, `already_reported`, `invalid_transition`, `reporter_conflict`.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -3147,6 +3583,303 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
 
   schemas:
+    PublicFeatures:
+      type: object
+      additionalProperties: false
+      required: [suspicions]
+      properties:
+        suspicions: { type: boolean }
+    Feature:
+      type: object
+      additionalProperties: false
+      required: [key, label, enabled, locked, updated_at, updated_by]
+      properties:
+        key: { type: string, enum: [suspicions] }
+        label: { type: string }
+        enabled: { type: boolean }
+        locked: { type: boolean }
+        updated_at: { type: string, format: date-time, nullable: true }
+        updated_by: { type: string, nullable: true, description: Nome de quem mudou por último. }
+    FeatureList:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Feature' } }
+    FeatureSet:
+      type: object
+      additionalProperties: false
+      required: [enabled]
+      properties:
+        enabled: { type: boolean }
+    SuspicionStatus:
+      type: string
+      enum: [pending, published, incident, closed]
+      description: 'pending → published (opcional) → incident | closed.'
+    SuspicionSymptom: { type: string, enum: [down, slow, error, partial, wrong_data, other] }
+    SuspicionFrequency: { type: string, enum: [continuous, intermittent, once] }
+    SuspicionReach: { type: string, enum: [only_me, my_team, many_places, unknown] }
+    SuspicionNoticed: { type: string, enum: [now, last_30m, last_2h, other] }
+    SuspicionCloseReason: { type: string, enum: [no_evidence, duplicate, out_of_scope] }
+    SuspicionComponent:
+      type: object
+      additionalProperties: false
+      required: [id, name, group]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        group: { type: string, nullable: true }
+    NamedRef:
+      type: object
+      additionalProperties: false
+      required: [id, name]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+    SuspicionIncident:
+      type: object
+      additionalProperties: false
+      required: [id, title, status, resolved_at]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        status: { $ref: '#/components/schemas/IncidentStatus' }
+        resolved_at: { type: string, format: date-time, nullable: true }
+    SuspicionSummary:
+      type: object
+      additionalProperties: false
+      required: [symptom, frequency, reach]
+      description: Valor mais reportado de cada escolha.
+      properties:
+        symptom: { type: string }
+        frequency: { type: string }
+        reach: { type: string }
+    PublicSuspicion:
+      type: object
+      additionalProperties: false
+      required: [id, number, component, status, opened_at, published_at, last_report_at, report_count, recent_count, recent, summary]
+      properties:
+        id: { type: string, format: uuid }
+        number: { type: integer }
+        component: { $ref: '#/components/schemas/SuspicionComponent' }
+        status: { $ref: '#/components/schemas/SuspicionStatus' }
+        opened_at: { type: string, format: date-time }
+        published_at: { type: string, format: date-time, nullable: true }
+        last_report_at: { type: string, format: date-time }
+        report_count: { type: integer }
+        recent_count: { type: integer, description: Relatos na última hora. }
+        recent: { type: array, items: { type: integer }, minItems: 6, maxItems: 6, description: 'Relatos por 10 minutos na última hora, mais antigos primeiro.' }
+        summary: { $ref: '#/components/schemas/SuspicionSummary' }
+    PublicSuspicionList:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/PublicSuspicion' } }
+    ReporterProviders:
+      type: object
+      additionalProperties: false
+      required: [email, google]
+      properties:
+        email: { type: boolean }
+        google: { type: boolean }
+    ReporterLinkRequest:
+      type: object
+      additionalProperties: false
+      required: [email]
+      properties:
+        email: { type: string, maxLength: 254 }
+        name: { type: string, maxLength: 120, description: Usado ao criar a conta. }
+    ReporterRedeem:
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties:
+        token: { type: string, maxLength: 100 }
+    Reporter:
+      type: object
+      additionalProperties: false
+      required: [id, name, email]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        email: { type: string }
+    SuspicionMessage:
+      type: object
+      additionalProperties: false
+      required: [id, kind, body, author_name, reporter, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [internal, to_reporter, from_reporter] }
+        body: { type: string }
+        author_name: { type: string }
+        reporter: { allOf: [ { $ref: '#/components/schemas/NamedRef' } ], nullable: true }
+        created_at: { type: string, format: date-time }
+    MySuspicion:
+      type: object
+      additionalProperties: false
+      required: [id, number, component, status, reported_at, report_count, closed_at, close_reason, close_message, incident, messages]
+      properties:
+        id: { type: string, format: uuid }
+        number: { type: integer }
+        component: { $ref: '#/components/schemas/SuspicionComponent' }
+        status: { $ref: '#/components/schemas/SuspicionStatus' }
+        reported_at: { type: string, format: date-time }
+        report_count: { type: integer }
+        closed_at: { type: string, format: date-time, nullable: true }
+        close_reason: { allOf: [ { $ref: '#/components/schemas/SuspicionCloseReason' } ], nullable: true }
+        close_message: { type: string, nullable: true }
+        incident: { allOf: [ { $ref: '#/components/schemas/SuspicionIncident' } ], nullable: true }
+        messages: { type: array, items: { $ref: '#/components/schemas/SuspicionMessage' } }
+    MySuspicionList:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/MySuspicion' } }
+    ReportCreate:
+      type: object
+      additionalProperties: false
+      required: [component_id, symptom, frequency, reach, noticed, description]
+      properties:
+        component_id: { type: string, format: uuid }
+        symptom: { $ref: '#/components/schemas/SuspicionSymptom' }
+        frequency: { $ref: '#/components/schemas/SuspicionFrequency' }
+        reach: { $ref: '#/components/schemas/SuspicionReach' }
+        noticed: { $ref: '#/components/schemas/SuspicionNoticed' }
+        noticed_at: { type: string, format: date-time, nullable: true, description: 'Obrigatório com `noticed: other`; últimos 7 dias.' }
+        location: { type: string, maxLength: 120 }
+        error_ref: { type: string, maxLength: 300 }
+        description: { type: string, minLength: 1, maxLength: 1000 }
+    MessageBody:
+      type: object
+      additionalProperties: false
+      required: [body]
+      properties:
+        body: { type: string, minLength: 1, maxLength: 2000 }
+    AdminSuspicion:
+      type: object
+      additionalProperties: false
+      required: [id, number, component, team, status, summary, report_count, opened_at, last_report_at, assignee, incident]
+      properties:
+        id: { type: string, format: uuid }
+        number: { type: integer }
+        component: { $ref: '#/components/schemas/SuspicionComponent' }
+        team: { allOf: [ { $ref: '#/components/schemas/NamedRef' } ], nullable: true }
+        status: { $ref: '#/components/schemas/SuspicionStatus' }
+        summary: { $ref: '#/components/schemas/SuspicionSummary' }
+        report_count: { type: integer }
+        opened_at: { type: string, format: date-time }
+        last_report_at: { type: string, format: date-time }
+        assignee: { allOf: [ { $ref: '#/components/schemas/NamedRef' } ], nullable: true }
+        incident: { allOf: [ { $ref: '#/components/schemas/SuspicionIncident' } ], nullable: true }
+    AdminSuspicionList:
+      type: object
+      additionalProperties: false
+      required: [data, pagination, counts]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/AdminSuspicion' } }
+        pagination: { $ref: '#/components/schemas/Pagination' }
+        counts:
+          type: object
+          additionalProperties: false
+          required: [pending, published]
+          properties:
+            pending: { type: integer }
+            published: { type: integer }
+    SuspicionReporter:
+      type: object
+      additionalProperties: false
+      required: [id, name, email, blocked]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        email: { type: string }
+        blocked: { type: boolean }
+    SuspicionReport:
+      type: object
+      additionalProperties: false
+      required: [id, reporter, symptom, frequency, reach, noticed, noticed_at, location, error_ref, description, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        reporter: { $ref: '#/components/schemas/SuspicionReporter' }
+        symptom: { $ref: '#/components/schemas/SuspicionSymptom' }
+        frequency: { $ref: '#/components/schemas/SuspicionFrequency' }
+        reach: { $ref: '#/components/schemas/SuspicionReach' }
+        noticed: { $ref: '#/components/schemas/SuspicionNoticed' }
+        noticed_at: { type: string, format: date-time }
+        location: { type: string }
+        error_ref: { type: string }
+        description: { type: string }
+        created_at: { type: string, format: date-time }
+    SuspicionCount:
+      type: object
+      additionalProperties: false
+      required: [value, count]
+      properties:
+        value: { type: string }
+        count: { type: integer }
+    SuspicionDetail:
+      type: object
+      additionalProperties: false
+      description: Os campos de AdminSuspicion mais o detalhe.
+      required: [id, number, component, team, status, summary, report_count, opened_at, last_report_at, assignee, incident,
+                 published_at, published_by, closed_at, closed_by, close_reason, close_message, distribution, reports, messages]
+      properties:
+        id: { type: string, format: uuid }
+        number: { type: integer }
+        component: { $ref: '#/components/schemas/SuspicionComponent' }
+        team: { allOf: [ { $ref: '#/components/schemas/NamedRef' } ], nullable: true }
+        status: { $ref: '#/components/schemas/SuspicionStatus' }
+        summary: { $ref: '#/components/schemas/SuspicionSummary' }
+        report_count: { type: integer }
+        opened_at: { type: string, format: date-time }
+        last_report_at: { type: string, format: date-time }
+        assignee: { allOf: [ { $ref: '#/components/schemas/NamedRef' } ], nullable: true }
+        incident: { allOf: [ { $ref: '#/components/schemas/SuspicionIncident' } ], nullable: true }
+        published_at: { type: string, format: date-time, nullable: true }
+        published_by: { allOf: [ { $ref: '#/components/schemas/NamedRef' } ], nullable: true }
+        closed_at: { type: string, format: date-time, nullable: true }
+        closed_by: { allOf: [ { $ref: '#/components/schemas/NamedRef' } ], nullable: true }
+        close_reason: { allOf: [ { $ref: '#/components/schemas/SuspicionCloseReason' } ], nullable: true }
+        close_message: { type: string, nullable: true }
+        distribution:
+          type: object
+          additionalProperties: false
+          required: [symptom, frequency, reach]
+          properties:
+            symptom: { type: array, items: { $ref: '#/components/schemas/SuspicionCount' } }
+            frequency: { type: array, items: { $ref: '#/components/schemas/SuspicionCount' } }
+            reach: { type: array, items: { $ref: '#/components/schemas/SuspicionCount' } }
+        reports: { type: array, items: { $ref: '#/components/schemas/SuspicionReport' } }
+        messages: { type: array, items: { $ref: '#/components/schemas/SuspicionMessage' } }
+    SuspicionPatch:
+      type: object
+      additionalProperties: false
+      required: [assignee_id]
+      properties:
+        assignee_id: { type: string, description: 'ID de um usuário ativo, ou vazio para tirar o responsável.' }
+    SuspicionClose:
+      type: object
+      additionalProperties: false
+      required: [reason, message]
+      properties:
+        reason: { $ref: '#/components/schemas/SuspicionCloseReason' }
+        message: { type: string, minLength: 1, maxLength: 2000 }
+    SuspicionMessageCreate:
+      type: object
+      additionalProperties: false
+      required: [kind, body]
+      properties:
+        kind: { type: string, enum: [internal, reporter] }
+        body: { type: string, minLength: 1, maxLength: 2000 }
+        reporter_id: { type: string, format: uuid }
+    ReporterBlock:
+      type: object
+      additionalProperties: false
+      required: [blocked]
+      properties:
+        blocked: { type: boolean }
     BrandingColors:
       type: object
       additionalProperties: false
@@ -4097,7 +4830,7 @@ components:
       properties:
         id: { type: integer, format: int64 }
         occurred_at: { $ref: '#/components/schemas/Timestamp' }
-        resource_type: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template, external_source, announcement, announcement_category, team, user, role, subscription, announcement_template, monitoring_integration, department, branding] }
+        resource_type: { type: string, enum: [component, component_group, incident, maintenance, incident_template, maintenance_template, external_source, announcement, announcement_category, team, user, role, subscription, announcement_template, monitoring_integration, department, branding, suspicion, reporter, feature_flag] }
         resource_id: { type: string, format: uuid }
         action: { type: string }
         source: { type: string, description: 'Canal de origem (ex.: admin_api).' }
@@ -4607,7 +5340,7 @@ components:
 
     PermissionKey:
       type: string
-      enum: [components.status, components.manage, third_party.manage, monitoring.manage, incidents.manage, maintenances.manage, templates.manage, announcements.write, announcements.publish, announcements.settings, teams.manage, subscriptions.manage, audit.read, presence.read, users.manage, roles.manage, branding.manage]
+      enum: [components.status, components.manage, third_party.manage, monitoring.manage, incidents.manage, maintenances.manage, templates.manage, announcements.write, announcements.publish, announcements.settings, teams.manage, subscriptions.manage, audit.read, presence.read, users.manage, roles.manage, branding.manage, suspicions.manage, features.manage]
     RoleScope:
       type: string
       enum: [global, team]

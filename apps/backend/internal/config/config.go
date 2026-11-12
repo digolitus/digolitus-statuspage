@@ -49,6 +49,9 @@ type Config struct {
 	OAuth OAuth
 	// Presence: anonymous count of who is on the public page and admin now.
 	PresenceEnabled bool
+	// SuspicionsEnabled=false locks "Reportar suspeita" off; when true the
+	// admin switch decides (off until an administrator turns it on).
+	SuspicionsEnabled bool
 }
 
 // OAuth configures social sign-in. Each provider is enabled when all of its
@@ -172,6 +175,7 @@ func FromLookup(lookup func(string) (string, bool)) (Config, error) {
 	}
 	parseBool("NOTIFY_WORKER", "true", &cfg.NotifyWorker)
 	parseBool("PRESENCE_ENABLED", "true", &cfg.PresenceEnabled)
+	parseBool("SUSPICIONS_ENABLED", "true", &cfg.SuspicionsEnabled)
 	parseBool("NOTIFY_ALLOW_PRIVATE_NETWORKS", "false", &cfg.NotifyAllowPrivate)
 	notifyInterval, err := time.ParseDuration(get("NOTIFY_INTERVAL", "10s"))
 	if err != nil || notifyInterval < time.Second || notifyInterval > 5*time.Minute {

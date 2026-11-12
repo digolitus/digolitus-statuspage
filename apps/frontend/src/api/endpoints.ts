@@ -1,5 +1,16 @@
 import { request } from "./client";
 import type {
+  AdminSuspicionList,
+  Feature,
+  MySuspicion,
+  PublicFeatures,
+  PublicSuspicion,
+  ReportCreate,
+  Reporter,
+  ReporterProviders,
+  SuspicionDetail,
+  SuspicionReporter,
+  SuspicionStatus,
   AdminBranding,
   BrandingImageKind,
   BrandingSettings,
@@ -153,6 +164,28 @@ export const authApi = {
 
 /** Social sign-in starts with a full-page navigation, not a fetch. */
 export const socialLoginUrl = (provider: LoginProvider["id"]) => `/api/v1/auth/oauth/${provider}`;
+
+/** Optional features switched on and off in the admin area. */
+export const featuresApi = {
+  public: (o: Signal = {}) => request<PublicFeatures>("GET", "/api/v1/features", o),
+};
+
+const R = "/api/v1/reporter";
+
+/** "Reportar suspeita": public list and the reporter's own account (cookie dsp_reporter). */
+export const suspicionApi = {
+  list: (o: Signal = {}) => request<{ data: PublicSuspicion[] }>("GET", "/api/v1/suspicions", o),
+  providers: (o: Signal = {}) => request<ReporterProviders>("GET", `${R}/providers`, o),
+  sendLink: (email: string, name: string) => request<void>("POST", `${R}/login-link`, { body: { email, name } }),
+  redeem: (token: string) => request<Reporter>("POST", `${R}/login`, { body: { token } }),
+  logout: () => request<void>("POST", `${R}/logout`),
+  me: (o: Signal = {}) => request<Reporter>("GET", `${R}/me`, o),
+  mine: (o: Signal = {}) => request<{ data: MySuspicion[] }>("GET", `${R}/suspicions`, o),
+  report: (body: ReportCreate) => request<MySuspicion>("POST", `${R}/suspicions`, { body }),
+  reply: (sid: string, body: string) => request<MySuspicion>("POST", `${R}/suspicions/${encodeURIComponent(sid)}/messages`, { body: { body } }),
+};
+
+export const reporterGoogleUrl = `${R}/oauth/google`;
 
 const A = "/api/v1/admin";
 const id = (v: string) => encodeURIComponent(v);
@@ -334,5 +367,26 @@ export const adminApi = {
       query: ListQuery & { resource_type?: string; resource_id?: string; action?: string },
       o: Signal = {},
     ) => request<Page<AuditEvent>>("GET", `${A}/audit-events`, { ...o, query }),
+  },
+  features: {
+    list: (o: Signal = {}) => request<{ data: Feature[] }>("GET", `${A}/features`, o),
+    set: (key: Feature["key"], enabled: boolean) => request<Feature>("PUT", `${A}/features/${key}`, { body: { enabled } }),
+  },
+  suspicions: {
+    list: (query: ListQuery & { status?: SuspicionStatus | "open"; queue?: "mine" | "general" | "all" }, o: Signal = {}) =>
+      request<AdminSuspicionList>("GET", `${A}/suspicions`, { ...o, query }),
+    get: (sid: string, o: Signal = {}) => request<SuspicionDetail>("GET", `${A}/suspicions/${id(sid)}`, o),
+    assign: (sid: string, assigneeId: string) => request<SuspicionDetail>("PATCH", `${A}/suspicions/${id(sid)}`, { body: { assignee_id: assigneeId } }),
+    publish: (sid: string) => request<SuspicionDetail>("POST", `${A}/suspicions/${id(sid)}/publish`),
+    close: (sid: string, reason: string, message: string) =>
+      request<SuspicionDetail>("POST", `${A}/suspicions/${id(sid)}/close`, { body: { reason, message } }),
+    openIncident: (sid: string, body: IncidentCreate) => request<SuspicionDetail>("POST", `${A}/suspicions/${id(sid)}/incident`, { body }),
+    message: (sid: string, kind: "internal" | "reporter", body: string, reporterId?: string) =>
+      request<SuspicionDetail>("POST", `${A}/suspicions/${id(sid)}/messages`, {
+        body: reporterId ? { kind, body, reporter_id: reporterId } : { kind, body },
+      }),
+  },
+  reporters: {
+    block: (rid: string, blocked: boolean) => request<SuspicionReporter>("PATCH", `${A}/reporters/${id(rid)}`, { body: { blocked } }),
   },
 };

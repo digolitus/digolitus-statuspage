@@ -6,6 +6,8 @@ import { WithInfo } from "../components/InfoTip";
 import { Badge, EmptyState, ErrorPanel, Loading, Pager } from "../components/ui";
 import { formatDateTime, overallLabel, plural, toneForStatus } from "../lib/format";
 import { useApi } from "../lib/useApi";
+import { useFeatures } from "../lib/features";
+import { Link } from "../lib/router";
 import { usePolling } from "../lib/usePolling";
 import { ComponentList } from "./ComponentList";
 import { openThirdPartyEvents } from "../lib/thirdParty";
@@ -53,6 +55,7 @@ export function StatusPage() {
     maxBackoffMs: POLL_MAX_BACKOFF_MS,
   });
   const uptime = useUptime();
+  const features = useFeatures();
 
   if (!poll.data) {
     return (
@@ -93,6 +96,11 @@ export function StatusPage() {
             <span className="last-check">
               Atualizado em {formatDateTime(s.generated_at)} · {basisText(s)}
             </span>
+            {features.suspicions && (
+              <Link className="report-suspicion-link" to="/suspeitas">
+                Reportar suspeita
+              </Link>
+            )}
             <button type="button" className="link-button" onClick={poll.refresh} disabled={poll.refreshing}>
               {poll.refreshing ? "Atualizando…" : "Atualizar agora"}
             </button>
