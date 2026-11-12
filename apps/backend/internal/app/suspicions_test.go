@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"log/slog"
 	"net/http"
@@ -63,8 +64,15 @@ func reportBody(componentID string) map[string]any {
 		"noticed": "last_30m", "location": "Escritório SP", "error_ref": "HTTP 504", "description": "Builds parados na fila."}
 }
 
+// runSuspicionWorker runs one worker cycle and fails the test on any logged
+// step failure (the worker only logs its errors).
 func (h *harness) runSuspicionWorker() {
-	h.app.Suspicions.RunOnce(context.Background(), slog.New(slog.DiscardHandler))
+	h.t.Helper()
+	var buf bytes.Buffer
+	h.app.Suspicions.RunOnce(context.Background(), slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	if buf.Len() > 0 {
+		h.t.Fatalf("suspicion worker: %s", buf.String())
+	}
 }
 
 func TestSuspicionsFeatureSwitch(t *testing.T) {
@@ -178,6 +186,7 @@ func TestSuspicionLifecycle(t *testing.T) {
 
 	// Internal note and message to the first reporter (default).
 	mustStatus(t, h.call(http.MethodPost, "/api/v1/admin/suspicions/"+id+"/messages", map[string]any{"kind": "internal", "body": "Autoscaler parado."}), http.StatusCreated)
+	h.clock.Advance(time.Minute) // messages are ordered by time; equal timestamps have no fixed order
 	det := mustStatus(t, h.call(http.MethodPost, "/api/v1/admin/suspicions/"+id+"/messages", map[string]any{"kind": "reporter", "body": "Acontece só com label docker?"}), http.StatusCreated).json(t)
 	msgs := list(det, "messages")
 	if len(msgs) != 2 || obj(msgs[1].(map[string]any), "reporter")["name"] != "Ana Souza" || len(list(det, "reports")) != 2 {

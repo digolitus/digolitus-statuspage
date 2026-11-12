@@ -195,9 +195,9 @@ func (s *Service) deliver(ctx context.Context) error {
 func (s *Service) purge(ctx context.Context) error {
 	now := s.now()
 	for _, q := range []string{
-		"DELETE FROM reporter_mails WHERE created_at < $1 - interval '30 days'",
+		"DELETE FROM reporter_mails WHERE created_at < $1::timestamptz - interval '30 days'",
 		"DELETE FROM reporter_sessions WHERE expires_at < $1",
-		"DELETE FROM reporter_login_tokens WHERE expires_at < $1 - interval '1 day'",
+		"DELETE FROM reporter_login_tokens WHERE expires_at < $1::timestamptz - interval '1 day'",
 	} {
 		if _, err := s.pool.Exec(ctx, q, now); err != nil {
 			return fmt.Errorf("purge: %w", err)
