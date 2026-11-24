@@ -23,6 +23,29 @@ export type AdminPresenceBeat = {
   hidden?: boolean;
 };
 
+export type AdminSuspicion = {
+  assignee: NamedRef | null;
+  component: SuspicionComponent;
+  id: string;
+  incident: SuspicionIncident | null;
+  last_report_at: string;
+  number: number;
+  opened_at: string;
+  report_count: number;
+  status: SuspicionStatus;
+  summary: SuspicionSummary;
+  team: NamedRef | null;
+};
+
+export type AdminSuspicionList = {
+  counts: {
+    pending: number;
+    published: number;
+  };
+  data: AdminSuspicion[];
+  pagination: Pagination;
+};
+
 export type Announcement = {
   archived_at: NullableTimestamp;
   /** Texto com formatação leve: parágrafos, listas com `- `, `**negrito**` e links `[texto](https://...)`. */
@@ -177,7 +200,7 @@ export type AuditEvent = {
   occurred_at: Timestamp;
   request_id: string | null;
   resource_id: string;
-  resource_type: "component" | "component_group" | "incident" | "maintenance" | "incident_template" | "maintenance_template" | "external_source" | "announcement" | "announcement_category" | "team" | "user" | "role" | "subscription" | "announcement_template" | "monitoring_integration" | "department" | "branding";
+  resource_type: "component" | "component_group" | "incident" | "maintenance" | "incident_template" | "maintenance_template" | "external_source" | "announcement" | "announcement_category" | "team" | "user" | "role" | "subscription" | "announcement_template" | "monitoring_integration" | "department" | "branding" | "suspicion" | "reporter" | "feature_flag";
   /** Canal de origem (ex.: admin_api). */
   source: string;
 };
@@ -551,6 +574,24 @@ export type ExternalUptime = {
   to: Timestamp;
 };
 
+export type Feature = {
+  enabled: boolean;
+  key: "suspicions";
+  label: string;
+  locked: boolean;
+  updated_at: string | null;
+  /** Nome de quem mudou por último. */
+  updated_by: string | null;
+};
+
+export type FeatureList = {
+  data: Feature[];
+};
+
+export type FeatureSet = {
+  enabled: boolean;
+};
+
 export type Health = {
   status: "ok" | "ready";
 };
@@ -823,6 +864,10 @@ export type Me = {
   user: User;
 };
 
+export type MessageBody = {
+  body: string;
+};
+
 export type Monitor = {
   component: MonitorComponent;
   down_status: MonitorDownStatus;
@@ -940,6 +985,29 @@ export type MonitoringIntegrationWithToken = {
 
 export type MonitoringProvider = "uptimerobot" | "healthchecks";
 
+export type MySuspicion = {
+  close_message: string | null;
+  close_reason: SuspicionCloseReason | null;
+  closed_at: string | null;
+  component: SuspicionComponent;
+  id: string;
+  incident: SuspicionIncident | null;
+  messages: SuspicionMessage[];
+  number: number;
+  report_count: number;
+  reported_at: string;
+  status: SuspicionStatus;
+};
+
+export type MySuspicionList = {
+  data: MySuspicion[];
+};
+
+export type NamedRef = {
+  id: string;
+  name: string;
+};
+
 export type NullableTimestamp = string | null;
 
 export type OpenIncidentStatus = "investigating" | "identified" | "monitoring";
@@ -975,7 +1043,7 @@ export type PermissionInfo = {
   sensitive: boolean;
 };
 
-export type PermissionKey = "components.status" | "components.manage" | "third_party.manage" | "monitoring.manage" | "incidents.manage" | "maintenances.manage" | "templates.manage" | "announcements.write" | "announcements.publish" | "announcements.settings" | "teams.manage" | "subscriptions.manage" | "audit.read" | "presence.read" | "users.manage" | "roles.manage" | "branding.manage";
+export type PermissionKey = "components.status" | "components.manage" | "third_party.manage" | "monitoring.manage" | "incidents.manage" | "maintenances.manage" | "templates.manage" | "announcements.write" | "announcements.publish" | "announcements.settings" | "teams.manage" | "subscriptions.manage" | "audit.read" | "presence.read" | "users.manage" | "roles.manage" | "branding.manage" | "suspicions.manage" | "features.manage";
 
 export type PermissionList = {
   data: PermissionInfo[];
@@ -1104,6 +1172,10 @@ export type PublicComponentList = {
   pagination: Pagination;
 };
 
+export type PublicFeatures = {
+  suspicions: boolean;
+};
+
 export type PublicIncident = {
   /** Apenas componentes públicos. */
   components: ComponentRef[];
@@ -1157,6 +1229,26 @@ export type PublicPresenceBeat = {
   tab_id: string;
 };
 
+export type PublicSuspicion = {
+  component: SuspicionComponent;
+  id: string;
+  last_report_at: string;
+  number: number;
+  opened_at: string;
+  published_at: string | null;
+  /** Relatos por 10 minutos na última hora, mais antigos primeiro. */
+  recent: number[];
+  /** Relatos na última hora. */
+  recent_count: number;
+  report_count: number;
+  status: SuspicionStatus;
+  summary: SuspicionSummary;
+};
+
+export type PublicSuspicionList = {
+  data: PublicSuspicion[];
+};
+
 export type PublicThirdPartySource = {
   components: ({
     group_name: string | null;
@@ -1180,6 +1272,44 @@ export type PublicThirdPartySource = {
   /** Dados desatualizados; status reportados como `unknown`. */
   stale: boolean;
   status: OverallStatus;
+};
+
+export type ReportCreate = {
+  component_id: string;
+  description: string;
+  frequency: SuspicionFrequency;
+  noticed: SuspicionNoticed;
+  reach: SuspicionReach;
+  symptom: SuspicionSymptom;
+  error_ref?: string;
+  location?: string;
+  /** Obrigatório com `noticed: other`; últimos 7 dias. */
+  noticed_at?: string | null;
+};
+
+export type Reporter = {
+  email: string;
+  id: string;
+  name: string;
+};
+
+export type ReporterBlock = {
+  blocked: boolean;
+};
+
+export type ReporterLinkRequest = {
+  email: string;
+  /** Usado ao criar a conta. */
+  name?: string;
+};
+
+export type ReporterProviders = {
+  email: boolean;
+  google: boolean;
+};
+
+export type ReporterRedeem = {
+  token: string;
 };
 
 export type Role = {
@@ -1407,6 +1537,118 @@ export type SubscriptionStatus = "pending" | "active" | "disabled";
 export type SubscriptionToken = {
   token: string;
 };
+
+export type SuspicionClose = {
+  message: string;
+  reason: SuspicionCloseReason;
+};
+
+export type SuspicionCloseReason = "no_evidence" | "duplicate" | "out_of_scope";
+
+export type SuspicionComponent = {
+  group: string | null;
+  id: string;
+  name: string;
+};
+
+export type SuspicionCount = {
+  count: number;
+  value: string;
+};
+
+/** Os campos de AdminSuspicion mais o detalhe. */
+export type SuspicionDetail = {
+  assignee: NamedRef | null;
+  close_message: string | null;
+  close_reason: SuspicionCloseReason | null;
+  closed_at: string | null;
+  closed_by: NamedRef | null;
+  component: SuspicionComponent;
+  distribution: {
+    frequency: SuspicionCount[];
+    reach: SuspicionCount[];
+    symptom: SuspicionCount[];
+  };
+  id: string;
+  incident: SuspicionIncident | null;
+  last_report_at: string;
+  messages: SuspicionMessage[];
+  number: number;
+  opened_at: string;
+  published_at: string | null;
+  published_by: NamedRef | null;
+  report_count: number;
+  reports: SuspicionReport[];
+  status: SuspicionStatus;
+  summary: SuspicionSummary;
+  team: NamedRef | null;
+};
+
+export type SuspicionFrequency = "continuous" | "intermittent" | "once";
+
+export type SuspicionIncident = {
+  id: string;
+  resolved_at: string | null;
+  status: IncidentStatus;
+  title: string;
+};
+
+export type SuspicionMessage = {
+  author_name: string;
+  body: string;
+  created_at: string;
+  id: string;
+  kind: "internal" | "to_reporter" | "from_reporter";
+  reporter: NamedRef | null;
+};
+
+export type SuspicionMessageCreate = {
+  body: string;
+  kind: "internal" | "reporter";
+  reporter_id?: string;
+};
+
+export type SuspicionNoticed = "now" | "last_30m" | "last_2h" | "other";
+
+export type SuspicionPatch = {
+  /** ID de um usuário ativo, ou vazio para tirar o responsável. */
+  assignee_id: string;
+};
+
+export type SuspicionReach = "only_me" | "my_team" | "many_places" | "unknown";
+
+export type SuspicionReport = {
+  created_at: string;
+  description: string;
+  error_ref: string;
+  frequency: SuspicionFrequency;
+  id: string;
+  location: string;
+  noticed: SuspicionNoticed;
+  noticed_at: string;
+  reach: SuspicionReach;
+  reporter: SuspicionReporter;
+  symptom: SuspicionSymptom;
+};
+
+export type SuspicionReporter = {
+  blocked: boolean;
+  email: string;
+  id: string;
+  name: string;
+};
+
+/** pending → published (opcional) → incident | closed. */
+export type SuspicionStatus = "pending" | "published" | "incident" | "closed";
+
+/** Valor mais reportado de cada escolha. */
+export type SuspicionSummary = {
+  frequency: string;
+  reach: string;
+  symptom: string;
+};
+
+export type SuspicionSymptom = "down" | "slow" | "error" | "partial" | "wrong_data" | "other";
 
 export type Team = {
   announcement_count: number;

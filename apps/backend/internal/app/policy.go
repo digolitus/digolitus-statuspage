@@ -131,6 +131,21 @@ var adminPolicy = auth.Policy{
 
 	"GET /api/v1/admin/status-history": anyUser,
 
+	"GET /api/v1/admin/features":       anyUser,
+	"PUT /api/v1/admin/features/{key}": perms(auth.PermFeaturesManage),
+
+	// Triage reads reporters' names and e-mails: the permission is needed
+	// even to list. Opening an incident also requires incidents.manage
+	// (checked by the incident service).
+	"GET /api/v1/admin/suspicions":                perms(auth.PermSuspicionsManage),
+	"GET /api/v1/admin/suspicions/{id}":           perms(auth.PermSuspicionsManage),
+	"PATCH /api/v1/admin/suspicions/{id}":         perms(auth.PermSuspicionsManage),
+	"POST /api/v1/admin/suspicions/{id}/publish":  perms(auth.PermSuspicionsManage),
+	"POST /api/v1/admin/suspicions/{id}/close":    perms(auth.PermSuspicionsManage),
+	"POST /api/v1/admin/suspicions/{id}/incident": perms(auth.PermSuspicionsManage),
+	"POST /api/v1/admin/suspicions/{id}/messages": perms(auth.PermSuspicionsManage),
+	"PATCH /api/v1/admin/reporters/{id}":          perms(auth.PermSuspicionsManage),
+
 	"GET /api/v1/admin/users":                perms(auth.PermUsersManage),
 	"GET /api/v1/admin/users/{id}":           perms(auth.PermUsersManage),
 	"POST /api/v1/admin/users":               perms(auth.PermUsersManage),

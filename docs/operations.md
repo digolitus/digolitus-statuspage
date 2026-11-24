@@ -169,6 +169,14 @@ Em `/admin/branding` (permissão `branding.manage`) ficam título, subtítulo, t
 - Um host inválido na variável impede a subida (backend e frontend), para não publicar uma CSP diferente da esperada.
 - Decisão e controles: [ADR 0016](adr/0016-visual-identity.md).
 
+## Reportar suspeita
+
+Usuários reportam problemas em `/suspeitas`; o time do componente faz a triagem em Operação › Suspeitas (permissão `suspicions.manage`).
+
+- Começa **desligada**. Ligue em Configurações › Funcionalidades (permissão `features.manage`). `SUSPICIONS_ENABLED=false` trava desligada no servidor.
+- Login do reportante: link mágico por e-mail (exige e-mail configurado) e/ou Google. Para o Google, cadastre `{PUBLIC_BASE_URL}/api/v1/reporter/oauth/google/callback` como URI de redirecionamento no mesmo cliente OAuth do admin. O backend registra essa URI no log ao subir.
+- Decisão e regras: [ADR 0019](adr/0019-report-suspicion.md).
+
 ## Atualizar a Swagger UI embutida
 
 ```bash

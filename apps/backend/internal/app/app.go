@@ -15,11 +15,13 @@ import (
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/apperror"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/audit"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/auth"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/auth/social"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/branding"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/component"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/department"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/docs"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/external"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/feature"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/incident"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/maintenance"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/monitoring"
@@ -29,6 +31,7 @@ import (
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/statushistory"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/statuspage"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/subscription"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/suspicion"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/templates"
 )
 
@@ -55,6 +58,9 @@ type Options struct {
 	// BrandingImageHosts are the hosts accepted for logo/favicon URLs; the
 	// frontend's CSP must allow the same hosts.
 	BrandingImageHosts []string
+	// SuspicionsLocked keeps "Reportar suspeita" off whatever the admin
+	// switch says (SUSPICIONS_ENABLED=false).
+	SuspicionsLocked bool
 }
 
 // App exposes the handler, its route registry and the third-party service
@@ -68,6 +74,9 @@ type App struct {
 	// Presence is nil when presence is disabled; otherwise the caller runs
 	// its sampler (Presence.Run).
 	Presence *presence.Service
+	// Suspicions is nil without the admin API; otherwise the caller runs
+	// its e-mail worker (Suspicions.Run).
+	Suspicions *suspicion.Service
 }
 
 // New builds the application.
@@ -96,7 +105,8 @@ func New(pool *pgxpool.Pool, opts Options) *App {
 	rt.HandleRaw("/swagger/", docs.Handler())
 	rt.HandleRaw("/swagger", docs.Handler())
 
-	incidentHandler := incident.NewHandler(incident.NewService(pool, now), pool)
+	incidentSvc := incident.NewService(pool, now)
+	incidentHandler := incident.NewHandler(incidentSvc, pool)
 	maintenanceHandler := maintenance.NewHandler(maintenance.NewService(pool, now), pool, now)
 
 	statuspage.NewHandler(statuspage.NewService(pool, now, externalSvc)).Register(rt)
@@ -134,6 +144,25 @@ func New(pool *pgxpool.Pool, opts Options) *App {
 		presenceHandler = presence.NewHandler(presenceSvc)
 		presenceHandler.RegisterPublic(rt)
 	}
+	featureSvc := feature.NewService(pool, now, map[string]bool{feature.Suspicions: opts.SuspicionsLocked})
+	featureHandler := feature.NewHandler(featureSvc)
+	featureHandler.RegisterPublic(rt)
+	var suspicionSvc *suspicion.Service
+	var suspicionHandler *suspicion.Handler
+	if opts.AdminAPIEnabled {
+		// Reports need someone to triage them: no admin API, no reports.
+		var google social.Provider
+		for _, p := range opts.Auth.Providers {
+			if p.ID() == "google" {
+				google = p
+			}
+		}
+		suspicionSvc = suspicion.NewService(pool, now, incidentSvc, suspicion.Options{Mailer: opts.Mailer, BaseURL: opts.PublicBaseURL,
+			SiteName: brandingSvc.SiteName})
+		suspicionHandler = suspicion.NewHandler(suspicionSvc, func(h http.HandlerFunc) http.HandlerFunc { return featureSvc.Gate(feature.Suspicions, h) },
+			opts.Auth.CookieSecure, google)
+		suspicionHandler.RegisterPublic(rt)
+	}
 	if opts.AdminAPIEnabled {
 		authHandler := auth.NewHandler(authSvc)
 		authHandler.RegisterAuth(rt)
@@ -161,9 +190,11 @@ func New(pool *pgxpool.Pool, opts Options) *App {
 		monitoringHandler.RegisterPublic(rt)
 		department.NewHandler(department.NewService(pool, now)).Register(rt, admin)
 		brandingHandler.RegisterAdmin(rt, admin)
+		featureHandler.RegisterAdmin(rt, admin)
+		suspicionHandler.RegisterAdmin(rt, admin)
 	}
 
-	return &App{Router: rt, Handler: httpx.Chain(rt, opts.RequestTimeout), External: externalSvc, Auth: authSvc, Subscriptions: subscriptionSvc, Presence: presenceSvc}
+	return &App{Router: rt, Handler: httpx.Chain(rt, opts.RequestTimeout), External: externalSvc, Auth: authSvc, Subscriptions: subscriptionSvc, Presence: presenceSvc, Suspicions: suspicionSvc}
 }
 
 type healthBody struct {

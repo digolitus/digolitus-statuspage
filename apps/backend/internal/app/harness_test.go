@@ -24,6 +24,7 @@ import (
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/clock"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/platform/testsupport"
 	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/subscription"
+	"github.com/digolitus/digolitus-statuspage/apps/backend/internal/suspicion"
 )
 
 // fakeClock is a controllable server clock.
@@ -58,6 +59,8 @@ type harness struct {
 	poster  *fakePoster
 	// session is the cookie value sent with every call ("" = anonymous).
 	session string
+	// reporter is the "Reportar suspeita" session cookie ("" = none).
+	reporter string
 }
 
 // fakeFetcher serves third-party snapshots from memory, keyed by base URL.
@@ -231,6 +234,7 @@ func sessionCookie(t *testing.T, r response) string {
 func (h *harness) anonymous() *harness {
 	c := *h
 	c.session = ""
+	c.reporter = ""
 	return &c
 }
 
@@ -351,6 +355,9 @@ func (h *harness) call(method, path string, body any, opts ...callOpt) response 
 		}
 		if h.session != "" {
 			req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: h.session})
+		}
+		if h.reporter != "" {
+			req.AddCookie(&http.Cookie{Name: suspicion.CookieName, Value: h.reporter})
 		}
 		for k, v := range cfg.headers {
 			req.Header.Set(k, v)

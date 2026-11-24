@@ -56,48 +56,56 @@ func viewOf(i Incident) auditView {
 
 // Create opens an incident and publishes its first update atomically.
 func (s *Service) Create(ctx context.Context, in CreateInput) (Incident, error) {
-	now := s.now()
-	plan, err := in.normalize(now)
-	if err != nil {
-		return Incident{}, err
-	}
 	var id string
-	err = database.InTx(ctx, s.pool, func(tx pgx.Tx) error {
-		refs, err := component.ResolveRefs(ctx, tx, plan.componentIDs, nil, "component_ids")
-		if err != nil {
-			return err
-		}
-		if err := auth.RequireComponents(ctx, tx, auth.PermIncidentsManage, component.RefIDs(refs)); err != nil {
-			return err
-		}
-		inc := plan.incident
-		inc.CreatedAt = now
-		created, err := insert(ctx, tx, inc)
-		if err != nil {
-			return err
-		}
-		id = created.ID
-		ids := component.RefIDs(refs)
-		if err := replaceComponents(ctx, tx, id, ids); err != nil {
-			return err
-		}
-		if _, err := insertUpdate(ctx, tx, id, created.Status, plan.message, ids, now); err != nil {
-			return err
-		}
-		if err := notify.Record(ctx, tx, event(notify.IncidentCreated, created, plan.message, refs, now)); err != nil {
-			return err
-		}
-		created.Components = refs
-		if err := statushistory.Record(ctx, tx, statushistory.Cause{Type: statushistory.CauseIncident, ID: id}, now); err != nil {
-			return err
-		}
-		return audit.Record(ctx, tx, audit.ResourceIncident, id, "created", audit.Changes{After: map[string]any{
-			"incident": viewOf(created), "message": plan.message}}, now)
+	err := database.InTx(ctx, s.pool, func(tx pgx.Tx) error {
+		var err error
+		id, err = s.CreateInTx(ctx, tx, in)
+		return err
 	})
 	if err != nil {
 		return Incident{}, err
 	}
 	return Load(ctx, s.pool, id)
+}
+
+// CreateInTx is Create inside the caller's transaction (e.g. an incident
+// opened from a suspicion and linked to it atomically). It returns the ID.
+func (s *Service) CreateInTx(ctx context.Context, tx pgx.Tx, in CreateInput) (string, error) {
+	now := s.now()
+	plan, err := in.normalize(now)
+	if err != nil {
+		return "", err
+	}
+	refs, err := component.ResolveRefs(ctx, tx, plan.componentIDs, nil, "component_ids")
+	if err != nil {
+		return "", err
+	}
+	if err := auth.RequireComponents(ctx, tx, auth.PermIncidentsManage, component.RefIDs(refs)); err != nil {
+		return "", err
+	}
+	inc := plan.incident
+	inc.CreatedAt = now
+	created, err := insert(ctx, tx, inc)
+	if err != nil {
+		return "", err
+	}
+	id := created.ID
+	ids := component.RefIDs(refs)
+	if err := replaceComponents(ctx, tx, id, ids); err != nil {
+		return "", err
+	}
+	if _, err := insertUpdate(ctx, tx, id, created.Status, plan.message, ids, now); err != nil {
+		return "", err
+	}
+	if err := notify.Record(ctx, tx, event(notify.IncidentCreated, created, plan.message, refs, now)); err != nil {
+		return "", err
+	}
+	created.Components = refs
+	if err := statushistory.Record(ctx, tx, statushistory.Cause{Type: statushistory.CauseIncident, ID: id}, now); err != nil {
+		return "", err
+	}
+	return id, audit.Record(ctx, tx, audit.ResourceIncident, id, "created", audit.Changes{After: map[string]any{
+		"incident": viewOf(created), "message": plan.message}}, now)
 }
 
 // Patch edits metadata without publishing a timeline entry.

@@ -178,6 +178,7 @@ func run(args []string) error {
 		SiteName:           cfg.SiteName,
 		BrandingImageHosts: cfg.BrandingImageHosts,
 		PresenceEnabled:    cfg.PresenceEnabled,
+		SuspicionsLocked:   !cfg.SuspicionsEnabled,
 	})
 	if !cfg.AdminAPIEnabled {
 		log.Info("admin API disabled (ADMIN_API_ENABLED=false): serving public endpoints only")
@@ -187,6 +188,9 @@ func run(args []string) error {
 		}
 		for _, p := range providers {
 			log.Info("social sign-in enabled", "provider", p.ID(), "redirect_uri", cfg.PublicBaseURL+"/api/v1/auth/oauth/"+p.ID()+"/callback")
+			if p.ID() == "google" {
+				log.Info("reporter sign-in with Google", "redirect_uri", cfg.PublicBaseURL+"/api/v1/reporter/oauth/google/callback")
+			}
 		}
 		// First run: no user yet. Print a one-time token for /admin/setup.
 		token, err := application.Auth.EnsureSetupToken(ctx)
@@ -207,6 +211,12 @@ func run(args []string) error {
 	if cfg.NotifyWorker {
 		go subscription.NewWorker(application.Subscriptions, log).Run(ctx, cfg.NotifyInterval)
 		log.Info("notification worker enabled", "interval", cfg.NotifyInterval.String())
+	}
+	if cfg.NotifyWorker && application.Suspicions != nil {
+		go application.Suspicions.Run(ctx, log, cfg.NotifyInterval)
+		if application.Suspicions.EmailEnabled() {
+			log.Info("reporter sign-in by e-mail link enabled")
+		}
 	}
 	if application.Presence != nil {
 		go application.Presence.Run(ctx, log)

@@ -142,3 +142,24 @@ export type BrandingFont = S.BrandingFont;
 export type BrandingImageChoice = S.BrandingImageChoice;
 export type BrandingUpload = S.BrandingUpload;
 export type BrandingImageKind = "logo" | "favicon";
+
+// Reportar suspeita (ADR 0019).
+export type PublicFeatures = S.PublicFeatures;
+export type Feature = S.Feature;
+export type SuspicionStatus = S.SuspicionStatus;
+export type SuspicionSymptom = S.SuspicionSymptom;
+export type SuspicionFrequency = S.SuspicionFrequency;
+export type SuspicionReach = S.SuspicionReach;
+export type SuspicionNoticed = S.SuspicionNoticed;
+export type SuspicionCloseReason = S.SuspicionCloseReason;
+export type PublicSuspicion = S.PublicSuspicion;
+export type MySuspicion = S.MySuspicion;
+export type SuspicionMessage = S.SuspicionMessage;
+export type Reporter = S.Reporter;
+export type ReporterProviders = S.ReporterProviders;
+export type ReportCreate = S.ReportCreate;
+export type AdminSuspicion = S.AdminSuspicion;
+export type AdminSuspicionList = S.AdminSuspicionList;
+export type SuspicionDetail = S.SuspicionDetail;
+export type SuspicionReport = S.SuspicionReport;
+export type SuspicionReporter = S.SuspicionReporter;
