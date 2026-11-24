@@ -2,15 +2,56 @@
 
 ![Texto alternativo](./brand/logo-digolitus-statuspage-tema-light.png) 
 
-Plataforma para publicar o status de serviços e comunicar incidentes e manutenções programadas.
+Plataforma para publicar o status de serviços e comunicar incidentes, manutenções e avisos aos clientes, com uma área administrativa para a equipe de operações.
 
-- **Área pública** (`/`): status geral, eventos em andamento (só quando existem), componentes com grupos recolhíveis, manutenções programadas, histórico sob demanda e inscrição para receber atualizações (e-mail, Slack, webhook, RSS/Atom).
-- **Área administrativa** (`/admin`): login local, usuários e papéis com permissões (globais ou por time), times responsáveis, componentes, grupos, incidentes, manutenções, templates, comunicados, inscrições, serviços de terceiros e histórico operacional com autor.
-- **API REST** (`/api/v1`), documentada em OpenAPI 3.0, com Swagger UI em `/swagger/`.
+![Página pública com um incidente em andamento, grupos de componentes e barras de disponibilidade de 90 dias](docs/screenshots/publica.png)
 
-> **Status declarado, não monitorado.** Todos os status são informados por operadores. A aplicação não faz verificações automáticas de disponibilidade, e a interface diz isso explicitamente.
+<sub>Todas as telas deste README usam dados fictícios gerados por [`scripts/demo/seed.sh`](#dados-de-demonstração).</sub>
+
+## O que dá para fazer
+
+**Página pública** (`/`)
+- Status geral e eventos em andamento, com linha do tempo de cada incidente.
+- Componentes organizados em grupos e subgrupos recolhíveis, com barra diária de disponibilidade (30, 60 ou 90 dias) e percentual de uptime.
+- Manutenções programadas, histórico de eventos e página de comunicados.
+- Inscrição para receber atualizações por e-mail, Slack, webhook ou RSS/Atom.
+- Reportar suspeita: visitantes avisam que algo parece fora do ar, e a equipe faz a triagem (desligado por padrão).
+
+**Administração** (`/admin`)
+- Incidentes, manutenções e comunicados com templates, agendamento e editor visual ou markdown.
+- Status de componentes declarado pela equipe ou informado por ferramentas de monitoramento (UptimeRobot, Healthchecks.io) via webhook.
+- Status de serviços de terceiros (páginas Atlassian Statuspage, como GitHub) em seção própria.
+- Times responsáveis organizados em departamentos, usuários e papéis com permissões globais ou por time.
+- Histórico de status, histórico operacional com autor e contagem de quem está acessando agora.
+- Identidade visual: título, logotipo, favicon, fonte, cores e textos de login e rodapé.
+
+**API REST** (`/api/v1`), documentada em OpenAPI 3.0, com Swagger UI em `/swagger/`. Tudo o que a interface faz está disponível pela API.
+
+> **Status declarado ou monitorado, nunca adivinhado.** O status vem dos operadores ou dos alertas das ferramentas de monitoramento integradas ([ADR 0015](docs/adr/0015-monitoring-integrations.md)). A aplicação não faz verificações de disponibilidade por conta própria, e a página pública diz qual é a origem.
 >
 > **Administração com login.** A área administrativa exige usuário e senha. Cada usuário tem papéis que definem o que pode alterar ([ADR 0008](docs/adr/0008-local-authentication-and-rbac.md)). O primeiro administrador é criado na primeira execução, com um token exibido no log do backend (veja abaixo).
+
+## Telas
+
+### Página pública
+
+| Detalhe de um incidente | Comunicados |
+|---|---|
+| ![Detalhe do incidente com a linha do tempo de atualizações](docs/screenshots/publica-incidente.png) | ![Comunicados fixados e agrupados por dia](docs/screenshots/publica-comunicados.png) |
+| **Inscrição para atualizações** | **Login da administração** |
+| ![Opções de inscrição: e-mail, Slack, webhook e RSS/Atom](docs/screenshots/publica-inscricao.png) | ![Tela de login da área administrativa](docs/screenshots/login.png) |
+
+### Administração
+
+| Visão geral | Incidente em andamento |
+|---|---|
+| ![Visão geral com status, eventos ativos e visitantes agora](docs/screenshots/admin-visao-geral.png) | ![Publicação de atualização e encerramento de incidente](docs/screenshots/admin-incidente.png) |
+| **Componentes** | **Grupos e subgrupos** |
+| ![Lista de componentes com grupo, time e status](docs/screenshots/admin-componentes.png) | ![Grupos com subgrupos Cartões e Pix](docs/screenshots/admin-grupos.png) |
+| **Histórico de status** | **Times e departamentos** |
+| ![Mudanças de status por componente com a origem de cada uma](docs/screenshots/admin-historico-status.png) | ![Times responsáveis com departamento, tags e links](docs/screenshots/admin-times.png) |
+| **Papéis e permissões** | **Identidade visual** |
+| ![Criação de papel com escopo global ou por time](docs/screenshots/admin-papeis.png) | ![Configuração de textos, cores e prévia da página](docs/screenshots/admin-identidade-visual.png) |
 
 ## Início rápido
 
@@ -40,6 +81,18 @@ Abra <http://localhost:8080/admin>, informe o token, seu nome, e-mail e uma senh
 Perdeu o acesso? No servidor: `docker compose -f deploy/docker-compose.yml exec backend /api reset-password <e-mail>` (gera uma senha provisória). Detalhes em [docs/operations.md](docs/operations.md#acesso-e-usuários).
 
 As migrações do banco são aplicadas automaticamente na inicialização do backend. O banco começa com 7 templates de incidente e 6 de manutenção, sem componentes, incidentes ou manutenções.
+
+### Dados de demonstração
+
+Para conhecer a ferramenta com dados de exemplo (a empresa fictícia "Nimbus": departamentos, times, usuários, grupos, incidentes, manutenções e comunicados), rode o seed numa instância **vazia**, logo depois de subir a stack. Ele usa só a API e cria o primeiro administrador com o token do log (requer `curl` e `jq`):
+
+```bash
+SETUP_TOKEN=<token do log> scripts/demo/seed.sh
+# opcional: espalha o histórico de status pelos últimos 90 dias (só para demonstração)
+docker compose -f deploy/docker-compose.yml exec -T db psql -U statuspage statuspage < scripts/demo/history.sql
+```
+
+O login fica `ana.souza@nimbus.example` / `demo-password-123` (ajustável por variáveis, veja o cabeçalho do script). Não use em produção.
 
 ### Comandos do dia a dia
 
@@ -229,8 +282,8 @@ IMAGE_TAG=sha-<commit> docker compose -f deploy/docker-compose.yml -f deploy/doc
 apps/backend/     API Go (cmd/, internal/, api/openapi.yaml, migrações em internal/platform/database/migrations)
 apps/frontend/    React + Vite + Nginx
 deploy/           Docker Compose e exemplo de variáveis
-docs/             Arquitetura, operação e ADRs
-scripts/          Utilitários (ex.: atualização da Swagger UI embutida)
+docs/             Arquitetura, operação, ADRs e capturas de tela
+scripts/          Utilitários (release, Swagger UI embutida, dados de demonstração em demo/)
 CONTEXT.md        Princípios de engenharia do projeto
 ```
 
@@ -239,5 +292,5 @@ CONTEXT.md        Princípios de engenharia do projeto
 - Login social (Google, Apple, Facebook) só para usuários já cadastrados ([ADR 0012](docs/adr/0012-social-sign-in.md)). Ainda não há SSO corporativo (Entra ID, Keycloak), 2FA nem recuperação de senha por e-mail.
 - Serviços de terceiros: apenas páginas no formato Atlassian Statuspage.
 - Inscrições: sem SMS (exige provedor pago); e-mail, Slack e webhook pela página pública exigem SMTP configurado.
-- Sem verificações automáticas de saúde ou cálculo de uptime.
+- Sem verificações de saúde próprias: o status automático depende de ferramentas de monitoramento integradas (UptimeRobot, Healthchecks.io).
 - Sem deploy automatizado (a publicação de imagens existe).
